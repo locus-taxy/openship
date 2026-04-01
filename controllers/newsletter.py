@@ -20,6 +20,8 @@ def send_chapter_email(user: User, payload: SendChapterEmailRequest):
         raise HTTPException(status_code=403, detail="Not your chapter")
 
     token = get_new_jwt_token()
+    if not token:
+        raise HTTPException(status_code=503, detail="Failed to obtain Linkifyi token — try again later")
     title = f"Day {chapter['day']} - {chapter['skill']}: {chapter['topic']}"
     try:
         send_newsletter(email_to=user.email, title=title, content=chapter["newsletter"], token=token)

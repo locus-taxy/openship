@@ -9,6 +9,8 @@ from services.refresh_token import get_new_jwt_token
 
 def send_newsletter(email_to: str, title: str, content: str, token: str = None):
     effective_token = token or LINKIFYI_TOKEN
+    if not effective_token or effective_token.startswith("your_"):
+        raise ValueError("No valid Linkifyi token available — cannot send newsletter")
     url = "https://app.linkifyi.com/api/lexi/send-newsletter"
     headers = {
         "Content-Type": "application/json",
@@ -36,6 +38,8 @@ def send_newsletter(email_to: str, title: str, content: str, token: str = None):
 
 def issue_todays_newsletters():
     token = get_new_jwt_token()
+    if not token:
+        raise RuntimeError("Failed to obtain Linkifyi token — cannot issue newsletters")
     valid_skill_ids = _get_valid_skill_ids()
 
     for skill_id in valid_skill_ids:
