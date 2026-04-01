@@ -18,17 +18,27 @@ def generate_skill_content(payload: GenerateContentRequest):
         raise HTTPException(status_code=404, detail="Skill not found")
 
     tasks = get_tasks_for_generating_newsletter(payload.skill_id)
+    failed_tasks = []
     for task in tasks:
         try:
             html = generate_newsletter_html(
                 task_description=task['task'], task_title=task['topic'], skill=task['skill'],
             )
-            add_content_to_db(newsletter=html, task_id=task['id'])
+            if not add_content_to_db(newsletter=html, task_id=task['id']):
+                print(f"Failed to save content for task {task['id']}")
+                failed_tasks.append(task['id'])
             time.sleep(5)
         except Exception as e:
             print(f"Content generation error for task {task['id']}: {e}")
+            failed_tasks.append(task['id'])
             continue
 
+    if failed_tasks:
+        return {
+            "status": "partial",
+            "message": f"Content generated for skill {payload.skill_id} with {len(failed_tasks)} failure(s)",
+            "failed_task_ids": failed_tasks,
+        }
     return {"status": "success", "message": f"Content generated for skill {payload.skill_id}"}
 
 

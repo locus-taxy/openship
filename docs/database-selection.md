@@ -187,16 +187,16 @@ class DailyTask(SQLModel, table=True):
 
 ## 6. Environment Variables
 
-**Current (.env.example):**
-
-```
-DB_PATH=openship.db
-```
-
-**Proposed:**
+**Legacy (no longer used):**
 
 ```env
-DATABASE_URL=postgresql+psycopg2://openship_user:password@localhost:5432/openship_db
+# DB_PATH=openship.db  ← removed after PostgreSQL migration
+```
+
+**Active:**
+
+```env
+DATABASE_URL=postgresql+psycopg2://your_user:your_password@localhost:5432/your_db_name
 ```
 
 ---

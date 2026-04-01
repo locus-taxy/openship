@@ -134,9 +134,13 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
 
 
 def generate_newsletter_html(task_description: str, task_title: str, skill: str):
-    """Call Gemini API to produce newsletter HTML for a single task. Returns HTML string or False."""
+    """Call Gemini API to produce newsletter HTML for a single task. Returns HTML string or None."""
     if not GEMINI_API_KEY:
-        raise ValueError("Missing GEMINI_API_KEY environment variable.")
+        print("ERROR: GEMINI_API_KEY is missing.")
+        return None
+    if not GEMINI_API_URL:
+        print("ERROR: GEMINI_API_URL is missing.")
+        return None
 
     system_prompt = (
         "You are a senior technical educator and blog writer. "
@@ -168,4 +172,4 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
     if text:
         return text
     print("Unexpected Gemini API response structure.")
-    return False
+    return None
