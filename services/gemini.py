@@ -4,6 +4,21 @@ import requests
 
 from config import GEMINI_API_KEY, GEMINI_API_URL
 
+
+def _extract_text(result: dict):
+    """Extract the final text from a Gemini response, skipping any 'thought' parts."""
+    try:
+        parts = result["candidates"][0]["content"]["parts"]
+        for part in reversed(parts):
+            if part.get("thought"):
+                continue
+            if "text" in part:
+                return part["text"]
+    except (KeyError, IndexError):
+        pass
+    return None
+
+
 SYLLABUS_SCHEMA = {
     "type": "ARRAY",
     "items": {
@@ -82,12 +97,9 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
             response.raise_for_status()
             result = response.json()
 
-            if (
-                result.get("candidates")
-                and result["candidates"][0].get("content")
-                and result["candidates"][0]["content"].get("parts")
-            ):
-                return json.loads(result["candidates"][0]["content"]["parts"][0]["text"])
+            text = _extract_text(result)
+            if text:
+                return json.loads(text)
             print("Gemini returned unexpected structure.")
             return None
         except requests.exceptions.HTTPError as e:
@@ -149,8 +161,8 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
     response.raise_for_status()
     result = response.json()
 
-    try:
-        return result["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        print("Unexpected Gemini API response structure.")
-        return False
+    text = _extract_text(result)
+    if text:
+        return text
+    print("Unexpected Gemini API response structure.")
+    return False
