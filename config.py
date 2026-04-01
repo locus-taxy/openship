@@ -11,10 +11,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_API_URL = os.getenv("GEMINI_API_URL")
 
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
-if not JWT_SECRET_KEY or JWT_SECRET_KEY == "change-me-in-production":
+_MIN_SECRET_LEN = 32
+if (
+    not JWT_SECRET_KEY
+    or JWT_SECRET_KEY == "change-me-in-production"
+    or len(JWT_SECRET_KEY) < _MIN_SECRET_LEN
+):
     raise RuntimeError(
-        "JWT_SECRET_KEY is missing or insecure. "
-        "Set a strong secret in your .env file (e.g. openssl rand -hex 32)."
+        f"JWT_SECRET_KEY is missing, insecure, or too short (min {_MIN_SECRET_LEN} chars). "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
     )
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
