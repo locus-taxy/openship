@@ -1,17 +1,16 @@
-import os
 import jwt
 import requests
 from datetime import datetime, timezone
-from dotenv import load_dotenv, set_key
+from dotenv import set_key
 
-load_dotenv()
+from config import LINKIFYI_TOKEN, LEXI_PASSWORD
 
 ENV_PATH = "../.env"
 TOKEN_KEY = "LINKIFYI_TOKEN"
 TOKEN_REFRESH_URL = "https://app.linkifyi.com/auth/login"
 API_REFRESH_PAYLOAD = {
     "username": "lexi",
-    "password": os.getenv("LEXI_PASSWORD"),
+    "password": LEXI_PASSWORD,
 }
 
 def is_jwt_expired(token: str) -> bool:
@@ -45,7 +44,7 @@ def update_env_token(new_token: str):
     print("✅ JWT token updated in .env file.")
 
 def verify_token():
-    token = os.getenv(TOKEN_KEY)
+    token = LINKIFYI_TOKEN
 
     if not token:
         print("⚠️ No token found in .env file. Fetching new one...")
