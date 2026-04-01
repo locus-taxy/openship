@@ -1,66 +1,55 @@
-import { useEffect, useState } from "react"
-import { useNavigate } from "react-router"
-import { UserPlus, ChevronDown, Loader2 } from "lucide-react"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { postRequest } from "@/services"
-import useStore from "@/store"
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
+import { UserPlus, ChevronDown, Loader2 } from "lucide-react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { postRequest } from "@/services";
+import useStore from "@/store";
 
 const SUBJECTS = [
-    // Programming Languages
     { group: "Programming Languages", items: ["Python", "JavaScript", "TypeScript", "Go (Golang)", "Rust", "Java", "C++", "Swift", "Kotlin", "PHP", "Ruby"] },
-    // Web Development
     { group: "Web Development", items: ["React", "Next.js", "Node.js", "FastAPI", "Django", "Express.js", "Vue.js", "Angular", "Tailwind CSS", "GraphQL"] },
-    // Data & AI
     { group: "Data & AI", items: ["Machine Learning", "Deep Learning", "Data Science with Python", "Natural Language Processing", "Computer Vision", "Statistics & Probability", "Linear Algebra for ML"] },
-    // Cloud & DevOps
     { group: "Cloud & DevOps", items: ["AWS Cloud", "Google Cloud Platform", "Docker & Kubernetes", "DevOps & CI/CD", "Linux System Administration"] },
-    // Databases
     { group: "Databases", items: ["SQL & PostgreSQL", "MongoDB", "Redis", "Database Design"] },
-    // CS Fundamentals
     { group: "CS Fundamentals", items: ["Data Structures & Algorithms", "System Design", "Object-Oriented Programming", "Functional Programming", "Git & Version Control"] },
-    // Mobile
     { group: "Mobile Development", items: ["React Native", "Flutter", "iOS Development (Swift)", "Android Development (Kotlin)"] },
-    // Security & Other
     { group: "Other", items: ["Cybersecurity Fundamentals", "Blockchain Development", "Prompt Engineering", "API Design & REST"] },
-]
+];
 
-const DAY_OPTIONS = [30, 60, 90, 120, 180]
-const HOUR_OPTIONS = [1, 2, 3, 4]
+const DAY_OPTIONS = [30, 60, 90, 120, 180];
+const HOUR_OPTIONS = [1, 2, 3, 4];
 
 export default function SubscribePage() {
-    const navigate = useNavigate()
-    const [email, setEmail] = useState("")
-    const [subject, setSubject] = useState("")
-    const [days, setDays] = useState(90)
-    const [hours, setHours] = useState(1)
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState("")
-    const { setPluginName, setPluginInfo } = useStore((state: any) => state)
+    const navigate = useNavigate();
+    const [subject, setSubject] = useState("");
+    const [days, setDays] = useState(90);
+    const [hours, setHours] = useState(1);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const { setPluginName, setPluginInfo } = useStore((state: any) => state);
 
     useEffect(() => {
-        setPluginName("Subscribe")
-        setPluginInfo("Start a new learning journey.")
-    }, [setPluginName, setPluginInfo])
+        setPluginName("Subscribe");
+        setPluginInfo("Start a new learning journey.");
+    }, [setPluginName, setPluginInfo]);
 
     async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault()
-        if (!email || !subject) {
-            setError("Email and subject are required.")
-            return
+        e.preventDefault();
+        if (!subject) {
+            setError("Please select a subject.");
+            return;
         }
-        setError("")
-        setLoading(true)
+        setError("");
+        setLoading(true);
         const { success } = await postRequest("/py/subscribe", {
-            email,
             skill: subject,
             days,
             hours,
-        })
-        setLoading(false)
-        if (success) navigate("/syllabi")
+        });
+        setLoading(false);
+        if (success) navigate("/syllabi");
     }
 
     return (
@@ -78,20 +67,6 @@ export default function SubscribePage() {
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={handleSubmit} className="space-y-5">
-                        {/* email */}
-                        <div className="space-y-1.5">
-                            <Label htmlFor="email">Email</Label>
-                            <Input
-                                id="email"
-                                type="email"
-                                placeholder="you@example.com"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                required
-                            />
-                        </div>
-
-                        {/* subject */}
                         <div className="space-y-1.5">
                             <Label htmlFor="subject">Subject</Label>
                             <div className="relative">
@@ -106,7 +81,9 @@ export default function SubscribePage() {
                                     {SUBJECTS.map((group) => (
                                         <optgroup key={group.group} label={group.group}>
                                             {group.items.map((item) => (
-                                                <option key={item} value={item}>{item}</option>
+                                                <option key={item} value={item}>
+                                                    {item}
+                                                </option>
                                             ))}
                                         </optgroup>
                                     ))}
@@ -115,7 +92,6 @@ export default function SubscribePage() {
                             </div>
                         </div>
 
-                        {/* days + hours */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                                 <Label htmlFor="days">Duration</Label>
@@ -127,7 +103,9 @@ export default function SubscribePage() {
                                         onChange={(e) => setDays(Number(e.target.value))}
                                     >
                                         {DAY_OPTIONS.map((d) => (
-                                            <option key={d} value={d}>{d} days</option>
+                                            <option key={d} value={d}>
+                                                {d} days
+                                            </option>
                                         ))}
                                     </select>
                                     <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -143,7 +121,9 @@ export default function SubscribePage() {
                                         onChange={(e) => setHours(Number(e.target.value))}
                                     >
                                         {HOUR_OPTIONS.map((h) => (
-                                            <option key={h} value={h}>{h} hr{h > 1 ? "s" : ""} / day</option>
+                                            <option key={h} value={h}>
+                                                {h} hr{h > 1 ? "s" : ""} / day
+                                            </option>
                                         ))}
                                     </select>
                                     <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -155,14 +135,18 @@ export default function SubscribePage() {
 
                         <Button type="submit" className="w-full" disabled={loading}>
                             {loading ? (
-                                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Subscribing…</>
+                                <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Subscribing…
+                                </>
                             ) : (
-                                <><UserPlus className="h-4 w-4 mr-2" /> Subscribe</>
+                                <>
+                                    <UserPlus className="h-4 w-4 mr-2" /> Subscribe
+                                </>
                             )}
                         </Button>
                     </form>
                 </CardContent>
             </Card>
         </div>
-    )
+    );
 }

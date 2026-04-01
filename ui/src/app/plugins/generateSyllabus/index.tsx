@@ -46,7 +46,6 @@ export default function GenerateSyllabusPage() {
         setGenerating(true)
         setDone(false)
         const { success } = await postRequest("/py/generate-syllabus", {
-            email: selected.email,
             skill: selected.skill,
         })
         setGenerating(false)

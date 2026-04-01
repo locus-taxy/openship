@@ -1,80 +1,30 @@
-import { Outlet } from "react-router"
-import { AppSidebar } from "@/components/app-sidebar"
-import { Toaster } from "@/components/ui/toaster"
-import {
-    SidebarInset,
-    SidebarProvider,
-} from "@/components/ui/sidebar"
-import PluginHeader from "../partials/pluginHeader"
-import PluginInfo from "../partials/pluginInfo"
-import { useEffect } from "react"
-import useStore from "../../store"
-import axios from "axios"
+import { Outlet } from "react-router";
+import { AppSidebar } from "@/components/app-sidebar";
+import { Toaster } from "@/components/ui/toaster";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import PluginHeader from "../partials/pluginHeader";
+import PluginInfo from "../partials/pluginInfo";
+import { useEffect } from "react";
+import useAuthStore from "@/store/authStore";
+import AuthDialog from "@/components/auth-dialog";
+import { Loader2 } from "lucide-react";
 
 export default function Layout() {
-
-    const { setIsCredentialsDialog, setCredentialsNotPresent } = useStore((state: any) => state);
-
-    const checkForTokenExpiry = async (token: any) => {
-        try {
-
-            if (!token) {
-                return true;
-            }
-
-            const response: any = await axios.get("/auth/check-token-expiry", { params: { token } });
-            return response.data.is_token_expired;
-        } catch (error) {
-            console.log(error);
-            return true;
-        }
-    }
-
-    const clearAllCookies = () => {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookieName = cookies[i].split('=')[0].trim();
-            document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-        }
-    }
-
-    const checkForCredentials = () => {
-        const cookies = document.cookie.split(';');
-
-        let isCredentialsExisit = false;
-
-        cookies.forEach(async (cookie) => {
-            const [key, value] = cookie.split('=');
-            
-            if (key === 'token') {
-                isCredentialsExisit = true;
-
-                // const isTokenExpired = await checkForTokenExpiry(value);
-                const isTokenExpired = false;
-
-                if (isTokenExpired) {
-                    clearAllCookies();
-                    setCredentialsNotPresent(true);
-                    setIsCredentialsDialog(true);
-                } else {
-                    setCredentialsNotPresent(false);
-                }
-            } else {
-                clearAllCookies();
-                setIsCredentialsDialog(true);
-                setCredentialsNotPresent(true);
-            }
-        });
-
-
-        if (!isCredentialsExisit) {
-            setIsCredentialsDialog(true);
-        }
-    }
+    const { initialized, initAuth } = useAuthStore();
 
     useEffect(() => {
-        checkForCredentials();
+        if (!initialized) {
+            initAuth();
+        }
     }, []);
+
+    if (!initialized) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
 
     return (
         <SidebarProvider>
@@ -95,6 +45,7 @@ export default function Layout() {
                     <Toaster />
                 </div>
             </SidebarInset>
+            <AuthDialog />
         </SidebarProvider>
-    )
+    );
 }
