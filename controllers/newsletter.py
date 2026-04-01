@@ -26,7 +26,7 @@ def send_chapter_email(payload: SendChapterEmailRequest):
     try:
         send_newsletter(email_to=email, title=title, content=chapter["newsletter"], token=token)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to send email: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to send email: {e}") from e
 
     mark_task_completed(payload.task_id)
     return {"status": "success", "message": f"Email sent for Day {chapter['day']}"}
@@ -37,4 +37,4 @@ def issue_all_newsletters():
         issue_todays_newsletters()
         return {"status": "success", "message": "Today's newsletters issued successfully"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -88,21 +88,26 @@ def mark_task_completed(task_id: int) -> bool:
         return False
 
 
-def store_syllabus_tasks(user_id: str, skill: str, syllabus_data: list, hours: int, skill_id: int):
-    with Session(engine) as session:
-        for month_obj in syllabus_data:
-            month = month_obj.get("month")
-            for week_obj in month_obj.get("weeks", []):
-                week = week_obj.get("week")
-                for day_obj in week_obj.get("daily_plan", []):
-                    task = DailyTask(
-                        user_id=user_id, skill=skill, skill_id=skill_id,
-                        month=month, week=week,
-                        day=day_obj.get("day"), topic=day_obj.get("topic"),
-                        task=day_obj.get("task"), hours=hours,
-                    )
-                    session.add(task)
-        session.commit()
+def store_syllabus_tasks(user_id: str, skill: str, syllabus_data: list, hours: int, skill_id: int) -> bool:
+    try:
+        with Session(engine) as session:
+            for month_obj in syllabus_data:
+                month = month_obj.get("month")
+                for week_obj in month_obj.get("weeks", []):
+                    week = week_obj.get("week")
+                    for day_obj in week_obj.get("daily_plan", []):
+                        task = DailyTask(
+                            user_id=user_id, skill=skill, skill_id=skill_id,
+                            month=month, week=week,
+                            day=day_obj.get("day"), topic=day_obj.get("topic"),
+                            task=day_obj.get("task"), hours=hours,
+                        )
+                        session.add(task)
+            session.commit()
+            return True
+    except Exception as e:
+        print(f"Error storing syllabus tasks: {e}")
+        return False
 
 
 def get_task_row(task_id: int) -> Optional[Dict[str, Any]]:

@@ -62,6 +62,9 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
     if not GEMINI_API_KEY:
         print("ERROR: GEMINI_API_KEY is missing.")
         return None
+    if not GEMINI_API_URL:
+        print("ERROR: GEMINI_API_URL is missing.")
+        return None
 
     system_prompt = (
         "You are an expert curriculum designer and career mentor. "

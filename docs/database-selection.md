@@ -60,8 +60,8 @@ with manual `ALTER TABLE` statements for schema evolution.
 
 ### Connection Configuration
 
-```
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/openship
+```env
+DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/openship
 ```
 
 For local development: Docker container or native install.  
@@ -89,7 +89,7 @@ For production: Managed PostgreSQL (Supabase / Neon / Railway recommended for si
 2. **Built for FastAPI** — Same creator, designed to work together. Models are directly usable as request/response types.
 3. **SQLAlchemy under the hood** — All of SQLAlchemy's power (joins, relationships, complex queries) is available when needed.
 4. **Alembic migrations** — Auto-generates migration scripts from model changes. Full version history, rollback support.
-5. **Async support** — Works with `asyncpg` for non-blocking database operations.
+5. **Async support** — Can be extended with async drivers when needed.
 
 ### Proposed Schema (SQLModel)
 
@@ -148,7 +148,7 @@ class DailyTask(SQLModel, table=True):
 ### Phase 1: Setup (Day 1)
 
 - Install PostgreSQL (Docker or managed service)
-- Add `sqlmodel`, `asyncpg`, `alembic` to `requirements.txt`
+- Add `sqlmodel`, `psycopg2-binary`, `alembic` to `requirements.txt`
 - Define SQLModel classes for `User`, `Skill`, `DailyTask`
 - Configure Alembic with `alembic init`
 - Generate initial migration: `alembic revision --autogenerate -m "initial schema"`
@@ -179,9 +179,8 @@ class DailyTask(SQLModel, table=True):
 | Package           | Version | Purpose                                  |
 | ----------------- | ------- | ---------------------------------------- |
 | `sqlmodel`        | latest  | ORM (SQLAlchemy + Pydantic)              |
-| `asyncpg`         | latest  | Async PostgreSQL driver                  |
+| `psycopg2-binary` | latest  | PostgreSQL driver                        |
 | `alembic`         | latest  | Database migrations                      |
-| `psycopg2-binary` | latest  | Sync PostgreSQL driver (for Alembic CLI) |
 
 
 ---
@@ -196,8 +195,8 @@ DB_PATH=openship.db
 
 **Proposed:**
 
-```
-DATABASE_URL=postgresql+asyncpg://openship_user:password@localhost:5432/openship_db
+```env
+DATABASE_URL=postgresql+psycopg2://openship_user:password@localhost:5432/openship_db
 ```
 
 ---
