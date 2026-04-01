@@ -21,9 +21,12 @@ def send_chapter_email(user: User, payload: SendChapterEmailRequest):
 
     token = get_new_jwt_token()
     title = f"Day {chapter['day']} - {chapter['skill']}: {chapter['topic']}"
-    send_newsletter(email_to=user.email, title=title, content=chapter["newsletter"], token=token)
-    mark_task_completed(payload.task_id)
+    try:
+        send_newsletter(email_to=user.email, title=title, content=chapter["newsletter"], token=token)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to send email: {e}")
 
+    mark_task_completed(payload.task_id)
     return {"status": "success", "message": f"Email sent for Day {chapter['day']}"}
 
 

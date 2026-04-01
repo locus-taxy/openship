@@ -25,15 +25,13 @@ def send_newsletter(email_to: str, title: str, content: str, token: str = None):
         },
     }
     try:
-        print(f"Sending newsletter to {email_to} with title: {title}")
-        # Uncomment to enable actual email sending:
-        # response = requests.post(url, headers=headers, json=payload)
-        # response.raise_for_status()
-        # return response.json()
-        print("Email sent successfully!")
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        print(f"Newsletter sent to {email_to}: {title}")
+        return True
     except requests.exceptions.RequestException as e:
-        print(f"Failed to send email: {e}")
-        return None
+        print(f"Failed to send newsletter to {email_to}: {e}")
+        raise
 
 
 def issue_todays_newsletters():
@@ -54,8 +52,11 @@ def issue_todays_newsletters():
                 continue
 
             email_id = get_email_id_from_skill_id(t['skill_id'])
-            send_newsletter(email_to=email_id, title=title, content=blog_html, token=token)
-            mark_task_completed(t['id'])
+            try:
+                send_newsletter(email_to=email_id, title=title, content=blog_html, token=token)
+                mark_task_completed(t['id'])
+            except requests.exceptions.RequestException:
+                print(f"Skipping task {t['id']} — will retry next run")
 
     return True
 
