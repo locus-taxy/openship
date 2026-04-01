@@ -56,6 +56,9 @@ def issue_todays_newsletters():
                 continue
 
             email_id = get_email_id_from_skill_id(t['skill_id'])
+            if not email_id:
+                print(f"No email found for skill_id {t['skill_id']} — skipping task {t['id']}")
+                continue
             try:
                 send_newsletter(email_to=email_id, title=title, content=blog_html, token=token)
                 mark_task_completed(t['id'])
