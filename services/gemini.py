@@ -160,16 +160,22 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
         "systemInstruction": {"parts": [{"text": system_prompt}]},
     }
 
-    response = requests.post(
-        f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
-        data=json.dumps(payload),
-        timeout=(10, 120),
-    )
-    response.raise_for_status()
-    result = response.json()
-
-    text = _extract_text(result)
-    if text:
-        return text
-    print("Unexpected Gemini API response structure.")
-    return None
+    try:
+        response = requests.post(
+            f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+            data=json.dumps(payload),
+            timeout=(10, 120),
+        )
+        response.raise_for_status()
+        result = response.json()
+        text = _extract_text(result)
+        if text:
+            return text
+        print("Unexpected Gemini API response structure.")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"Gemini newsletter API call failed: {e}")
+        return None
+    except json.JSONDecodeError:
+        print("Failed to decode JSON from Gemini newsletter response.")
+        return None

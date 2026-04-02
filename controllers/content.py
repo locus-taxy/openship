@@ -24,6 +24,10 @@ def generate_skill_content(payload: GenerateContentRequest):
             html = generate_newsletter_html(
                 task_description=task['task'], task_title=task['topic'], skill=task['skill'],
             )
+            if not html:
+                print(f"Failed to generate content for task {task['id']}")
+                failed_tasks.append(task['id'])
+                continue
             if not add_content_to_db(newsletter=html, task_id=task['id']):
                 print(f"Failed to save content for task {task['id']}")
                 failed_tasks.append(task['id'])
