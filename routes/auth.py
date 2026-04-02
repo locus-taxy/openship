@@ -1,7 +1,5 @@
 from typing import Optional
-
 from fastapi import APIRouter, Cookie, Depends, Response
-
 from models.user import User
 from schemas.auth import SignupRequest, LoginRequest
 from dependencies.auth import get_current_user

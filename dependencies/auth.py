@@ -1,7 +1,6 @@
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session
-
 from database import engine
 from models.user import User
 from services.jwt import decode_token

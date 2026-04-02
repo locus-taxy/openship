@@ -1,6 +1,5 @@
 from typing import Optional
 from sqlmodel import Session, select
-
 from database import engine
 from models.user import User
 from services.password import hash_password

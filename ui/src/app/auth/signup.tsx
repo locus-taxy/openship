@@ -56,7 +56,7 @@ export default function SignupPage() {
 
     if (!initialized) {
         return (
-            <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+            <div className="flex min-h-screen items-center justify-center bg-zinc-800">
                 <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
             </div>
         );
@@ -65,7 +65,7 @@ export default function SignupPage() {
     if (isAuthenticated) return null;
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
+        <div className="flex min-h-screen items-center justify-center bg-zinc-800 px-4">
             <div className="w-full max-w-sm space-y-6">
                 <div className="text-center">
                     <h1 className="text-3xl font-bold text-white">Openship</h1>
@@ -74,12 +74,10 @@ export default function SignupPage() {
                     </p>
                 </div>
 
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-2xl backdrop-blur">
+                <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-2xl">
                     <form onSubmit={handleSubmit} className="grid gap-4">
                         <div className="grid gap-2">
-                            <Label htmlFor="name" className="text-zinc-300">
-                                Name
-                            </Label>
+                            <Label htmlFor="name">Name</Label>
                             <Input
                                 id="name"
                                 type="text"
@@ -87,14 +85,11 @@ export default function SignupPage() {
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                                 required
-                                className="bg-zinc-800/50 border-zinc-700 text-white placeholder:text-zinc-500 focus-visible:ring-zinc-600"
                             />
                         </div>
 
                         <div className="grid gap-2">
-                            <Label htmlFor="email" className="text-zinc-300">
-                                Email
-                            </Label>
+                            <Label htmlFor="email">Email</Label>
                             <Input
                                 id="email"
                                 type="email"
@@ -102,14 +97,11 @@ export default function SignupPage() {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                className="bg-zinc-800/50 border-zinc-700 text-white placeholder:text-zinc-500 focus-visible:ring-zinc-600"
                             />
                         </div>
 
                         <div className="grid gap-2">
-                            <Label htmlFor="password" className="text-zinc-300">
-                                Password
-                            </Label>
+                            <Label htmlFor="password">Password</Label>
                             <div className="relative">
                                 <Input
                                     id="password"
@@ -119,13 +111,13 @@ export default function SignupPage() {
                                     onChange={(e) => setPassword(e.target.value)}
                                     required
                                     minLength={8}
-                                    className="bg-zinc-800/50 border-zinc-700 text-white placeholder:text-zinc-500 focus-visible:ring-zinc-600 pr-10"
+                                    className="pr-10"
                                 />
                                 <button
                                     type="button"
                                     tabIndex={-1}
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors"
                                 >
                                     {showPassword ? (
                                         <EyeOff className="h-4 w-4" />
@@ -137,10 +129,7 @@ export default function SignupPage() {
                         </div>
 
                         <div className="grid gap-2">
-                            <Label
-                                htmlFor="confirm-password"
-                                className="text-zinc-300"
-                            >
+                            <Label htmlFor="confirm-password">
                                 Confirm Password
                             </Label>
                             <div className="relative">
@@ -158,7 +147,7 @@ export default function SignupPage() {
                                     }
                                     required
                                     minLength={8}
-                                    className="bg-zinc-800/50 border-zinc-700 text-white placeholder:text-zinc-500 focus-visible:ring-zinc-600 pr-10"
+                                    className="pr-10"
                                 />
                                 <button
                                     type="button"
@@ -168,7 +157,7 @@ export default function SignupPage() {
                                             !showConfirmPassword
                                         )
                                     }
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors"
                                 >
                                     {showConfirmPassword ? (
                                         <EyeOff className="h-4 w-4" />
@@ -180,10 +169,10 @@ export default function SignupPage() {
                         </div>
 
                         {error && (
-                            <p className="text-sm text-red-400">{error}</p>
+                            <p className="text-sm text-destructive">{error}</p>
                         )}
                         {success && (
-                            <p className="flex items-center gap-1.5 text-sm text-emerald-400">
+                            <p className="flex items-center gap-1.5 text-sm text-emerald-600">
                                 <CheckCircle2 className="h-4 w-4" />
                                 Account created! Redirecting to sign in...
                             </p>
@@ -202,11 +191,11 @@ export default function SignupPage() {
                         </Button>
                     </form>
 
-                    <p className="mt-4 text-center text-sm text-zinc-500">
+                    <p className="mt-4 text-center text-sm text-muted-foreground">
                         Already have an account?{" "}
                         <Link
                             to="/login"
-                            className="text-white underline underline-offset-4 hover:text-zinc-300 transition-colors"
+                            className="text-foreground underline underline-offset-4 hover:text-zinc-600 transition-colors"
                         >
                             Sign in
                         </Link>

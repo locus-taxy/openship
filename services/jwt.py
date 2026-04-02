@@ -1,8 +1,6 @@
 from datetime import datetime, timedelta, timezone
-
 import jwt
 from fastapi import HTTPException
-
 from config import (
     JWT_SECRET_KEY,
     JWT_ALGORITHM,

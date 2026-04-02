@@ -1,7 +1,5 @@
 from typing import Optional
-
 from fastapi import HTTPException, Response
-
 from config import JWT_REFRESH_TOKEN_EXPIRE_DAYS
 from models.user import User
 from schemas.auth import SignupRequest, LoginRequest, LoginResponse
