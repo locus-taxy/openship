@@ -26,23 +26,18 @@ api.interceptors.response.use(
             if (!isRefreshing) {
                 isRefreshing = true;
                 try {
-                    await useAuthStore.getState().initAuth();
+                    const newToken = await useAuthStore.getState().refreshAccessToken();
                     isRefreshing = false;
-
-                    const newToken = useAuthStore.getState().accessToken;
-                    if (newToken) {
-                        pendingRequests.forEach((cb) => cb(newToken));
-                        pendingRequests = [];
-                        originalRequest.headers.Authorization = `Bearer ${newToken}`;
-                        return api(originalRequest);
-                    }
+                    pendingRequests.forEach((cb) => cb(newToken));
+                    pendingRequests = [];
+                    originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                    return api(originalRequest);
                 } catch {
                     isRefreshing = false;
+                    pendingRequests = [];
+                    useAuthStore.getState().logout();
+                    return Promise.reject(error);
                 }
-
-                pendingRequests = [];
-                useAuthStore.getState().logout();
-                return Promise.reject(error);
             }
 
             return new Promise((resolve) => {

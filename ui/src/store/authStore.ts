@@ -19,7 +19,7 @@ interface AuthState {
     login: (email: string, password: string) => Promise<void>;
     logout: () => void;
     initAuth: () => Promise<void>;
-    setAuth: (user: UserInfo, token: string, refreshToken: string) => void;
+    refreshAccessToken: () => Promise<string>;
 }
 
 const useAuthStore = create<AuthState>((set, get) => ({
@@ -29,37 +29,33 @@ const useAuthStore = create<AuthState>((set, get) => ({
     isLoading: false,
     initialized: false,
 
-    setAuth: (user, token, refreshToken) => {
-        localStorage.setItem("refresh_token", refreshToken);
-        set({ user, accessToken: token, isAuthenticated: true, isLoading: false });
-    },
-
     signup: async (name, email, password) => {
         await axios.post("/py/auth/signup", { name, email, password });
     },
 
     login: async (email, password) => {
         const res = await axios.post("/py/auth/login", { email, password });
-        const { user, access_token, refresh_token } = res.data;
-        get().setAuth(user, access_token, refresh_token);
+        const { user, access_token } = res.data;
+        set({ user, accessToken: access_token, isAuthenticated: true });
     },
 
     logout: () => {
-        localStorage.removeItem("refresh_token");
         set({ user: null, accessToken: null, isAuthenticated: false });
+        axios.post("/py/auth/logout").catch(() => {});
+    },
+
+    refreshAccessToken: async () => {
+        const res = await axios.post("/py/auth/refresh");
+        const accessToken = res.data.access_token;
+        set({ accessToken });
+        return accessToken;
     },
 
     initAuth: async () => {
         if (get().initialized || get().isLoading) return;
-
-        const refresh = localStorage.getItem("refresh_token");
-        if (!refresh) {
-            set({ initialized: true });
-            return;
-        }
         set({ isLoading: true });
         try {
-            const tokenRes = await axios.post("/py/auth/refresh", { refresh_token: refresh });
+            const tokenRes = await axios.post("/py/auth/refresh");
             const accessToken = tokenRes.data.access_token;
 
             const userRes = await axios.get("/py/auth/me", {
@@ -74,7 +70,6 @@ const useAuthStore = create<AuthState>((set, get) => ({
                 initialized: true,
             });
         } catch {
-            localStorage.removeItem("refresh_token");
             set({
                 user: null,
                 accessToken: null,
