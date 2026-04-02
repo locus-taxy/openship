@@ -12,4 +12,6 @@ Jinja2
 sentry-sdk
 jwcrypto
 python-multipart
+passlib[bcrypt]
+bcrypt<5
 black

@@ -1,6 +1,11 @@
 from fastapi import HTTPException
 from schemas.skill import GenerateSyllabusRequest
-from services.skill import get_skill, get_all_syllabi, get_syllabus_detail, get_skill_id_by_email_and_skill
+from services.skill import (
+    get_skill,
+    get_all_syllabi,
+    get_syllabus_detail,
+    get_skill_id_by_email_and_skill,
+)
 from services.gemini import generate_syllabus_json
 from services.daily_task import store_syllabus_tasks
 
