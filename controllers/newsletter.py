@@ -6,7 +6,6 @@ from services.daily_task import get_chapter_content, mark_task_completed
 from services.newsletter import send_newsletter, issue_todays_newsletters
 from services.refresh_token import get_new_jwt_token
 
-
 def send_chapter_email(payload: SendChapterEmailRequest):
     chapter = get_chapter_content(payload.task_id)
     if chapter is None:
@@ -20,7 +19,9 @@ def send_chapter_email(payload: SendChapterEmailRequest):
 
     token = get_new_jwt_token()
     if not token:
-        raise HTTPException(status_code=503, detail="Failed to obtain Linkifyi token — try again later")
+        raise HTTPException(
+            status_code=503, detail="Failed to obtain Linkifyi token — try again later"
+        )
 
     title = f"Day {chapter['day']} - {chapter['skill']}: {chapter['topic']}"
     try:
@@ -30,7 +31,6 @@ def send_chapter_email(payload: SendChapterEmailRequest):
 
     mark_task_completed(payload.task_id)
     return {"status": "success", "message": f"Email sent for Day {chapter['day']}"}
-
 
 def issue_all_newsletters():
     try:

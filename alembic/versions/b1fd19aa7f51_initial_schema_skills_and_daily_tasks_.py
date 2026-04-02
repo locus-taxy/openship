@@ -1,22 +1,21 @@
 """initial schema - skills and daily_tasks tables
 
 Revision ID: b1fd19aa7f51
-Revises: 
+Revises:
 Create Date: 2026-03-31 13:05:21.557896
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
-revision: str = 'b1fd19aa7f51'
+revision: str = "b1fd19aa7f51"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
-
 
 def upgrade() -> None:
     op.create_table(
@@ -37,7 +36,9 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("user_id", sa.String, nullable=False),
         sa.Column("skill", sa.String, nullable=False),
-        sa.Column("skill_id", sa.Integer, sa.ForeignKey("skills.id", ondelete="CASCADE"), nullable=True),
+        sa.Column(
+            "skill_id", sa.Integer, sa.ForeignKey("skills.id", ondelete="CASCADE"), nullable=True
+        ),
         sa.Column("month", sa.Integer, nullable=True),
         sa.Column("week", sa.Integer, nullable=True),
         sa.Column("day", sa.Integer, nullable=True),
@@ -50,7 +51,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime, server_default=sa.func.now()),
     )
     op.create_index("ix_daily_tasks_skill_id", "daily_tasks", ["skill_id"])
-
 
 def downgrade() -> None:
     op.drop_index("ix_daily_tasks_skill_id", table_name="daily_tasks")

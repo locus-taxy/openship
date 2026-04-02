@@ -3,7 +3,6 @@ from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, DateTime, func
 from sqlalchemy import Integer, ForeignKey
 
-
 class DailyTask(SQLModel, table=True):
     __tablename__ = "daily_tasks"
 

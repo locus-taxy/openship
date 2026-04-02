@@ -4,7 +4,6 @@ import requests
 
 from config import GEMINI_API_KEY, GEMINI_API_URL
 
-
 def _extract_text(result: dict):
     """Extract the final text from a Gemini response, skipping any 'thought' parts."""
     try:
@@ -18,31 +17,51 @@ def _extract_text(result: dict):
         pass
     return None
 
-
 SYLLABUS_SCHEMA = {
     "type": "ARRAY",
     "items": {
         "type": "OBJECT",
         "properties": {
             "month": {"type": "INTEGER", "description": "The month number (1, 2, 3, etc.)."},
-            "title": {"type": "STRING", "description": "A descriptive title for the month's learning phase."},
+            "title": {
+                "type": "STRING",
+                "description": "A descriptive title for the month's learning phase.",
+            },
             "goal": {"type": "STRING", "description": "The main learning goal for this month."},
             "weeks": {
                 "type": "ARRAY",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
-                        "week": {"type": "INTEGER", "description": "The week number within the total duration."},
-                        "title": {"type": "STRING", "description": "A title summarizing the week's topics."},
-                        "days_range": {"type": "STRING", "description": "The range of days covered in this week."},
+                        "week": {
+                            "type": "INTEGER",
+                            "description": "The week number within the total duration.",
+                        },
+                        "title": {
+                            "type": "STRING",
+                            "description": "A title summarizing the week's topics.",
+                        },
+                        "days_range": {
+                            "type": "STRING",
+                            "description": "The range of days covered in this week.",
+                        },
                         "daily_plan": {
                             "type": "ARRAY",
                             "items": {
                                 "type": "OBJECT",
                                 "properties": {
-                                    "day": {"type": "INTEGER", "description": "The day number in the overall plan."},
-                                    "topic": {"type": "STRING", "description": "The main topic for this day."},
-                                    "task": {"type": "STRING", "description": "A specific learning task for the day."},
+                                    "day": {
+                                        "type": "INTEGER",
+                                        "description": "The day number in the overall plan.",
+                                    },
+                                    "topic": {
+                                        "type": "STRING",
+                                        "description": "The main topic for this day.",
+                                    },
+                                    "task": {
+                                        "type": "STRING",
+                                        "description": "A specific learning task for the day.",
+                                    },
                                 },
                                 "propertyOrdering": ["day", "topic", "task"],
                             },
@@ -55,7 +74,6 @@ SYLLABUS_SCHEMA = {
         "propertyOrdering": ["month", "title", "goal", "weeks"],
     },
 }
-
 
 def generate_syllabus_json(skill: str, days: int, hours: int):
     """Call Gemini API to produce a structured syllabus. Returns parsed JSON list or None."""
@@ -131,7 +149,6 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
         except json.JSONDecodeError:
             print("Failed to decode JSON from Gemini response.")
             return None
-
 
 def generate_newsletter_html(task_description: str, task_title: str, skill: str):
     """Call Gemini API to produce newsletter HTML for a single task. Returns HTML string or None."""

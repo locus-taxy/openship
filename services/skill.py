@@ -6,12 +6,10 @@ from database import engine
 from models.skill import Skill
 from models.daily_task import DailyTask
 
-
 def skill_exists(email: str, skill: str) -> bool:
     with Session(engine) as session:
         statement = select(Skill).where(Skill.email == email, Skill.skill == skill)
         return session.exec(statement).first() is not None
-
 
 def create_skill(user_id: str, email: str, skill: str, days: int, hours: int) -> Optional[int]:
     try:
@@ -25,7 +23,6 @@ def create_skill(user_id: str, email: str, skill: str, days: int, hours: int) ->
         print(f"[DB ERROR] create_skill failed: {e}")
         return None
 
-
 def get_skill(email: str, skill: str) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:
         statement = select(Skill).where(Skill.email == email, Skill.skill == skill)
@@ -33,7 +30,6 @@ def get_skill(email: str, skill: str) -> Optional[Dict[str, Any]]:
         if result is None:
             return None
         return {"user_id": result.user_id, "days": result.days, "hours": result.hours}
-
 
 def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:
@@ -52,15 +48,17 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
         for t in tasks:
             m = months.setdefault(t.month, {})
             w = m.setdefault(t.week, [])
-            w.append({
-                "id": t.id,
-                "day": t.day,
-                "topic": t.topic,
-                "task": t.task,
-                "hours": t.hours,
-                "completed": t.completed,
-                "has_content": t.newsletter is not None,
-            })
+            w.append(
+                {
+                    "id": t.id,
+                    "day": t.day,
+                    "topic": t.topic,
+                    "task": t.task,
+                    "hours": t.hours,
+                    "completed": t.completed,
+                    "has_content": t.newsletter is not None,
+                }
+            )
 
         return {
             "skill_id": skill_row.id,
@@ -74,24 +72,25 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
                 {
                     "month": m,
                     "weeks": [
-                        {"week": w, "tasks": tasks_list}
-                        for w, tasks_list in sorted(weeks.items())
+                        {"week": w, "tasks": tasks_list} for w, tasks_list in sorted(weeks.items())
                     ],
                 }
                 for m, weeks in sorted(months.items())
             ],
         }
 
-
 def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
     with Session(engine) as session:
-        completed_expr = func.coalesce(
-            func.sum(case((DailyTask.completed == True, 1), else_=0)), 0
-        )
+        completed_expr = func.coalesce(func.sum(case((DailyTask.completed == True, 1), else_=0)), 0)
         statement = (
             select(
-                Skill.id, Skill.user_id, Skill.email, Skill.skill,
-                Skill.days, Skill.hours, Skill.created_at,
+                Skill.id,
+                Skill.user_id,
+                Skill.email,
+                Skill.skill,
+                Skill.days,
+                Skill.hours,
+                Skill.created_at,
                 func.count(DailyTask.id).label("total_tasks"),
                 completed_expr.label("completed_tasks"),
             )
@@ -104,8 +103,12 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
         rows = session.exec(statement).all()
         return [
             {
-                "skill_id": row[0], "user_id": row[1], "email": row[2],
-                "skill": row[3], "days": row[4], "hours": row[5],
+                "skill_id": row[0],
+                "user_id": row[1],
+                "email": row[2],
+                "skill": row[3],
+                "days": row[4],
+                "hours": row[5],
                 "created_at": str(row[6]) if row[6] else None,
                 "total_tasks": row[7] or 0,
                 "completed_tasks": int(row[8] or 0),
@@ -113,18 +116,15 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
             for row in rows
         ]
 
-
 def get_list_of_skill_ids() -> List[int]:
     with Session(engine) as session:
         statement = select(Skill.id).where(Skill.stop_sending == False)
         return list(session.exec(statement).all())
 
-
 def get_email_id_from_skill_id(skill_id: int) -> Optional[str]:
     with Session(engine) as session:
         skill = session.get(Skill, skill_id)
         return skill.email if skill else None
-
 
 def get_skill_id_by_email_and_skill(email: str, skill: str) -> Optional[int]:
     with Session(engine) as session:

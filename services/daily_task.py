@@ -4,18 +4,22 @@ from sqlmodel import Session, select
 from database import engine
 from models.daily_task import DailyTask
 
-
 def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:
         t = session.get(DailyTask, task_id)
         if t is None:
             return None
         return {
-            "id": t.id, "skill": t.skill, "skill_id": t.skill_id,
-            "topic": t.topic, "task": t.task, "day": t.day,
-            "hours": t.hours, "completed": t.completed, "newsletter": t.newsletter,
+            "id": t.id,
+            "skill": t.skill,
+            "skill_id": t.skill_id,
+            "topic": t.topic,
+            "task": t.task,
+            "day": t.day,
+            "hours": t.hours,
+            "completed": t.completed,
+            "newsletter": t.newsletter,
         }
-
 
 def get_tasks_based_on_skill_id(skill_id: int) -> List[Dict[str, Any]]:
     with Session(engine) as session:
@@ -28,13 +32,17 @@ def get_tasks_based_on_skill_id(skill_id: int) -> List[Dict[str, Any]]:
         tasks = session.exec(statement).all()
         return [
             {
-                "id": t.id, "skill": t.skill, "topic": t.topic,
-                "task": t.task, "hours": t.hours, "day": t.day,
-                "newsletter": t.newsletter, "skill_id": t.skill_id,
+                "id": t.id,
+                "skill": t.skill,
+                "topic": t.topic,
+                "task": t.task,
+                "hours": t.hours,
+                "day": t.day,
+                "newsletter": t.newsletter,
+                "skill_id": t.skill_id,
             }
             for t in tasks
         ]
-
 
 def get_tasks_for_generating_newsletter(skill_id: int) -> List[Dict[str, Any]]:
     with Session(engine) as session:
@@ -51,12 +59,15 @@ def get_tasks_for_generating_newsletter(skill_id: int) -> List[Dict[str, Any]]:
         tasks = session.exec(statement).all()
         return [
             {
-                "id": t.id, "skill": t.skill, "topic": t.topic,
-                "task": t.task, "hours": t.hours, "day": t.day,
+                "id": t.id,
+                "skill": t.skill,
+                "topic": t.topic,
+                "task": t.task,
+                "hours": t.hours,
+                "day": t.day,
             }
             for t in tasks
         ]
-
 
 def add_content_to_db(newsletter: str, task_id: int) -> bool:
     try:
@@ -72,7 +83,6 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
         print(f"Error in add_content_to_db: {e}")
         return False
 
-
 def mark_task_completed(task_id: int) -> bool:
     try:
         with Session(engine) as session:
@@ -87,8 +97,9 @@ def mark_task_completed(task_id: int) -> bool:
         print(f"Error marking task completed: {e}")
         return False
 
-
-def store_syllabus_tasks(user_id: str, skill: str, syllabus_data: list, hours: int, skill_id: int) -> bool:
+def store_syllabus_tasks(
+    user_id: str, skill: str, syllabus_data: list, hours: int, skill_id: int
+) -> bool:
     try:
         with Session(engine) as session:
             for month_obj in syllabus_data:
@@ -97,10 +108,15 @@ def store_syllabus_tasks(user_id: str, skill: str, syllabus_data: list, hours: i
                     week = week_obj.get("week")
                     for day_obj in week_obj.get("daily_plan", []):
                         task = DailyTask(
-                            user_id=user_id, skill=skill, skill_id=skill_id,
-                            month=month, week=week,
-                            day=day_obj.get("day"), topic=day_obj.get("topic"),
-                            task=day_obj.get("task"), hours=hours,
+                            user_id=user_id,
+                            skill=skill,
+                            skill_id=skill_id,
+                            month=month,
+                            week=week,
+                            day=day_obj.get("day"),
+                            topic=day_obj.get("topic"),
+                            task=day_obj.get("task"),
+                            hours=hours,
                         )
                         session.add(task)
             session.commit()
@@ -108,7 +124,6 @@ def store_syllabus_tasks(user_id: str, skill: str, syllabus_data: list, hours: i
     except Exception as e:
         print(f"Error storing syllabus tasks: {e}")
         return False
-
 
 def get_task_row(task_id: int) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:

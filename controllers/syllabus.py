@@ -1,21 +1,23 @@
 from fastapi import HTTPException
 
 from schemas.skill import GenerateSyllabusRequest
-from services.skill import get_skill, get_all_syllabi, get_syllabus_detail, get_skill_id_by_email_and_skill
+from services.skill import (
+    get_skill,
+    get_all_syllabi,
+    get_syllabus_detail,
+    get_skill_id_by_email_and_skill,
+)
 from services.gemini import generate_syllabus_json
 from services.daily_task import store_syllabus_tasks
 
-
 def list_syllabi():
     return get_all_syllabi()
-
 
 def get_syllabus(skill_id: int):
     detail = get_syllabus_detail(skill_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Syllabus {skill_id} not found")
     return detail
-
 
 def generate_syllabus(payload: GenerateSyllabusRequest):
     skill = get_skill(payload.email, payload.skill)

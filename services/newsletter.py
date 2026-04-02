@@ -6,7 +6,6 @@ from services.skill import get_list_of_skill_ids, get_email_id_from_skill_id
 from services.daily_task import get_tasks_based_on_skill_id, mark_task_completed
 from services.refresh_token import get_new_jwt_token
 
-
 def send_newsletter(email_to: str, title: str, content: str, token: str = None):
     effective_token = token or LINKIFYI_TOKEN
     if not effective_token or effective_token.startswith("your_"):
@@ -35,7 +34,6 @@ def send_newsletter(email_to: str, title: str, content: str, token: str = None):
         print(f"Failed to send newsletter to {email_to}: {e}")
         raise
 
-
 def issue_todays_newsletters():
     token = get_new_jwt_token()
     if not token:
@@ -50,23 +48,22 @@ def issue_todays_newsletters():
 
         for i, t in enumerate(tasks, 1):
             title = f"Day {t['day']} - {t['skill']}: {t['topic']}"
-            blog_html = t['newsletter']
+            blog_html = t["newsletter"]
             if blog_html is None:
                 print(f"No newsletter for skill_id: {skill_id} | task: {t['id']}")
                 continue
 
-            email_id = get_email_id_from_skill_id(t['skill_id'])
+            email_id = get_email_id_from_skill_id(t["skill_id"])
             if not email_id:
                 print(f"No email found for skill_id {t['skill_id']} — skipping task {t['id']}")
                 continue
             try:
                 send_newsletter(email_to=email_id, title=title, content=blog_html, token=token)
-                mark_task_completed(t['id'])
+                mark_task_completed(t["id"])
             except requests.exceptions.RequestException:
                 print(f"Skipping task {t['id']} — will retry next run")
 
     return True
-
 
 def _get_valid_skill_ids():
     skill_ids = get_list_of_skill_ids()
