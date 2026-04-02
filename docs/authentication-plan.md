@@ -2,7 +2,7 @@
 
 **Author:** Yogesh K  
 **Date:** March 31, 2026  
-**Status:** Proposal  
+**Status:** Implemented  
 
 ---
 
@@ -47,9 +47,11 @@ identity verification.
 ┌──────────────────────────────────────────────────────────────────┐
 │                         FRONTEND (React)                         │
 │                                                                  │
-│  Signup ──► POST /auth/signup ──► Store tokens in memory         │
-│  Login  ──► POST /auth/login  ──► Attach token to every request  │
-│  Refresh ─► POST /auth/refresh ──► Get new access token          │
+│  Signup ──► POST /auth/signup ──► User created (no tokens)       │
+│  Login  ──► POST /auth/login  ──► Access token in body,          │
+│             refresh token set as httpOnly cookie                  │
+│  Refresh ─► POST /auth/refresh ──► Browser sends cookie auto     │
+│  Logout ──► POST /auth/logout ──► Cookie cleared                 │
 │                                                                  │
 │  Axios Interceptor: Authorization: Bearer <access_token>         │
 └──────────────────────────────────────────────────────────────────┘
@@ -58,9 +60,13 @@ identity verification.
 ┌──────────────────────────────────────────────────────────────────┐
 │                        BACKEND (FastAPI)                          │
 │                                                                  │
-│  /auth/signup    — Create user, hash password, return tokens     │
-│  /auth/login     — Verify password, return tokens                │
-│  /auth/refresh   — Validate refresh token, return new access     │
+│  /auth/signup    — Create user, hash password, return user info  │
+│  /auth/login     — Verify password, return access token +        │
+│                    set refresh token as httpOnly cookie           │
+│  /auth/refresh   — Read cookie, validate refresh token,          │
+│                    verify user exists & is active, return new     │
+│                    access token                                  │
+│  /auth/logout    — Delete refresh token cookie                   │
 │  /auth/me        — Return current user profile                   │
 │                                                                  │
 │  All other routes: Depends(get_current_user)                     │
@@ -88,16 +94,18 @@ Create a new user account.
 
 ```json
 {
+  "status": "success",
+  "message": "Account created",
   "user": {
     "id": 1,
     "email": "user@example.com",
-    "name": "Yogesh"
-  },
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
-  "token_type": "bearer"
+    "name": "Yogesh",
+    "is_active": true
+  }
 }
 ```
+
+> **Note:** Signup does NOT return tokens. The user must log in separately after creating an account.
 
 **Error Responses:**
 
@@ -108,8 +116,6 @@ Create a new user account.
 
 **Implementation Notes:**
 - Password hashed with `bcrypt` (via `passlib`) before storage. Plain text password is NEVER stored.
-- `access_token` expires in **30 minutes**.
-- `refresh_token` expires in **7 days**.
 
 ---
 
@@ -131,13 +137,15 @@ Authenticate an existing user.
   "user": {
     "id": 1,
     "email": "user@example.com",
-    "name": "Yogesh"
+    "name": "Yogesh",
+    "is_active": true
   },
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
   "token_type": "bearer"
 }
 ```
+
+> **Note:** The `refresh_token` is NOT in the response body. It is set as an **httpOnly cookie** (`refresh_token`) by the server. The browser stores and sends it automatically.
 
 **Error Responses:**
 
@@ -149,13 +157,9 @@ Authenticate an existing user.
 
 ### POST /auth/refresh
 
-Get a new access token using a valid refresh token.
+Get a new access token using the refresh token stored in the httpOnly cookie.
 
-**Request Body:**
-
-| Field | Type | Required |
-|-------|------|----------|
-| `refresh_token` | string | yes |
+**Request Body:** None — the refresh token is read from the `refresh_token` httpOnly cookie sent automatically by the browser.
 
 **Response (200):**
 
@@ -170,7 +174,14 @@ Get a new access token using a valid refresh token.
 
 | Status | Reason |
 |--------|--------|
+| `401` | No refresh token cookie present |
 | `401` | Refresh token expired or invalid |
+| `401` | Invalid token type (not a refresh token) |
+| `401` | Invalid token payload (missing `sub` claim) |
+| `401` | User not found or inactive |
+
+**Implementation Notes:**
+- After decoding the token, the server verifies the user still exists and `is_active` is `True` before issuing a new access token.
 
 ---
 
@@ -187,10 +198,29 @@ Return the currently authenticated user's profile.
   "id": 1,
   "email": "user@example.com",
   "name": "Yogesh",
-  "is_active": true,
-  "created_at": "2026-03-31T10:00:00Z"
+  "is_active": true
 }
 ```
+
+---
+
+### POST /auth/logout
+
+Clear the refresh token cookie, ending the user's session.
+
+**Request Body:** None
+
+**Response (200):**
+
+```json
+{
+  "status": "success",
+  "message": "Logged out"
+}
+```
+
+**Implementation Notes:**
+- Deletes the `refresh_token` httpOnly cookie. The frontend also clears the in-memory access token and user state.
 
 ---
 
@@ -214,31 +244,34 @@ no more passing `email` in request bodies.
 ### How Route Protection Works (FastAPI)
 
 ```python
-from fastapi import Depends, HTTPException, status
+# dependencies/auth.py
+from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
+from models.user import User
+from services.jwt import decode_token
+from services.user import get_user_by_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    session: AsyncSession = Depends(get_session)
-) -> User:
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        user_id: int = payload.get("sub")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    payload = decode_token(token)
 
-    user = await session.get(User, user_id)
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    user = get_user_by_id(int(user_id))
     if user is None or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
 
-# Usage in any endpoint:
-@app.get("/syllabi")
-async def list_syllabi(current_user: User = Depends(get_current_user)):
-    # current_user is guaranteed to be a valid, authenticated user
-    return await get_user_syllabi(current_user.id)
+# Usage in any route:
+@router.get("/syllabi")
+def list_syllabi(current_user: User = Depends(get_current_user)):
+    return syllabus_controller.list_syllabi(current_user)
 ```
 
 ---
@@ -247,14 +280,14 @@ async def list_syllabi(current_user: User = Depends(get_current_user)):
 
 | Token | Lifetime | Storage (Frontend) | Purpose |
 |-------|----------|-------------------|---------|
-| **Access Token** | 30 minutes | In-memory (React state / Zustand) | Sent with every API request |
-| **Refresh Token** | 7 days | HttpOnly cookie (secure, SameSite=Strict) | Used only to get new access tokens |
+| **Access Token** | 2 minutes (configurable via `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`) | In-memory (Zustand store) | Sent with every API request via `Authorization: Bearer` header |
+| **Refresh Token** | 7 hours (configurable via `JWT_REFRESH_TOKEN_EXPIRE_HOURS`) | httpOnly cookie (`SameSite=Lax`, path=`/`) | Used only to get new access tokens |
 
 ### Why This Split
 
-- **Access tokens are short-lived** — If stolen, they expire quickly. Stored only in memory (lost on page refresh, which triggers a refresh flow).
-- **Refresh tokens in HttpOnly cookies** — JavaScript cannot access them (XSS-safe). Sent automatically by the browser only to `/auth/refresh`.
-- **No localStorage for tokens** — localStorage is vulnerable to XSS attacks.
+- **Access tokens are short-lived** — If stolen, they expire quickly. Stored only in memory (lost on page refresh, which triggers a refresh flow via the cookie).
+- **Refresh tokens in httpOnly cookies** — JavaScript cannot access them (XSS-safe). Sent automatically by the browser on every request (cookie path is `/`).
+- **No localStorage for tokens** — localStorage is vulnerable to XSS attacks. Neither token is stored in localStorage.
 
 ---
 
@@ -266,7 +299,7 @@ async def list_syllabi(current_user: User = Depends(get_current_user)):
 | **Salt** | Auto-generated per password (built into bcrypt) |
 | **Minimum length** | 8 characters (enforced by Pydantic validator) |
 | **Plain text** | NEVER stored, NEVER logged |
-| **Verification** | `passlib.hash.bcrypt.verify(plain, hashed)` — constant-time comparison |
+| **Verification** | `CryptContext.verify(plain, hashed)` via `passlib` — constant-time comparison |
 
 ---
 
@@ -283,20 +316,28 @@ async def list_syllabi(current_user: User = Depends(get_current_user)):
 
 ```typescript
 interface AuthState {
-  user: User | null;
+  user: UserInfo | null;
   accessToken: string | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  isLoading: boolean;
+  initialized: boolean;
+
   signup: (name: string, email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  refreshToken: () => Promise<void>;
+  initAuth: () => Promise<void>;
+  refreshAccessToken: () => Promise<string>;
 }
 ```
+
+- `initAuth()` is called once on app load (inside the `Layout` component). It calls `POST /auth/refresh` — the browser sends the cookie automatically. If successful, it fetches `/auth/me` and populates the store.
+- `refreshAccessToken()` is used by the Axios response interceptor to silently refresh expired access tokens.
+- A guard (`if (get().initialized || get().isLoading) return`) prevents duplicate `initAuth` calls (e.g., from React StrictMode).
 
 ### Axios Interceptor
 
 ```typescript
-// Automatically attach token to every request
+// Request interceptor — attach access token to every request
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
   if (token) {
@@ -305,13 +346,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Automatically refresh on 401
+// Response interceptor — on 401, refresh the access token and retry
+// Uses a queue to prevent multiple concurrent refresh calls
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      await useAuthStore.getState().refreshToken();
-      return api.request(error.config); // Retry original request
+    if (error.response?.status === 401 && !error.config._retry) {
+      error.config._retry = true;
+      try {
+        const newToken = await useAuthStore.getState().refreshAccessToken();
+        error.config.headers.Authorization = `Bearer ${newToken}`;
+        return api.request(error.config);
+      } catch {
+        useAuthStore.getState().logout();
+        return Promise.reject(error);
+      }
     }
     return Promise.reject(error);
   }
@@ -320,25 +369,35 @@ api.interceptors.response.use(
 
 ### Route Protection
 
-The current `ProtectedRoute` (which does nothing) will be replaced:
+The `Layout` component acts as the main authentication gate. Unauthenticated users are redirected to `/login`:
 
 ```typescript
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+export default function Layout() {
+  const { initialized, isAuthenticated, initAuth } = useAuthStore();
+  useEffect(() => { initAuth(); }, []);
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  return children;
+  if (!initialized) return <LoadingSpinner />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  return (
+    <SidebarProvider>
+      {/* ... app shell with sidebar, nav, and <Outlet /> */}
+    </SidebarProvider>
+  );
 }
 ```
 
+`/login` and `/signup` are separate top-level routes (not nested under `Layout`), so they render independently with their own dark background and white card UI.
+
 ### UI Changes to Existing Forms
 
-- **Subscribe page** — Remove email field. Skill, days, hours only. Email comes from auth.
-- **Generate Syllabus page** — Remove email field. Show only the user's own skills in dropdown.
-- **Sidebar user section** — Display real user name/email from auth state instead of hardcoded "shadcn / m@example.com".
-- **Logout** — Clear auth state + call `POST /auth/logout` (optional server-side token blacklist).
+- **Subscribe page** — Removed email field. Skill, days, hours only. Email comes from auth.
+- **Generate Syllabus page** — Removed email field. Show only the user's own skills in dropdown.
+- **Sidebar user section** — Displays real user email from auth state. Shows logout button.
+- **Logout** — Clears in-memory auth state immediately, then calls `POST /auth/logout` (fire-and-forget) to delete the cookie, and navigates to `/login`.
+- **Login page** (`/login`) — White card on dark background with email/password fields and password visibility toggle.
+- **Signup page** (`/signup`) — White card on dark background with name/email/password/confirm-password fields and visibility toggles.
+- **StrictMode guards** — `useRef` guards added to `useEffect` hooks in data-fetching pages to prevent duplicate API calls in development.
 
 ---
 
@@ -349,7 +408,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 | Package | Purpose |
 |---------|---------|
 | `passlib[bcrypt]` | Password hashing |
-| `python-jose[cryptography]` | JWT token creation and verification |
+| `bcrypt<5` | Bcrypt backend (pinned for passlib compatibility) |
+| `PyJWT` | JWT token creation and verification |
+| `python-multipart` | Required by FastAPI for form/cookie parsing |
 
 ### Frontend (npm)
 
@@ -364,8 +425,8 @@ No new dependencies needed — Axios interceptors and Zustand are already in pla
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `JWT_SECRET_KEY` | Secret for signing JWT tokens | `openssl rand -hex 32` (64-char hex string) |
-| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Access token lifetime | `30` |
-| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | Refresh token lifetime | `7` |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Access token lifetime | `2` |
+| `JWT_REFRESH_TOKEN_EXPIRE_HOURS` | Refresh token lifetime | `7` |
 
 ---
 
@@ -386,14 +447,16 @@ No new dependencies needed — Axios interceptors and Zustand are already in pla
 
 | Item | Status |
 |------|--------|
-| Passwords hashed with bcrypt | Planned |
-| JWT tokens with expiration | Planned |
-| Refresh tokens in HttpOnly cookies | Planned |
-| No tokens in localStorage | Planned |
-| Route-level ownership checks (user can only access own data) | Planned |
+| Passwords hashed with bcrypt | Done |
+| JWT tokens with expiration | Done |
+| Refresh tokens in httpOnly cookies | Done |
+| No tokens in localStorage | Done |
+| Route-level ownership checks (user can only access own data) | Done |
+| User existence & active check on token refresh | Done |
+| Defensive `sub` claim validation | Done |
+| CORS configuration | Done |
+| Input validation (Pydantic) | Done |
 | Rate limiting on `/auth/login` (prevent brute force) | Phase 2 |
-| CORS configuration | Phase 2 |
-| Input validation (Pydantic) | Already exists |
 | HTTPS in production | Deployment concern |
 
 ---

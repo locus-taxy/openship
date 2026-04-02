@@ -4,6 +4,10 @@ from database import engine
 from models.user import User
 from services.password import hash_password
 
+def get_user_by_id(user_id: int) -> Optional[User]:
+    with Session(engine) as session:
+        return session.get(User, user_id)
+
 def get_user_by_email(email: str) -> Optional[User]:
     with Session(engine) as session:
         statement = select(User).where(User.email == email)

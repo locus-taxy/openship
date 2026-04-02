@@ -1,9 +1,9 @@
 from typing import Optional
 from fastapi import HTTPException, Response
-from config import JWT_REFRESH_TOKEN_EXPIRE_DAYS
+from config import JWT_REFRESH_TOKEN_EXPIRE_HOURS
 from models.user import User
 from schemas.auth import SignupRequest, LoginRequest, LoginResponse
-from services.user import get_user_by_email, create_user
+from services.user import get_user_by_id, get_user_by_email, create_user
 from services.password import verify_password
 from services.jwt import create_access_token, create_refresh_token, decode_token
 
@@ -18,7 +18,7 @@ def _set_refresh_cookie(response: Response, token: str):
         value=token,
         httponly=True,
         samesite="lax",
-        max_age=JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        max_age=JWT_REFRESH_TOKEN_EXPIRE_HOURS * 3600,
         path="/",
         secure=False,  # set True in production with HTTPS
     )
@@ -50,8 +50,15 @@ def refresh_access_token(refresh_token: Optional[str]):
     if token_payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Invalid token type")
 
-    user_id = int(token_payload.get("sub"))
-    access_token = create_access_token(user_id)
+    sub = token_payload.get("sub")
+    if not sub:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    user = get_user_by_id(int(sub))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+
+    access_token = create_access_token(user.id)
     return {"access_token": access_token, "token_type": "bearer"}
 
 def logout_user(response: Response):
