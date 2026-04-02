@@ -1,4 +1,4 @@
-import { Outlet } from "react-router";
+import { Outlet, Navigate } from "react-router";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Toaster } from "@/components/ui/toaster";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -6,16 +6,13 @@ import PluginHeader from "../partials/pluginHeader";
 import PluginInfo from "../partials/pluginInfo";
 import { useEffect } from "react";
 import useAuthStore from "@/store/authStore";
-import AuthDialog from "@/components/auth-dialog";
 import { Loader2 } from "lucide-react";
 
 export default function Layout() {
-    const { initialized, initAuth } = useAuthStore();
+    const { initialized, isAuthenticated, initAuth } = useAuthStore();
 
     useEffect(() => {
-        if (!initialized) {
-            initAuth();
-        }
+        initAuth();
     }, []);
 
     if (!initialized) {
@@ -24,6 +21,10 @@ export default function Layout() {
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
         );
+    }
+
+    if (!isAuthenticated) {
+        return <Navigate to="/login" replace />;
     }
 
     return (
@@ -45,7 +46,6 @@ export default function Layout() {
                     <Toaster />
                 </div>
             </SidebarInset>
-            <AuthDialog />
         </SidebarProvider>
     );
 }

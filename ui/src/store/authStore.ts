@@ -50,6 +50,8 @@ const useAuthStore = create<AuthState>((set, get) => ({
     },
 
     initAuth: async () => {
+        if (get().initialized || get().isLoading) return;
+
         const refresh = localStorage.getItem("refresh_token");
         if (!refresh) {
             set({ initialized: true });

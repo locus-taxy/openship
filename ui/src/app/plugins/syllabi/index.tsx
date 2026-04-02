@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { BookOpen, Clock, CalendarDays, Mail, TrendingUp, BookMarked, PlayCircle, Loader2, RotateCw } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -39,7 +39,6 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart }: {
         e.stopPropagation()
         setGenerating(true)
         const { success } = await postRequest("/py/generate-syllabus", {
-            email: item.email,
             skill: item.skill,
         })
         setGenerating(false)
@@ -194,13 +193,19 @@ export default function SyllabiPage() {
         setPluginInfo("View and manage all learning plans.")
     }, [setPluginName, setPluginInfo])
 
+    const fetchedRef = useRef(false)
+
     async function fetchSyllabi() {
         const { success, data } = await getRequest("/py/syllabi")
         if (success) setSyllabi(data)
         setLoading(false)
     }
 
-    useEffect(() => { fetchSyllabi() }, [])
+    useEffect(() => {
+        if (fetchedRef.current) return
+        fetchedRef.current = true
+        fetchSyllabi()
+    }, [])
 
     function handleSyllabusGenerated(skillId: number) {
         // refresh only that card by re-fetching the list

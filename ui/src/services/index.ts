@@ -1,7 +1,6 @@
 import axios from "axios";
 import { toast } from "../hooks/use-toast";
 import useAuthStore from "../store/authStore";
-import useAuthDialogStore from "../store/authDialogStore";
 
 const api = axios.create();
 
@@ -43,11 +42,10 @@ api.interceptors.response.use(
 
                 pendingRequests = [];
                 useAuthStore.getState().logout();
-                useAuthDialogStore.getState().openLogin();
                 return Promise.reject(error);
             }
 
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve) => {
                 pendingRequests.push((token: string) => {
                     originalRequest.headers.Authorization = `Bearer ${token}`;
                     resolve(api(originalRequest));
@@ -64,12 +62,14 @@ export const getRequest = async (url: string, params?: any) => {
         const response = await api.get(url, { params });
         return { success: true, data: response.data };
     } catch (error: any) {
-        console.log(error);
-        toast({
-            variant: "destructive",
-            title: "Error",
-            description: `Error: ${error?.response?.data?.detail || error?.response?.data?.message || error}`,
-        });
+        if (error?.response?.status !== 401) {
+            console.error(error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: `${error?.response?.data?.detail || error?.response?.data?.message || "Something went wrong"}`,
+            });
+        }
         return { success: false, error };
     }
 };
@@ -79,12 +79,14 @@ export const postRequest = async (url: string, data: any) => {
         const response = await api.post(url, data);
         return { success: true, data: response.data };
     } catch (error: any) {
-        console.log(error);
-        toast({
-            variant: "destructive",
-            title: "Error",
-            description: `Error: ${error?.response?.data?.detail || error?.response?.data?.message || error}`,
-        });
+        if (error?.response?.status !== 401) {
+            console.error(error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: `${error?.response?.data?.detail || error?.response?.data?.message || "Something went wrong"}`,
+            });
+        }
         return { success: false, error };
     }
 };

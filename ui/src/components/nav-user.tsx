@@ -1,30 +1,20 @@
+import { useNavigate } from "react-router";
 import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
 import { Button } from "./ui/button";
-import { LogOutIcon, LogInIcon, UserPlus, UserCircle } from "lucide-react";
+import { LogOutIcon, UserCircle } from "lucide-react";
 import useAuthStore from "@/store/authStore";
-import useAuthDialogStore from "@/store/authDialogStore";
 
 export function NavUser() {
     const { user, isAuthenticated, logout } = useAuthStore();
-    const { openLogin, openSignup } = useAuthDialogStore();
+    const navigate = useNavigate();
 
     if (!isAuthenticated || !user) {
-        return (
-            <SidebarMenu>
-                <SidebarMenuItem>
-                    <div className="flex flex-col gap-2 px-1">
-                        <Button variant="default" className="w-full" onClick={openLogin}>
-                            <LogInIcon className="w-4 h-4 mr-2" />
-                            Login
-                        </Button>
-                        <Button variant="outline" className="w-full" onClick={openSignup}>
-                            <UserPlus className="w-4 h-4 mr-2" />
-                            Sign up
-                        </Button>
-                    </div>
-                </SidebarMenuItem>
-            </SidebarMenu>
-        );
+        return null;
+    }
+
+    function handleLogout() {
+        logout();
+        navigate("/login");
     }
 
     return (
@@ -43,7 +33,7 @@ export function NavUser() {
                 <Button
                     variant="outline"
                     className="w-full mt-1"
-                    onClick={logout}
+                    onClick={handleLogout}
                 >
                     <LogOutIcon className="w-4 h-4 mr-2" />
                     Logout

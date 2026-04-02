@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { BookMarked, BookOpen, ChevronDown, Loader2, CheckCircle2, CalendarDays, Clock } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,11 @@ export default function GenerateSyllabusPage() {
         setPluginInfo("Generate a learning syllabus for a subscriber.")
     }, [setPluginName, setPluginInfo])
 
+    const fetchedRef = useRef(false)
+
     useEffect(() => {
+        if (fetchedRef.current) return
+        fetchedRef.current = true
         async function fetchSubscribers() {
             const { success, data } = await getRequest("/py/syllabi")
             if (success) setSubscribers(data)

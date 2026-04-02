@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Sparkles, BookOpen, ChevronDown, Loader2, CheckCircle2 } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -31,7 +31,11 @@ export default function GenerateContentPage() {
         setPluginInfo("Generate newsletter content for a subscriber's upcoming days.")
     }, [setPluginName, setPluginInfo])
 
+    const fetchedRef = useRef(false)
+
     useEffect(() => {
+        if (fetchedRef.current) return
+        fetchedRef.current = true
         async function fetchSyllabi() {
             const { success, data } = await getRequest("/py/syllabi")
             if (success) setSyllabi(data)

@@ -9,31 +9,8 @@ import SyllabusDetailPage from "@/app/plugins/syllabi/detail";
 import GenerateContentPage from "@/app/plugins/generateContent";
 import GenerateSyllabusPage from "@/app/plugins/generateSyllabus";
 import SubscribePage from "@/app/plugins/subscribe";
-import useAuthStore from "@/store/authStore";
-import useAuthDialogStore from "@/store/authDialogStore";
-import { useEffect } from "react";
-
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-    const { isAuthenticated, initialized } = useAuthStore();
-    const { openLogin } = useAuthDialogStore();
-
-    useEffect(() => {
-        if (initialized && !isAuthenticated) {
-            openLogin();
-        }
-    }, [initialized, isAuthenticated]);
-
-    if (!initialized) return null;
-
-    if (!isAuthenticated) {
-        return (
-            <div className="flex items-center justify-center h-64 text-muted-foreground">
-                Please sign in to access this page.
-            </div>
-        );
-    }
-    return <>{children}</>;
-};
+import LoginPage from "@/app/auth/login";
+import SignupPage from "@/app/auth/signup";
 
 const GlobalErrorBoundary = () => {
     return (
@@ -62,6 +39,14 @@ const GlobalErrorBoundary = () => {
 
 const router = createBrowserRouter([
     {
+        path: "/login",
+        element: <LoginPage />,
+    },
+    {
+        path: "/signup",
+        element: <SignupPage />,
+    },
+    {
         path: "/",
         element: <Layout />,
         errorElement: <GlobalErrorBoundary />,
@@ -71,48 +56,28 @@ const router = createBrowserRouter([
                 element: <SampleApp />,
             },
             {
-                path: "/sample-route",
+                path: "sample-route",
                 element: <SampleApp />,
             },
             {
-                path: "/syllabi",
-                element: (
-                    <ProtectedRoute>
-                        <SyllabiPage />
-                    </ProtectedRoute>
-                ),
+                path: "syllabi",
+                element: <SyllabiPage />,
             },
             {
-                path: "/subscribe",
-                element: (
-                    <ProtectedRoute>
-                        <SubscribePage />
-                    </ProtectedRoute>
-                ),
+                path: "subscribe",
+                element: <SubscribePage />,
             },
             {
-                path: "/generate-syllabus",
-                element: (
-                    <ProtectedRoute>
-                        <GenerateSyllabusPage />
-                    </ProtectedRoute>
-                ),
+                path: "generate-syllabus",
+                element: <GenerateSyllabusPage />,
             },
             {
-                path: "/generate-content",
-                element: (
-                    <ProtectedRoute>
-                        <GenerateContentPage />
-                    </ProtectedRoute>
-                ),
+                path: "generate-content",
+                element: <GenerateContentPage />,
             },
             {
-                path: "/syllabi/:skillId",
-                element: (
-                    <ProtectedRoute>
-                        <SyllabusDetailPage />
-                    </ProtectedRoute>
-                ),
+                path: "syllabi/:skillId",
+                element: <SyllabusDetailPage />,
             },
         ],
     },
