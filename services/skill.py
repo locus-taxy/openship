@@ -1,7 +1,6 @@
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
 from sqlalchemy import func, case
-
 from database import engine
 from models.skill import Skill
 from models.daily_task import DailyTask

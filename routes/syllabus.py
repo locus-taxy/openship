@@ -1,5 +1,4 @@
 from fastapi import APIRouter
-
 from schemas.skill import GenerateSyllabusRequest
 from controllers import syllabus as syllabus_controller
 

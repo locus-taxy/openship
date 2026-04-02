@@ -2,7 +2,6 @@ import jwt
 import requests
 from datetime import datetime, timezone
 from dotenv import set_key
-
 from config import LINKIFYI_TOKEN, LEXI_PASSWORD
 
 ENV_PATH = "../.env"

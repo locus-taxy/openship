@@ -1,6 +1,5 @@
 import time
 import requests
-
 from config import LINKIFYI_TOKEN
 from services.skill import get_list_of_skill_ids, get_email_id_from_skill_id
 from services.daily_task import get_tasks_based_on_skill_id, mark_task_completed
