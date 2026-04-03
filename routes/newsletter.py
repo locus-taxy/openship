@@ -10,7 +10,7 @@ router = APIRouter(tags=["newsletter"])
 def send_chapter_email(
     payload: SendChapterEmailRequest, current_user: User = Depends(get_current_user)
 ):
-    return newsletter_controller.send_chapter_email(payload)
+    return newsletter_controller.send_chapter_email(payload, current_user)
 
 @router.post("/issue-newsletters")
 def issue_newsletters(current_user: User = Depends(get_current_user)):

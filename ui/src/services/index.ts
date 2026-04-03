@@ -13,7 +13,10 @@ api.interceptors.request.use((config) => {
 });
 
 let isRefreshing = false;
-let pendingRequests: Array<(token: string) => void> = [];
+let pendingRequests: Array<{
+    resolve: (token: string) => void;
+    reject: (error: unknown) => void;
+}> = [];
 
 api.interceptors.response.use(
     (response) => response,
@@ -28,22 +31,26 @@ api.interceptors.response.use(
                 try {
                     const newToken = await useAuthStore.getState().refreshAccessToken();
                     isRefreshing = false;
-                    pendingRequests.forEach((cb) => cb(newToken));
+                    pendingRequests.forEach((p) => p.resolve(newToken));
                     pendingRequests = [];
                     originalRequest.headers.Authorization = `Bearer ${newToken}`;
                     return api(originalRequest);
-                } catch {
+                } catch (refreshError) {
                     isRefreshing = false;
+                    pendingRequests.forEach((p) => p.reject(refreshError));
                     pendingRequests = [];
                     useAuthStore.getState().logout();
                     return Promise.reject(error);
                 }
             }
 
-            return new Promise((resolve) => {
-                pendingRequests.push((token: string) => {
-                    originalRequest.headers.Authorization = `Bearer ${token}`;
-                    resolve(api(originalRequest));
+            return new Promise((resolve, reject) => {
+                pendingRequests.push({
+                    resolve: (token: string) => {
+                        originalRequest.headers.Authorization = `Bearer ${token}`;
+                        resolve(api(originalRequest));
+                    },
+                    reject,
                 });
             });
         }

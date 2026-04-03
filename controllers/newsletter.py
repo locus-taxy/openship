@@ -1,15 +1,17 @@
 from fastapi import HTTPException
-
+from models.user import User
 from schemas.skill import SendChapterEmailRequest
 from services.skill import get_syllabus_detail, get_email_id_from_skill_id
 from services.daily_task import get_chapter_content, mark_task_completed
 from services.newsletter import send_newsletter, issue_todays_newsletters
 from services.refresh_token import get_new_jwt_token
 
-def send_chapter_email(payload: SendChapterEmailRequest):
+def send_chapter_email(payload: SendChapterEmailRequest, current_user: User):
     chapter = get_chapter_content(payload.task_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"Chapter {payload.task_id} not found")
+    if chapter["user_id"] != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You do not own this task")
     if not chapter["newsletter"]:
         raise HTTPException(status_code=400, detail="No content generated for this chapter yet")
 

@@ -1,7 +1,6 @@
 import time
-
 from fastapi import HTTPException
-
+from models.user import User
 from schemas.skill import GenerateContentRequest, GenerateChapterContentRequest
 from services.skill import get_syllabus_detail
 from services.daily_task import (
@@ -11,10 +10,19 @@ from services.daily_task import (
 )
 from services.gemini import generate_newsletter_html
 
-def generate_skill_content(payload: GenerateContentRequest):
+def _check_skill_ownership(detail: dict, current_user: User):
+    if detail["user_id"] != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You do not own this skill")
+
+def _check_task_ownership(chapter: dict, current_user: User):
+    if chapter["user_id"] != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You do not own this task")
+
+def generate_skill_content(payload: GenerateContentRequest, current_user: User):
     detail = get_syllabus_detail(payload.skill_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Skill not found")
+    _check_skill_ownership(detail, current_user)
 
     tasks = get_tasks_for_generating_newsletter(payload.skill_id)
     failed_tasks = []
@@ -46,10 +54,11 @@ def generate_skill_content(payload: GenerateContentRequest):
         }
     return {"status": "success", "message": f"Content generated for skill {payload.skill_id}"}
 
-def generate_chapter(payload: GenerateChapterContentRequest):
+def generate_chapter(payload: GenerateChapterContentRequest, current_user: User):
     chapter = get_chapter_content(payload.task_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    _check_task_ownership(chapter, current_user)
 
     html = generate_newsletter_html(
         task_description=chapter["task"],
@@ -68,8 +77,9 @@ def generate_chapter(payload: GenerateChapterContentRequest):
 
     return {"status": "success", "message": f"Content generated for task {payload.task_id}"}
 
-def get_chapter(task_id: int):
+def get_chapter(task_id: int, current_user: User):
     chapter = get_chapter_content(task_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"Chapter {task_id} not found")
+    _check_task_ownership(chapter, current_user)
     return chapter

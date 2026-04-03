@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,11 +23,24 @@ export default function SignupPage() {
         initAuth();
     }, []);
 
+    const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(() => {
         if (initialized && isAuthenticated) {
             navigate("/", { replace: true });
         }
     }, [initialized, isAuthenticated, navigate]);
+
+    useEffect(() => {
+        if (success) {
+            redirectTimer.current = setTimeout(() => {
+                navigate("/login");
+            }, 1500);
+        }
+        return () => {
+            if (redirectTimer.current) clearTimeout(redirectTimer.current);
+        };
+    }, [success, navigate]);
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -44,9 +57,6 @@ export default function SignupPage() {
         try {
             await signup(name, email, password);
             setSuccess(true);
-            setTimeout(() => {
-                navigate("/login");
-            }, 1500);
         } catch (err: any) {
             setError(err?.response?.data?.detail || "Signup failed");
         } finally {

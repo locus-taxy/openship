@@ -13,10 +13,12 @@ from services.daily_task import store_syllabus_tasks
 def list_syllabi(current_user: User):
     return get_all_syllabi(email=current_user.email)
 
-def get_syllabus(skill_id: int):
+def get_syllabus(skill_id: int, current_user: User):
     detail = get_syllabus_detail(skill_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Syllabus {skill_id} not found")
+    if detail["user_id"] != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You do not own this skill")
     return detail
 
 def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):

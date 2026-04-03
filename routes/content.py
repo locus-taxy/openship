@@ -10,14 +10,14 @@ router = APIRouter(tags=["content"])
 def generate_content(
     payload: GenerateContentRequest, current_user: User = Depends(get_current_user)
 ):
-    return content_controller.generate_skill_content(payload)
+    return content_controller.generate_skill_content(payload, current_user)
 
 @router.post("/generate-content/chapter")
 def generate_chapter_content(
     payload: GenerateChapterContentRequest, current_user: User = Depends(get_current_user)
 ):
-    return content_controller.generate_chapter(payload)
+    return content_controller.generate_chapter(payload, current_user)
 
 @router.get("/chapter/{task_id}")
 def get_chapter(task_id: int, current_user: User = Depends(get_current_user)):
-    return content_controller.get_chapter(task_id)
+    return content_controller.get_chapter(task_id, current_user)
