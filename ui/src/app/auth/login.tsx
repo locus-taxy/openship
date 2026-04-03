@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Eye, EyeOff } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 import useAuthStore from "@/store/authStore";
 
 export default function LoginPage() {
     const navigate = useNavigate();
-    const { login, isAuthenticated, initialized, initAuth } = useAuthStore();
+    const { login, isAuthenticated, initialized, initAuth, sessionExpired, clearSessionExpired } = useAuthStore();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
@@ -24,6 +25,17 @@ export default function LoginPage() {
             navigate("/", { replace: true });
         }
     }, [initialized, isAuthenticated, navigate]);
+
+    useEffect(() => {
+        if (sessionExpired) {
+            toast({
+                variant: "destructive",
+                title: "Session expired",
+                description: "Please sign in again to continue.",
+            });
+            clearSessionExpired();
+        }
+    }, [sessionExpired, clearSessionExpired]);
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();

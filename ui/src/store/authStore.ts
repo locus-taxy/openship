@@ -14,12 +14,14 @@ interface AuthState {
     isAuthenticated: boolean;
     isLoading: boolean;
     initialized: boolean;
+    sessionExpired: boolean;
 
     signup: (name: string, email: string, password: string) => Promise<void>;
     login: (email: string, password: string) => Promise<void>;
-    logout: () => void;
+    logout: (reason?: "session_expired") => void;
     initAuth: () => Promise<void>;
     refreshAccessToken: () => Promise<string>;
+    clearSessionExpired: () => void;
 }
 
 const useAuthStore = create<AuthState>((set, get) => ({
@@ -28,6 +30,7 @@ const useAuthStore = create<AuthState>((set, get) => ({
     isAuthenticated: false,
     isLoading: false,
     initialized: false,
+    sessionExpired: false,
 
     signup: async (name, email, password) => {
         await axios.post("/py/auth/signup", { name, email, password });
@@ -39,10 +42,17 @@ const useAuthStore = create<AuthState>((set, get) => ({
         set({ user, accessToken: access_token, isAuthenticated: true });
     },
 
-    logout: () => {
-        set({ user: null, accessToken: null, isAuthenticated: false });
+    logout: (reason?) => {
+        set({
+            user: null,
+            accessToken: null,
+            isAuthenticated: false,
+            sessionExpired: reason === "session_expired",
+        });
         axios.post("/py/auth/logout").catch(() => {});
     },
+
+    clearSessionExpired: () => set({ sessionExpired: false }),
 
     refreshAccessToken: async () => {
         const res = await axios.post("/py/auth/refresh");

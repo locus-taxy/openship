@@ -39,7 +39,7 @@ api.interceptors.response.use(
                     isRefreshing = false;
                     pendingRequests.forEach((p) => p.reject(refreshError));
                     pendingRequests = [];
-                    useAuthStore.getState().logout();
+                    useAuthStore.getState().logout("session_expired");
                     return Promise.reject(error);
                 }
             }

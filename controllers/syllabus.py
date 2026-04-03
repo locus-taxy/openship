@@ -35,7 +35,8 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     if not syllabus_data:
         raise HTTPException(status_code=500, detail="Failed to generate syllabus")
 
-    store_syllabus_tasks(
+    if not store_syllabus_tasks(
         str(current_user.id), payload.skill, syllabus_data, skill["hours"], skill_id
-    )
+    ):
+        raise HTTPException(status_code=500, detail="Failed to save syllabus tasks")
     return {"status": "success", "message": f"Syllabus generated for '{payload.skill}'"}
