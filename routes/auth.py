@@ -16,8 +16,8 @@ def login(payload: LoginRequest, response: Response):
     return auth_controller.login_user(payload, response)
 
 @router.post("/refresh")
-def refresh(refresh_token: Optional[str] = Cookie(default=None)):
-    return auth_controller.refresh_access_token(refresh_token)
+def refresh(response: Response, refresh_token: Optional[str] = Cookie(default=None)):
+    return auth_controller.refresh_access_token(refresh_token, response)
 
 @router.post("/logout")
 def logout(response: Response):

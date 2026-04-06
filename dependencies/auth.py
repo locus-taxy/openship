@@ -1,13 +1,14 @@
-from fastapi import Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
+from typing import Optional
+from fastapi import Cookie, HTTPException
 from models.user import User
 from services.jwt import decode_token
 from services.user import get_user_by_id
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+def get_current_user(access_token: Optional[str] = Cookie(default=None)) -> User:
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
-    payload = decode_token(token)
+    payload = decode_token(access_token)
 
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type")

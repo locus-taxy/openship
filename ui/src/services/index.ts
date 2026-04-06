@@ -4,17 +4,9 @@ import useAuthStore from "../store/authStore";
 
 const api = axios.create();
 
-api.interceptors.request.use((config) => {
-    const token = useAuthStore.getState().accessToken;
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
 let isRefreshing = false;
 let pendingRequests: Array<{
-    resolve: (token: string) => void;
+    resolve: () => void;
     reject: (error: unknown) => void;
 }> = [];
 
@@ -29,11 +21,10 @@ api.interceptors.response.use(
             if (!isRefreshing) {
                 isRefreshing = true;
                 try {
-                    const newToken = await useAuthStore.getState().refreshAccessToken();
+                    await useAuthStore.getState().refreshAccessToken();
                     isRefreshing = false;
-                    pendingRequests.forEach((p) => p.resolve(newToken));
+                    pendingRequests.forEach((p) => p.resolve());
                     pendingRequests = [];
-                    originalRequest.headers.Authorization = `Bearer ${newToken}`;
                     return api(originalRequest);
                 } catch (refreshError) {
                     isRefreshing = false;
@@ -46,10 +37,7 @@ api.interceptors.response.use(
 
             return new Promise((resolve, reject) => {
                 pendingRequests.push({
-                    resolve: (token: string) => {
-                        originalRequest.headers.Authorization = `Bearer ${token}`;
-                        resolve(api(originalRequest));
-                    },
+                    resolve: () => resolve(api(originalRequest)),
                     reject,
                 });
             });

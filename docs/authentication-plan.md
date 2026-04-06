@@ -48,12 +48,12 @@ identity verification.
 │                         FRONTEND (React)                         │
 │                                                                  │
 │  Signup ──► POST /auth/signup ──► User created (no tokens)       │
-│  Login  ──► POST /auth/login  ──► Access token in body,          │
-│             refresh token set as httpOnly cookie                  │
-│  Refresh ─► POST /auth/refresh ──► Browser sends cookie auto     │
-│  Logout ──► POST /auth/logout ──► Cookie cleared                 │
+│  Login  ──► POST /auth/login  ──► Both tokens set as httpOnly    │
+│             cookies by the server                                │
+│  Refresh ─► POST /auth/refresh ──► Browser sends cookies auto    │
+│  Logout ──► POST /auth/logout ──► Both cookies cleared           │
 │                                                                  │
-│  Axios Interceptor: Authorization: Bearer <access_token>         │
+│  No Authorization header — cookies are sent automatically        │
 └──────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -61,12 +61,12 @@ identity verification.
 │                        BACKEND (FastAPI)                          │
 │                                                                  │
 │  /auth/signup    — Create user, hash password, return user info  │
-│  /auth/login     — Verify password, return access token +        │
-│                    set refresh token as httpOnly cookie           │
-│  /auth/refresh   — Read cookie, validate refresh token,          │
-│                    verify user exists & is active, return new     │
-│                    access token                                  │
-│  /auth/logout    — Delete refresh token cookie                   │
+│  /auth/login     — Verify password, set access + refresh tokens   │
+│                    as httpOnly cookies                            │
+│  /auth/refresh   — Read refresh cookie, validate token,          │
+│                    verify user exists & is active, set new        │
+│                    access token cookie                            │
+│  /auth/logout    — Delete both token cookies                     │
 │  /auth/me        — Return current user profile                   │
 │                                                                  │
 │  All other routes: Depends(get_current_user)                     │
@@ -139,13 +139,11 @@ Authenticate an existing user.
     "email": "user@example.com",
     "name": "Yogesh",
     "is_active": true
-  },
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "token_type": "bearer"
+  }
 }
 ```
 
-> **Note:** The `refresh_token` is NOT in the response body. It is set as an **httpOnly cookie** (`refresh_token`) by the server. The browser stores and sends it automatically.
+> **Note:** Neither token appears in the response body. Both the `access_token` and `refresh_token` are set as **httpOnly cookies** by the server. The browser stores and sends them automatically.
 
 **Error Responses:**
 
@@ -165,10 +163,11 @@ Get a new access token using the refresh token stored in the httpOnly cookie.
 
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "token_type": "bearer"
+  "status": "refreshed"
 }
 ```
+
+> **Note:** The new access token is set as an httpOnly cookie by the server. It does NOT appear in the response body.
 
 **Error Responses:**
 
@@ -181,7 +180,7 @@ Get a new access token using the refresh token stored in the httpOnly cookie.
 | `401` | User not found or inactive |
 
 **Implementation Notes:**
-- After decoding the token, the server verifies the user still exists and `is_active` is `True` before issuing a new access token.
+- After decoding the token, the server verifies the user still exists and `is_active` is `True` before issuing a new access token cookie.
 
 ---
 
@@ -189,7 +188,7 @@ Get a new access token using the refresh token stored in the httpOnly cookie.
 
 Return the currently authenticated user's profile.
 
-**Headers:** `Authorization: Bearer <access_token>`
+**Headers:** None — the `access_token` httpOnly cookie is sent automatically by the browser.
 
 **Response (200):**
 
@@ -220,7 +219,7 @@ Clear the refresh token cookie, ending the user's session.
 ```
 
 **Implementation Notes:**
-- Deletes the `refresh_token` httpOnly cookie. The frontend also clears the in-memory access token and user state.
+- Deletes both `access_token` and `refresh_token` httpOnly cookies. The frontend also clears the user state.
 
 ---
 
@@ -245,16 +244,17 @@ no more passing `email` in request bodies.
 
 ```python
 # dependencies/auth.py
-from fastapi import Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
+from typing import Optional
+from fastapi import Cookie, HTTPException
 from models.user import User
 from services.jwt import decode_token
 from services.user import get_user_by_id
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+def get_current_user(access_token: Optional[str] = Cookie(default=None)) -> User:
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
-    payload = decode_token(token)
+    payload = decode_token(access_token)
 
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type")
@@ -278,16 +278,18 @@ def list_syllabi(current_user: User = Depends(get_current_user)):
 
 ## 5. Token Strategy
 
-| Token | Lifetime | Storage (Frontend) | Purpose |
-|-------|----------|-------------------|---------|
-| **Access Token** | 2 minutes (configurable via `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`) | In-memory (Zustand store) | Sent with every API request via `Authorization: Bearer` header |
-| **Refresh Token** | 7 hours (configurable via `JWT_REFRESH_TOKEN_EXPIRE_HOURS`) | httpOnly cookie (`SameSite=Lax`, path=`/`) | Used only to get new access tokens |
+| Token | Lifetime | Storage | Purpose |
+|-------|----------|---------|---------|
+| **Access Token** | 2 minutes (configurable via `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`) | httpOnly cookie (`access_token`, `SameSite=Lax`, path=`/`) | Sent automatically with every request; used by `get_current_user` to identify the user |
+| **Refresh Token** | 7 hours (configurable via `JWT_REFRESH_TOKEN_EXPIRE_HOURS`) | httpOnly cookie (`refresh_token`, `SameSite=Lax`, path=`/`) | Used only by `/auth/refresh` to issue a new access token cookie |
 
-### Why This Split
+### Why This Approach
 
-- **Access tokens are short-lived** — If stolen, they expire quickly. Stored only in memory (lost on page refresh, which triggers a refresh flow via the cookie).
-- **Refresh tokens in httpOnly cookies** — JavaScript cannot access them (XSS-safe). Sent automatically by the browser on requests to the backend. Cookie path is `/` because the Vite dev proxy remaps `/py/auth/*` to `/auth/*`, and path-restricted cookies don't work across proxies.
-- **No localStorage for tokens** — localStorage is vulnerable to XSS attacks. Neither token is stored in localStorage.
+- **Both tokens in httpOnly cookies** — JavaScript cannot access them (XSS-safe). The browser sends them automatically on every request.
+- **No `Authorization` header** — The frontend never touches the tokens. No request interceptor needed for attaching headers.
+- **No localStorage for tokens** — localStorage is vulnerable to XSS attacks. Neither token is stored in localStorage or in-memory JavaScript state.
+- **SameSite=Lax** — Prevents CSRF attacks. Cookies are NOT sent on cross-origin POST requests (e.g., from `evil.com`). Only sent on same-site navigations and requests.
+- **Cookie path is `/`** — The Vite dev proxy remaps `/py/auth/*` to `/auth/*`, and path-restricted cookies don't work across proxies.
 
 ---
 
@@ -317,36 +319,31 @@ def list_syllabi(current_user: User = Depends(get_current_user)):
 ```typescript
 interface AuthState {
   user: UserInfo | null;
-  accessToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   initialized: boolean;
+  sessionExpired: boolean;
 
   signup: (name: string, email: string, password: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: (reason?: "session_expired") => void;
   initAuth: () => Promise<void>;
-  refreshAccessToken: () => Promise<string>;
+  refreshAccessToken: () => Promise<void>;
+  clearSessionExpired: () => void;
 }
 ```
 
-- `initAuth()` is called once on app load (inside the `Layout` component). It calls `POST /auth/refresh` — the browser sends the cookie automatically. If successful, it fetches `/auth/me` and populates the store.
-- `refreshAccessToken()` is used by the Axios response interceptor to silently refresh expired access tokens.
+- `initAuth()` is called once on app load (inside the `Layout` component). It calls `POST /auth/refresh` (the browser sends cookies automatically), then fetches `/auth/me` to populate the store.
+- `refreshAccessToken()` is used by the Axios response interceptor to silently refresh expired access tokens. It only calls `POST /auth/refresh` — no token is returned or stored in JS.
+- No `accessToken` in the store — tokens are fully managed by httpOnly cookies.
 - A guard (`if (get().initialized || get().isLoading) return`) prevents duplicate `initAuth` calls (e.g., from React StrictMode).
 
 ### Axios Interceptor
 
 ```typescript
-// Request interceptor — attach access token to every request
-api.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().accessToken;
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+// No request interceptor needed — cookies are sent automatically by the browser.
 
-// Response interceptor — on 401, refresh the access token and retry
+// Response interceptor — on 401, refresh the access token cookie and retry
 // Uses a queue to prevent multiple concurrent refresh calls
 api.interceptors.response.use(
   (response) => response,
@@ -354,11 +351,10 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !error.config._retry) {
       error.config._retry = true;
       try {
-        const newToken = await useAuthStore.getState().refreshAccessToken();
-        error.config.headers.Authorization = `Bearer ${newToken}`;
-        return api.request(error.config);
+        await useAuthStore.getState().refreshAccessToken();
+        return api.request(error.config); // retry — browser now sends new cookie
       } catch {
-        useAuthStore.getState().logout();
+        useAuthStore.getState().logout("session_expired");
         return Promise.reject(error);
       }
     }
@@ -394,7 +390,7 @@ export default function Layout() {
 - **Subscribe page** — Removed email field. Skill, days, hours only. Email comes from auth.
 - **Generate Syllabus page** — Removed email field. Show only the user's own skills in dropdown.
 - **Sidebar user section** — Displays real user email from auth state. Shows logout button.
-- **Logout** — Clears in-memory auth state immediately, then calls `POST /auth/logout` (fire-and-forget) to delete the cookie, and navigates to `/login`.
+- **Logout** — Clears user state immediately, then calls `POST /auth/logout` (fire-and-forget) to delete both token cookies, and navigates to `/login`.
 - **Login page** (`/login`) — White card on dark background with email/password fields and password visibility toggle.
 - **Signup page** (`/signup`) — White card on dark background with name/email/password/confirm-password fields and visibility toggles.
 - **StrictMode guards** — `useRef` guards added to `useEffect` hooks in data-fetching pages to prevent duplicate API calls in development.
@@ -449,8 +445,8 @@ No new dependencies needed — Axios interceptors and Zustand are already in pla
 |------|--------|
 | Passwords hashed with bcrypt | Done |
 | JWT tokens with expiration | Done |
-| Refresh tokens in httpOnly cookies | Done |
-| No tokens in localStorage | Done |
+| Both tokens in httpOnly cookies | Done |
+| No tokens in localStorage or JS memory | Done |
 | Route-level ownership checks (user can only access own data) | Done |
 | User existence & active check on token refresh | Done |
 | Defensive `sub` claim validation | Done |

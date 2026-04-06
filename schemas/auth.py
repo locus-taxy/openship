@@ -8,8 +8,3 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(...)
-
-class LoginResponse(BaseModel):
-    user: dict
-    access_token: str
-    token_type: str = "bearer"
