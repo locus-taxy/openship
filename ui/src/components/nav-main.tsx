@@ -1,7 +1,6 @@
 "use client";
 
 import { ChevronRight, type LucideIcon } from "lucide-react";
-
 import {
     Collapsible,
     CollapsibleContent,
@@ -35,8 +34,8 @@ export function NavMain({
     }[];
 }) {
 
-    const menuItemStyles = "flex items-center gap-3 rounded-lg px-3 py-1 transition-colors hover:bg-gray-100";
-    const activeMenuItemStyles = "bg-gray-200 font-bold ";
+    const menuItemStyles = "flex items-center gap-3 rounded-lg px-3 py-1 transition-colors hover:bg-accent";
+    const activeMenuItemStyles = "bg-accent font-bold";
 
     return (
         <SidebarGroup>

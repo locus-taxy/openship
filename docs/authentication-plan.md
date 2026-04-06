@@ -286,7 +286,7 @@ def list_syllabi(current_user: User = Depends(get_current_user)):
 ### Why This Split
 
 - **Access tokens are short-lived** — If stolen, they expire quickly. Stored only in memory (lost on page refresh, which triggers a refresh flow via the cookie).
-- **Refresh tokens in httpOnly cookies** — JavaScript cannot access them (XSS-safe). Sent automatically by the browser on every request (cookie path is `/`).
+- **Refresh tokens in httpOnly cookies** — JavaScript cannot access them (XSS-safe). Sent automatically by the browser on requests to the backend. Cookie path is `/` because the Vite dev proxy remaps `/py/auth/*` to `/auth/*`, and path-restricted cookies don't work across proxies.
 - **No localStorage for tokens** — localStorage is vulnerable to XSS attacks. Neither token is stored in localStorage.
 
 ---

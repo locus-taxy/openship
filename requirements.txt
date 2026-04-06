@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-pydantic
+pydantic[email]
 sqlmodel
 alembic
 psycopg2-binary

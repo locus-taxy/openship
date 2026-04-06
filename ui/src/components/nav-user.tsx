@@ -3,6 +3,7 @@ import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
 import { Button } from "./ui/button";
 import { LogOutIcon, UserCircle } from "lucide-react";
 import useAuthStore from "@/store/authStore";
+import { ThemeToggle } from "./theme-toggle";
 
 export function NavUser() {
     const { user, isAuthenticated, logout } = useAuthStore();
@@ -28,6 +29,7 @@ export function NavUser() {
                             {user.email}
                         </p>
                     </div>
+                    <ThemeToggle />
                 </div>
                 <hr className="my-1" />
                 <Button

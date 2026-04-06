@@ -8,6 +8,7 @@ from services.password import verify_password
 from services.jwt import create_access_token, create_refresh_token, decode_token
 
 COOKIE_KEY = "refresh_token"
+COOKIE_PATH = "/"
 
 def _user_dict(user: User) -> dict:
     return {"id": user.id, "email": user.email, "name": user.name, "is_active": user.is_active}
@@ -19,7 +20,7 @@ def _set_refresh_cookie(response: Response, token: str):
         httponly=True,
         samesite="lax",
         max_age=JWT_REFRESH_TOKEN_EXPIRE_HOURS * 3600,
-        path="/",
+        path=COOKIE_PATH,
         secure=False,  # set True in production with HTTPS
     )
 
@@ -62,7 +63,7 @@ def refresh_access_token(refresh_token: Optional[str]):
     return {"access_token": access_token, "token_type": "bearer"}
 
 def logout_user(response: Response):
-    response.delete_cookie(key=COOKIE_KEY, path="/")
+    response.delete_cookie(key=COOKIE_KEY, path=COOKIE_PATH)
     return {"status": "success", "message": "Logged out"}
 
 def get_me(current_user: User):
