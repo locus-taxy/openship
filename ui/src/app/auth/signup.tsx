@@ -201,11 +201,11 @@ export default function SignupPage() {
                         </Button>
                     </form>
 
-                    <p className="mt-4 text-center text-sm text-muted-foreground">
+                    <p className="mt-4 text-center text-sm text-zinc-500">
                         Already have an account?{" "}
                         <Link
                             to="/login"
-                            className="text-foreground underline underline-offset-4 hover:text-zinc-600 transition-colors"
+                            className="text-zinc-900 font-medium underline underline-offset-4 hover:text-zinc-600 transition-colors"
                         >
                             Sign in
                         </Link>
