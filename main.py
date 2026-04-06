@@ -1,9 +1,23 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from run_migrations import run_startup_migrations
 from routes import register_routers
 
-app = FastAPI(title="Openship Automation API", version="2.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    run_startup_migrations()
+    yield
+
+
+app = FastAPI(
+    title="Openship Automation API",
+    version="2.0",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,

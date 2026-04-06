@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -e
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT" || exit 1
+if [ ! -x .venv/bin/pre-commit ]; then
+  echo "openship: missing .venv/bin/pre-commit — run: make setup"
+  exit 1
+fi
+exec .venv/bin/pre-commit run

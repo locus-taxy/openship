@@ -5,6 +5,7 @@ from services.skill import get_list_of_skill_ids, get_email_id_from_skill_id
 from services.daily_task import get_tasks_based_on_skill_id, mark_task_completed
 from services.refresh_token import get_new_jwt_token
 
+
 def send_newsletter(email_to: str, title: str, content: str, token: str = None):
     effective_token = token or LINKIFYI_TOKEN
     if not effective_token or effective_token.startswith("your_"):
@@ -32,6 +33,7 @@ def send_newsletter(email_to: str, title: str, content: str, token: str = None):
     except requests.exceptions.RequestException as e:
         print(f"Failed to send newsletter to {email_to}: {e}")
         raise
+
 
 def issue_todays_newsletters():
     token = get_new_jwt_token()
@@ -63,6 +65,7 @@ def issue_todays_newsletters():
                 print(f"Skipping task {t['id']} — will retry next run")
 
     return True
+
 
 def _get_valid_skill_ids():
     skill_ids = get_list_of_skill_ids()

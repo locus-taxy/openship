@@ -12,4 +12,3 @@ Jinja2
 sentry-sdk
 jwcrypto
 python-multipart
-black

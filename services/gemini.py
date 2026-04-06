@@ -1,21 +1,86 @@
 import json
+import os
 import time
-import requests
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
-from config import GEMINI_API_KEY, GEMINI_API_URL
+import requests
+from dotenv import load_dotenv
+
+_JSON_HEADERS = {"Content-Type": "application/json"}
+# Repo root (parent of `services/`)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _fresh_gemini_creds() -> Tuple[Optional[str], Optional[str]]:
+    """Re-read `.env` each call so uvicorn reload / IDE cwd cannot serve stale empty keys."""
+    load_dotenv(_PROJECT_ROOT / ".env", override=True)
+    key = os.getenv("GEMINI_API_KEY")
+    url = os.getenv("GEMINI_API_URL")
+    key = key.strip() if key else None
+    url = url.strip() if url else None
+    return (key if key else None, url if url else None)
+
 
 def _extract_text(result: dict):
-    """Extract the final text from a Gemini response, skipping any 'thought' parts."""
+    """Extract text from Gemini response. Prefer non-thought parts; fall back to any text (thinking models)."""
     try:
         parts = result["candidates"][0]["content"]["parts"]
-        for part in reversed(parts):
-            if part.get("thought"):
+        preferred = []
+        fallback = []
+        for part in parts:
+            if not isinstance(part, dict) or "text" not in part:
                 continue
-            if "text" in part:
-                return part["text"]
-    except (KeyError, IndexError):
+            t = part["text"]
+            fallback.append(t)
+            if not part.get("thought"):
+                preferred.append(t)
+        if preferred:
+            return "".join(preferred)
+        if fallback:
+            return "".join(fallback)
+    except (KeyError, IndexError, TypeError):
         pass
     return None
+
+
+def _log_gemini_failure(
+    context: str, result: Optional[Dict[str, Any]], response: Optional[requests.Response] = None
+) -> None:
+    """Print why a Gemini call produced no usable text (no secrets)."""
+    if response is not None and not response.ok:
+        body = (response.text or "")[:1200]
+        print(f"{context}: HTTP {response.status_code} — {body}")
+        return
+    if not result:
+        print(f"{context}: empty JSON body")
+        return
+    if result.get("promptFeedback"):
+        print(f"{context}: promptFeedback={result.get('promptFeedback')}")
+    cands = result.get("candidates")
+    if not cands:
+        print(f"{context}: no candidates; top-level keys={list(result.keys())}")
+        return
+    c0 = cands[0]
+    fr = c0.get("finishReason")
+    if fr and fr != "STOP":
+        print(f"{context}: finishReason={fr}")
+    if "content" not in c0:
+        print(f"{context}: candidate has no content; keys={list(c0.keys())}")
+
+
+def _parse_syllabus_json_text(text: str):
+    """Parse model JSON; tolerate optional ``` fences around the payload."""
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+    return json.loads(raw)
+
 
 SYLLABUS_SCHEMA = {
     "type": "ARRAY",
@@ -75,12 +140,14 @@ SYLLABUS_SCHEMA = {
     },
 }
 
+
 def generate_syllabus_json(skill: str, days: int, hours: int):
     """Call Gemini API to produce a structured syllabus. Returns parsed JSON list or None."""
-    if not GEMINI_API_KEY:
-        print("ERROR: GEMINI_API_KEY is missing.")
+    gemini_key, gemini_url = _fresh_gemini_creds()
+    if not gemini_key:
+        print("ERROR: GEMINI_API_KEY is missing (check .env next to config.py).")
         return None
-    if not GEMINI_API_URL:
+    if not gemini_url:
         print("ERROR: GEMINI_API_URL is missing.")
         return None
 
@@ -102,6 +169,8 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": SYLLABUS_SCHEMA,
+            # Gemini 2.5 thinking models may omit public text unless thoughts are off:
+            "thinkingConfig": {"includeThoughts": False},
         },
     }
 
@@ -110,22 +179,28 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
     for attempt in range(max_retries):
         try:
             response = requests.post(
-                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
-                headers={"Content-Type": "application/json"},
+                f"{gemini_url}?key={gemini_key}",
+                headers=_JSON_HEADERS,
                 data=json.dumps(payload),
-                timeout=(10, 120),
+                timeout=(10, 300),
             )
             response.raise_for_status()
             result = response.json()
 
             text = _extract_text(result)
             if text:
-                return json.loads(text)
-            print("Gemini returned unexpected structure.")
+                try:
+                    return _parse_syllabus_json_text(text)
+                except json.JSONDecodeError as exc:
+                    print(f"Syllabus JSON parse error: {exc}; text preview: {text[:400]!r}")
+                    return None
+            _log_gemini_failure("generate_syllabus_json", result, response)
             return None
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else 0
             print(f"Attempt {attempt + 1} failed: HTTP {status}")
+            if e.response is not None:
+                _log_gemini_failure("generate_syllabus_json (HTTPError)", None, e.response)
             if status == 429:
                 wait = 60 * (attempt + 1)
                 print(f"Rate limited — waiting {wait}s before retry...")
@@ -150,12 +225,14 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
             print("Failed to decode JSON from Gemini response.")
             return None
 
+
 def generate_newsletter_html(task_description: str, task_title: str, skill: str):
     """Call Gemini API to produce newsletter HTML for a single task. Returns HTML string or None."""
-    if not GEMINI_API_KEY:
-        print("ERROR: GEMINI_API_KEY is missing.")
+    gemini_key, gemini_url = _fresh_gemini_creds()
+    if not gemini_key:
+        print("ERROR: GEMINI_API_KEY is missing (check .env next to config.py).")
         return None
-    if not GEMINI_API_URL:
+    if not gemini_url:
         print("ERROR: GEMINI_API_URL is missing.")
         return None
 
@@ -175,20 +252,29 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
     payload = {
         "contents": [{"parts": [{"text": user_prompt}]}],
         "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "generationConfig": {
+            "thinkingConfig": {"includeThoughts": False},
+        },
     }
 
     try:
         response = requests.post(
-            f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+            f"{gemini_url}?key={gemini_key}",
+            headers=_JSON_HEADERS,
             data=json.dumps(payload),
-            timeout=(10, 120),
+            timeout=(10, 300),
         )
         response.raise_for_status()
         result = response.json()
         text = _extract_text(result)
         if text:
             return text
-        print("Unexpected Gemini API response structure.")
+        _log_gemini_failure("generate_newsletter_html", result, response)
+        return None
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None:
+            _log_gemini_failure("generate_newsletter_html (HTTPError)", None, e.response)
+        print(f"Gemini newsletter API call failed: {e}")
         return None
     except requests.exceptions.RequestException as e:
         print(f"Gemini newsletter API call failed: {e}")

@@ -1,0 +1,7 @@
+# Runs on `git commit` via Husky → .husky/pre-commit → pre-commit run
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3

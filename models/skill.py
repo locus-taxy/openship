@@ -2,6 +2,7 @@ from typing import Optional
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, DateTime, func
 
+
 class Skill(SQLModel, table=True):
     __tablename__ = "skills"
 

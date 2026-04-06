@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from schemas.skill import SubscribeRequest
 from services.skill import skill_exists, create_skill
 
+
 def subscribe_to_skill(payload: SubscribeRequest):
     if skill_exists(payload.email, payload.skill):
         raise HTTPException(status_code=409, detail=f"Already subscribed to '{payload.skill}'")

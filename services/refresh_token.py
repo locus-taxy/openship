@@ -12,6 +12,7 @@ API_REFRESH_PAYLOAD = {
     "password": LEXI_PASSWORD,
 }
 
+
 def is_jwt_expired(token: str) -> bool:
     try:
         decoded = jwt.decode(token, options={"verify_signature": False})
@@ -26,6 +27,7 @@ def is_jwt_expired(token: str) -> bool:
         print("Invalid JWT token format.")
         return True
 
+
 def get_new_jwt_token() -> str:
     try:
         response = requests.post(TOKEN_REFRESH_URL, json=API_REFRESH_PAYLOAD)
@@ -37,10 +39,12 @@ def get_new_jwt_token() -> str:
         print(f"Token refresh failed: {e}")
         return None
 
+
 def update_env_token(new_token: str):
     """Update the .env file with the new token."""
     set_key(ENV_PATH, TOKEN_KEY, new_token)
     print("✅ JWT token updated in .env file.")
+
 
 def verify_token():
     token = LINKIFYI_TOKEN

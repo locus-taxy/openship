@@ -11,6 +11,7 @@ from services.daily_task import (
 )
 from services.gemini import generate_newsletter_html
 
+
 def generate_skill_content(payload: GenerateContentRequest):
     detail = get_syllabus_detail(payload.skill_id)
     if detail is None:
@@ -46,6 +47,7 @@ def generate_skill_content(payload: GenerateContentRequest):
         }
     return {"status": "success", "message": f"Content generated for skill {payload.skill_id}"}
 
+
 def generate_chapter(payload: GenerateChapterContentRequest):
     chapter = get_chapter_content(payload.task_id)
     if chapter is None:
@@ -67,6 +69,7 @@ def generate_chapter(payload: GenerateChapterContentRequest):
         )
 
     return {"status": "success", "message": f"Content generated for task {payload.task_id}"}
+
 
 def get_chapter(task_id: int):
     chapter = get_chapter_content(task_id)

@@ -5,10 +5,12 @@ from database import engine
 from models.skill import Skill
 from models.daily_task import DailyTask
 
+
 def skill_exists(email: str, skill: str) -> bool:
     with Session(engine) as session:
         statement = select(Skill).where(Skill.email == email, Skill.skill == skill)
         return session.exec(statement).first() is not None
+
 
 def create_skill(user_id: str, email: str, skill: str, days: int, hours: int) -> Optional[int]:
     try:
@@ -22,6 +24,7 @@ def create_skill(user_id: str, email: str, skill: str, days: int, hours: int) ->
         print(f"[DB ERROR] create_skill failed: {e}")
         return None
 
+
 def get_skill(email: str, skill: str) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:
         statement = select(Skill).where(Skill.email == email, Skill.skill == skill)
@@ -29,6 +32,7 @@ def get_skill(email: str, skill: str) -> Optional[Dict[str, Any]]:
         if result is None:
             return None
         return {"user_id": result.user_id, "days": result.days, "hours": result.hours}
+
 
 def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:
@@ -78,6 +82,7 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
             ],
         }
 
+
 def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
     with Session(engine) as session:
         completed_expr = func.coalesce(func.sum(case((DailyTask.completed == True, 1), else_=0)), 0)
@@ -115,15 +120,18 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
             for row in rows
         ]
 
+
 def get_list_of_skill_ids() -> List[int]:
     with Session(engine) as session:
         statement = select(Skill.id).where(Skill.stop_sending == False)
         return list(session.exec(statement).all())
 
+
 def get_email_id_from_skill_id(skill_id: int) -> Optional[str]:
     with Session(engine) as session:
         skill = session.get(Skill, skill_id)
         return skill.email if skill else None
+
 
 def get_skill_id_by_email_and_skill(email: str, skill: str) -> Optional[int]:
     with Session(engine) as session:
