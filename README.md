@@ -48,5 +48,6 @@ Manual alternative: install `requirements.txt` and `requirements-dev.txt`, copy 
 | `DATABASE_URL` | SQLAlchemy URL (required); PostgreSQL example in `.env.example` |
 | `RUN_MIGRATIONS_ON_STARTUP` | If `true` (default), runs `alembic upgrade head` before serving |
 | `GEMINI_API_KEY` | Google Gemini API key |
-| `LINKIFYI_API_KEY` | Linkifyi email service API key |
 | `SENTRY_DSN` | (Optional) Sentry DSN for error tracking |
+
+Outbound email uses SMTP in a planned follow-up; there are no third-party email API env vars in this branch.

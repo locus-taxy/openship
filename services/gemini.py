@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import time
@@ -5,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import requests
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 _JSON_HEADERS = {"Content-Type": "application/json"}
 # Repo root (parent of `services/`)
@@ -13,13 +14,38 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _fresh_gemini_creds() -> Tuple[Optional[str], Optional[str]]:
-    """Re-read `.env` each call so uvicorn reload / IDE cwd cannot serve stale empty keys."""
-    load_dotenv(_PROJECT_ROOT / ".env", override=True)
-    key = os.getenv("GEMINI_API_KEY")
-    url = os.getenv("GEMINI_API_URL")
+    """Re-read `.env` each call so uvicorn reload / IDE cwd cannot serve stale empty keys.
+
+    Uses dotenv_values (no process env mutation) instead of load_dotenv on the hot path.
+    """
+    env_path = _PROJECT_ROOT / ".env"
+    values = dotenv_values(env_path) if env_path.is_file() else {}
+    key = values["GEMINI_API_KEY"] if "GEMINI_API_KEY" in values else os.getenv("GEMINI_API_KEY")
+    url = values["GEMINI_API_URL"] if "GEMINI_API_URL" in values else os.getenv("GEMINI_API_URL")
     key = key.strip() if key else None
     url = url.strip() if url else None
     return (key if key else None, url if url else None)
+
+
+def _response_text_fingerprint(text: Optional[str]) -> Tuple[int, str]:
+    """Length and short SHA-256 prefix of body text for logs (no raw content)."""
+    raw = (text or "").encode("utf-8", errors="replace")
+    digest = hashlib.sha256(raw).hexdigest()[:16]
+    return len(raw), digest
+
+
+def _format_http_response_audit(response: requests.Response) -> str:
+    """Non-sensitive metadata for failed HTTP responses (no raw body)."""
+    n, fp = _response_text_fingerprint(response.text)
+    ct = (response.headers.get("Content-Type") or "").split(";")[0].strip()
+    parts = [
+        f"status={response.status_code}",
+        f"body_len={n}",
+        f"body_sha256_16={fp}",
+    ]
+    if ct:
+        parts.append(f"content_type={ct!r}")
+    return " ".join(parts)
 
 
 def _extract_text(result: dict):
@@ -47,10 +73,9 @@ def _extract_text(result: dict):
 def _log_gemini_failure(
     context: str, result: Optional[Dict[str, Any]], response: Optional[requests.Response] = None
 ) -> None:
-    """Print why a Gemini call produced no usable text (no secrets)."""
+    """Print why a Gemini call produced no usable text (no raw response bodies)."""
     if response is not None and not response.ok:
-        body = (response.text or "")[:1200]
-        print(f"{context}: HTTP {response.status_code} — {body}")
+        print(f"{context}: HTTP error {_format_http_response_audit(response)}")
         return
     if not result:
         print(f"{context}: empty JSON body")
@@ -192,7 +217,11 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
                 try:
                     return _parse_syllabus_json_text(text)
                 except json.JSONDecodeError as exc:
-                    print(f"Syllabus JSON parse error: {exc}; text preview: {text[:400]!r}")
+                    n, fp = _response_text_fingerprint(text)
+                    print(
+                        f"Syllabus JSON parse error: {exc}; "
+                        f"extracted_text_len={n} extracted_text_sha256_16={fp}"
+                    )
                     return None
             _log_gemini_failure("generate_syllabus_json", result, response)
             return None

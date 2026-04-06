@@ -33,7 +33,4 @@ def _strip_opt(name: str) -> Optional[str]:
 GEMINI_API_KEY = _strip_opt("GEMINI_API_KEY")
 GEMINI_API_URL = _strip_opt("GEMINI_API_URL")
 
-LINKIFYI_TOKEN = os.getenv("LINKIFYI_TOKEN")
-LEXI_PASSWORD = os.getenv("LEXI_PASSWORD")
-
 RUN_MIGRATIONS_ON_STARTUP = _env_bool("RUN_MIGRATIONS_ON_STARTUP", True)

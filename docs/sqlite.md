@@ -1,1 +1,1 @@
-login: sqlite3 lexi.db
+login: sqlite3 openship.db

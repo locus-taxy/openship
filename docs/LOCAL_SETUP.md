@@ -28,7 +28,8 @@ After `make setup`, open `.env` and set at least:
 
 - `DATABASE_URL` — PostgreSQL (or your chosen database) connection string
 - `GEMINI_API_KEY` — Google Gemini
-- `LINKIFYI_API_KEY` — email delivery
+
+Outbound email is not configured in this branch (SMTP will be added later); no email-service API keys are required in `.env`.
 
 If you use PostgreSQL 15+ and migrations fail on the `public` schema, see [postgres-public-schema.md](./postgres-public-schema.md).
 

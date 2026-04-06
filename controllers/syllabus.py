@@ -37,6 +37,17 @@ def generate_syllabus(payload: GenerateSyllabusRequest):
             detail="Failed to generate syllabus (Gemini returned no data). "
             "Confirm .env is beside config.py and restart the API; check uvicorn logs.",
         )
+    if not isinstance(syllabus_data, (list, tuple)):
+        print(
+            f"Unexpected syllabus JSON type from Gemini: {type(syllabus_data).__name__!r} "
+            f"(expected a list of months)."
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini returned syllabus data in an unexpected format (expected a JSON array). "
+            "Check uvicorn logs or try again.",
+        )
+    syllabus_data = list(syllabus_data)
     if len(syllabus_data) == 0:
         raise HTTPException(
             status_code=500,
