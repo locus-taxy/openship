@@ -9,11 +9,11 @@ ROOT := $(abspath .)
 help:
 	@echo "Openship Makefile"
 	@echo "  make setup       Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env"
-	@echo "  make dev         Run API (port 3005) and UI (5173) in parallel"
+	@echo "  make dev         Run API (port 3005) and UI (5173) in parallel; opens browser for UI"
 	@echo "  make run-api     FastAPI only (reload)"
 	@echo "  make run-ui      Vite dev server only"
-	@echo "  make format      Run Black via pre-commit (may need two passes after big reformats)"
-	@echo "  make format-check  CI-style: fail if Python is not Black-clean"
+	@echo "  make format      Run Black + single-blank-line pass via pre-commit (may run twice)"
+	@echo "  make format-check  CI-style: fail if Python formatting is not clean"
 	@echo "  make install     Alias for setup"
 
 install: setup

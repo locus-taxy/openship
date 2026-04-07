@@ -4,7 +4,6 @@ from sqlmodel import Session, select
 from database import engine
 from models.daily_task import DailyTask
 
-
 def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:
         t = session.get(DailyTask, task_id)
@@ -21,7 +20,6 @@ def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
             "completed": t.completed,
             "newsletter": t.newsletter,
         }
-
 
 def get_tasks_based_on_skill_id(skill_id: int) -> List[Dict[str, Any]]:
     with Session(engine) as session:
@@ -45,7 +43,6 @@ def get_tasks_based_on_skill_id(skill_id: int) -> List[Dict[str, Any]]:
             }
             for t in tasks
         ]
-
 
 def get_tasks_for_generating_newsletter(skill_id: int) -> List[Dict[str, Any]]:
     with Session(engine) as session:
@@ -72,7 +69,6 @@ def get_tasks_for_generating_newsletter(skill_id: int) -> List[Dict[str, Any]]:
             for t in tasks
         ]
 
-
 def add_content_to_db(newsletter: str, task_id: int) -> bool:
     try:
         with Session(engine) as session:
@@ -87,7 +83,6 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
         print(f"Error in add_content_to_db: {e}")
         return False
 
-
 def mark_task_completed(task_id: int) -> bool:
     try:
         with Session(engine) as session:
@@ -101,7 +96,6 @@ def mark_task_completed(task_id: int) -> bool:
     except Exception as e:
         print(f"Error marking task completed: {e}")
         return False
-
 
 def store_syllabus_tasks(
     user_id: str, skill: str, syllabus_data: list, hours: int, skill_id: int
@@ -130,7 +124,6 @@ def store_syllabus_tasks(
     except Exception as e:
         print(f"Error storing syllabus tasks: {e}")
         return False
-
 
 def get_task_row(task_id: int) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:

@@ -34,9 +34,9 @@ export function DialogDemo() {
     const handleSubmit = async (e: any) => {
         e.preventDefault()
         setIsProcessing(true)
-       
+
         /** Call Auth API endpoint if you have one
-         
+
         const url = "/auth/set-credentials";
         const response = await getRequest(url, { username, password });
 
@@ -70,7 +70,7 @@ export function DialogDemo() {
         setIsCredentialsDialog(false);
         setCredentialsNotPresent(false);
         setIsProcessing(false);
-        
+
     }
 
 
@@ -101,11 +101,11 @@ export function DialogDemo() {
                                 <Label htmlFor="password">Password</Label>
                             </div>
                             <div className="relative">
-                                <Input 
-                                    id="password" 
+                                <Input
+                                    id="password"
                                     onChange={(e) => setPassword(e.target.value)}
-                                    type={showPassword ? "text" : "password"} 
-                                    required 
+                                    type={showPassword ? "text" : "password"}
+                                    required
                                 />
                                 <button
                                     type="button"

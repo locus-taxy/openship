@@ -1,7 +1,14 @@
 # Runs on `git commit` via Husky → .husky/pre-commit → pre-commit run
+# Black alone would re-insert two blank lines between top-level defs; we run collapse
+# in the same hook after Black so the repo stays on single-blank-line style.
 repos:
-  - repo: https://github.com/psf/black
-    rev: 24.10.0
+  - repo: local
     hooks:
-      - id: black
-        language_version: python3
+      - id: black-then-collapse-blank-lines
+        name: Black + single blank line between blocks
+        entry: python3 scripts/black_then_collapse.py
+        language: system
+        pass_filenames: true
+        require_serial: true
+        types: [python]
+        exclude: ^(ui/|\.venv/)

@@ -4,12 +4,10 @@ from typing import Optional
 from services.skill import get_list_of_skill_ids, get_email_id_from_skill_id
 from services.daily_task import get_tasks_based_on_skill_id, mark_task_completed
 
-
 def send_newsletter(email_to: str, title: str, content: str, token: Optional[str] = None) -> bool:
     """Send one newsletter email. SMTP is not implemented yet; returns False without sending."""
     print(f"Newsletter not sent (outbound email not configured): to={email_to!r} subject={title!r}")
     return False
-
 
 def issue_todays_newsletters():
     valid_skill_ids = _get_valid_skill_ids()
@@ -35,7 +33,6 @@ def issue_todays_newsletters():
                 mark_task_completed(t["id"])
 
     return True
-
 
 def _get_valid_skill_ids():
     skill_ids = get_list_of_skill_ids()

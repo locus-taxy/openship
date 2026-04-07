@@ -9,18 +9,15 @@ from dotenv import load_dotenv
 _ROOT = Path(__file__).resolve().parent
 load_dotenv(_ROOT / ".env")
 
-
 def _env_bool(name: str, default: bool) -> bool:
     val = os.getenv(name)
     if val is None:
         return default
     return val.strip().lower() in ("1", "true", "yes", "on")
 
-
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set. Add it to your .env file.")
-
 
 def _strip_opt(name: str) -> Optional[str]:
     v = os.getenv(name)
@@ -28,7 +25,6 @@ def _strip_opt(name: str) -> Optional[str]:
         return None
     s = v.strip()
     return s if s else None
-
 
 GEMINI_API_KEY = _strip_opt("GEMINI_API_KEY")
 GEMINI_API_URL = _strip_opt("GEMINI_API_URL")

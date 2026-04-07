@@ -45,7 +45,7 @@ export default function Layout() {
 
         cookies.forEach(async (cookie) => {
             const [key, value] = cookie.split('=');
-            
+
             if (key === 'token') {
                 isCredentialsExisit = true;
 

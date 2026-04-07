@@ -36,12 +36,12 @@ export function NavUser() {
     const logoutHandler = async () => {
         await getRequest("/auth/logout");
         clearAllCookies();
-        
+
         toast({
             title: "Logged out successfully",
             description: "You have been logged out successfully",
         })
-        
+
         setCredentialsNotPresent(true);
     }
 

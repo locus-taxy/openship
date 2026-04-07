@@ -12,7 +12,6 @@ _JSON_HEADERS = {"Content-Type": "application/json"}
 # Repo root (parent of `services/`)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-
 def _fresh_gemini_creds() -> Tuple[Optional[str], Optional[str]]:
     """Re-read `.env` each call so uvicorn reload / IDE cwd cannot serve stale empty keys.
 
@@ -26,13 +25,11 @@ def _fresh_gemini_creds() -> Tuple[Optional[str], Optional[str]]:
     url = url.strip() if url else None
     return (key if key else None, url if url else None)
 
-
 def _response_text_fingerprint(text: Optional[str]) -> Tuple[int, str]:
     """Length and short SHA-256 prefix of body text for logs (no raw content)."""
     raw = (text or "").encode("utf-8", errors="replace")
     digest = hashlib.sha256(raw).hexdigest()[:16]
     return len(raw), digest
-
 
 def _format_http_response_audit(response: requests.Response) -> str:
     """Non-sensitive metadata for failed HTTP responses (no raw body)."""
@@ -46,7 +43,6 @@ def _format_http_response_audit(response: requests.Response) -> str:
     if ct:
         parts.append(f"content_type={ct!r}")
     return " ".join(parts)
-
 
 def _extract_text(result: dict):
     """Extract text from Gemini response. Prefer non-thought parts; fall back to any text (thinking models)."""
@@ -68,7 +64,6 @@ def _extract_text(result: dict):
     except (KeyError, IndexError, TypeError):
         pass
     return None
-
 
 def _log_gemini_failure(
     context: str, result: Optional[Dict[str, Any]], response: Optional[requests.Response] = None
@@ -93,7 +88,6 @@ def _log_gemini_failure(
     if "content" not in c0:
         print(f"{context}: candidate has no content; keys={list(c0.keys())}")
 
-
 def _parse_syllabus_json_text(text: str):
     """Parse model JSON; tolerate optional ``` fences around the payload."""
     raw = (text or "").strip()
@@ -105,7 +99,6 @@ def _parse_syllabus_json_text(text: str):
             lines = lines[:-1]
         raw = "\n".join(lines).strip()
     return json.loads(raw)
-
 
 SYLLABUS_SCHEMA = {
     "type": "ARRAY",
@@ -164,7 +157,6 @@ SYLLABUS_SCHEMA = {
         "propertyOrdering": ["month", "title", "goal", "weeks"],
     },
 }
-
 
 def generate_syllabus_json(skill: str, days: int, hours: int):
     """Call Gemini API to produce a structured syllabus. Returns parsed JSON list or None."""
@@ -253,7 +245,6 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
         except json.JSONDecodeError:
             print("Failed to decode JSON from Gemini response.")
             return None
-
 
 def generate_newsletter_html(task_description: str, task_title: str, skill: str):
     """Call Gemini API to produce newsletter HTML for a single task. Returns HTML string or None."""

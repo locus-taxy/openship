@@ -7,7 +7,6 @@ from alembic.config import Config
 
 from config import RUN_MIGRATIONS_ON_STARTUP
 
-
 def run_startup_migrations() -> None:
     if not RUN_MIGRATIONS_ON_STARTUP:
         return

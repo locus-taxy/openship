@@ -5,7 +5,6 @@ from services.skill import get_syllabus_detail, get_email_id_from_skill_id
 from services.daily_task import get_chapter_content, mark_task_completed
 from services.newsletter import send_newsletter, issue_todays_newsletters
 
-
 def send_chapter_email(payload: SendChapterEmailRequest):
     chapter = get_chapter_content(payload.task_id)
     if chapter is None:
@@ -26,7 +25,6 @@ def send_chapter_email(payload: SendChapterEmailRequest):
 
     mark_task_completed(payload.task_id)
     return {"status": "success", "message": f"Email sent for Day {chapter['day']}"}
-
 
 def issue_all_newsletters():
     try:

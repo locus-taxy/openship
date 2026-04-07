@@ -1,4 +1,7 @@
+import logging
+
 from fastapi import HTTPException
+
 from schemas.skill import GenerateSyllabusRequest
 from services.skill import (
     get_skill,
@@ -9,17 +12,16 @@ from services.skill import (
 from services.gemini import generate_syllabus_json
 from services.daily_task import store_syllabus_tasks
 
+logger = logging.getLogger(__name__)
 
 def list_syllabi():
     return get_all_syllabi()
-
 
 def get_syllabus(skill_id: int):
     detail = get_syllabus_detail(skill_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Syllabus {skill_id} not found")
     return detail
-
 
 def generate_syllabus(payload: GenerateSyllabusRequest):
     skill = get_skill(payload.email, payload.skill)
@@ -38,9 +40,9 @@ def generate_syllabus(payload: GenerateSyllabusRequest):
             "Confirm .env is beside config.py and restart the API; check uvicorn logs.",
         )
     if not isinstance(syllabus_data, (list, tuple)):
-        print(
-            f"Unexpected syllabus JSON type from Gemini: {type(syllabus_data).__name__!r} "
-            f"(expected a list of months)."
+        logger.warning(
+            "Unexpected syllabus JSON type from Gemini: %s (expected a list of months).",
+            type(syllabus_data).__name__,
         )
         raise HTTPException(
             status_code=500,
