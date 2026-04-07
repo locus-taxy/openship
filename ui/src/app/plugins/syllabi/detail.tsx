@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router"
 import {
     ArrowLeft, BookOpen, CheckCircle2, Circle, Clock,
@@ -308,7 +308,11 @@ export default function SyllabusDetailPage() {
     const [loading, setLoading] = useState(true)
     const { setPluginName, setPluginInfo } = useStore((state: any) => state)
 
+    const fetchedRef = useRef(false)
+
     useEffect(() => {
+        if (fetchedRef.current) return
+        fetchedRef.current = true
         async function fetchDetail() {
             const { success, data } = await getRequest(`/py/syllabi/${skillId}`)
             if (success) {

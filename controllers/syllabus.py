@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import HTTPException
-
+from models.user import User
 from schemas.skill import GenerateSyllabusRequest
 from services.skill import (
     get_skill,
@@ -14,21 +14,24 @@ from services.daily_task import store_syllabus_tasks
 
 logger = logging.getLogger(__name__)
 
-def list_syllabi():
-    return get_all_syllabi()
+def list_syllabi(current_user: User):
+    return get_all_syllabi(email=current_user.email)
 
-def get_syllabus(skill_id: int):
+def get_syllabus(skill_id: int, current_user: User):
     detail = get_syllabus_detail(skill_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Syllabus {skill_id} not found")
+    if detail["user_id"] != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You do not own this skill")
     return detail
 
-def generate_syllabus(payload: GenerateSyllabusRequest):
-    skill = get_skill(payload.email, payload.skill)
+def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
+    email = current_user.email
+    skill = get_skill(email, payload.skill)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"No subscription found for '{payload.skill}'")
 
-    skill_id = get_skill_id_by_email_and_skill(payload.email, payload.skill)
+    skill_id = get_skill_id_by_email_and_skill(email, payload.skill)
     if skill_id is None:
         raise HTTPException(status_code=404, detail="Skill ID not found")
 
@@ -57,7 +60,7 @@ def generate_syllabus(payload: GenerateSyllabusRequest):
         )
 
     if not store_syllabus_tasks(
-        skill["user_id"], payload.skill, syllabus_data, skill["hours"], skill_id
+        str(current_user.id), payload.skill, syllabus_data, skill["hours"], skill_id
     ):
         raise HTTPException(
             status_code=500,

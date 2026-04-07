@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-pydantic
+pydantic[email]
 sqlmodel
 alembic
 psycopg2-binary
@@ -11,3 +11,6 @@ Jinja2
 sentry-sdk
 jwcrypto
 python-multipart
+passlib[bcrypt]
+bcrypt<5
+PyJWT

@@ -26,3 +26,9 @@ class DailyTask(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime, server_default=func.now()),
     )
+    updated_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(
+            DateTime, server_default=func.now(), onupdate=func.now()
+        ),
+    )

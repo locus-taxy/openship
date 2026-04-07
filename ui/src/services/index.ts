@@ -1,5 +1,51 @@
 import axios from "axios";
 import { toast } from "../hooks/use-toast";
+import useAuthStore from "../store/authStore";
+
+const api = axios.create();
+
+let isRefreshing = false;
+let pendingRequests: Array<{
+    resolve: () => void;
+    reject: (error: unknown) => void;
+}> = [];
+
+api.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+        const originalRequest = error.config;
+
+        if (error.response?.status === 401 && !originalRequest._retry) {
+            originalRequest._retry = true;
+
+            if (!isRefreshing) {
+                isRefreshing = true;
+                try {
+                    await useAuthStore.getState().refreshAccessToken();
+                    isRefreshing = false;
+                    pendingRequests.forEach((p) => p.resolve());
+                    pendingRequests = [];
+                    return api(originalRequest);
+                } catch (refreshError) {
+                    isRefreshing = false;
+                    pendingRequests.forEach((p) => p.reject(refreshError));
+                    pendingRequests = [];
+                    useAuthStore.getState().logout("session_expired");
+                    return Promise.reject(error);
+                }
+            }
+
+            return new Promise((resolve, reject) => {
+                pendingRequests.push({
+                    resolve: () => resolve(api(originalRequest)),
+                    reject,
+                });
+            });
+        }
+
+        return Promise.reject(error);
+    }
+);
 
 /** FastAPI uses `detail`; validation errors use `detail` as an array. */
 function formatApiError(error: unknown): string {
@@ -25,30 +71,36 @@ function formatApiError(error: unknown): string {
 
 export const getRequest = async (url: string, params?: any) => {
     try {
-        const response = await axios.get(url, { params });
-        return { success: true, data: response.data }
+        const response = await api.get(url, { params });
+        return { success: true, data: response.data };
     } catch (error: any) {
-        console.log(error);
-        toast({
-            variant: "destructive",
-            title: "Error",
-            description: formatApiError(error),
-        })
+        if (error?.response?.status !== 401) {
+            console.error(error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: formatApiError(error),
+            });
+        }
         return { success: false, error };
     }
-}
+};
 
 export const postRequest = async (url: string, data: any) => {
     try {
-        const response = await axios.post(url, data);
-        return { success: true, data: response.data }
+        const response = await api.post(url, data);
+        return { success: true, data: response.data };
     } catch (error: any) {
-        console.log(error);
-        toast({
-            variant: "destructive",
-            title: "Error",
-            description: formatApiError(error),
-        })
+        if (error?.response?.status !== 401) {
+            console.error(error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: formatApiError(error),
+            });
+        }
         return { success: false, error };
     }
-}
+};
+
+export default api;
