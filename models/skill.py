@@ -4,7 +4,6 @@ from sqlmodel import SQLModel, Field, Column, DateTime, func
 
 class Skill(SQLModel, table=True):
     __tablename__ = "skills"
-
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: str
     email: str = Field(index=True)
@@ -15,4 +14,10 @@ class Skill(SQLModel, table=True):
     created_at: Optional[datetime] = Field(
         default=None,
         sa_column=Column(DateTime, server_default=func.now()),
+    )
+    updated_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(
+            DateTime, server_default=func.now(), onupdate=func.now()
+        ),
     )
