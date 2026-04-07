@@ -1,83 +1,46 @@
-"use client"
-
-import {
-  SidebarMenu,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
-import { Button } from "./ui/button"
-import { Collapsible } from "./ui/collapsible"
-import { Dialog, DialogOverlay, DialogTrigger } from "./ui/dialog"
-import { DialogDemo } from "../app/credentialsManager"
-import useStore from "../store"
-import { LogInIcon, LogOutIcon } from "lucide-react"
-import { toast } from "../hooks/use-toast"
-import { getRequest } from "../services"
+import { useNavigate } from "react-router";
+import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
+import { Button } from "./ui/button";
+import { LogOutIcon, UserCircle } from "lucide-react";
+import useAuthStore from "@/store/authStore";
+import { ThemeToggle } from "./theme-toggle";
 
 export function NavUser() {
-    const { isCredentialsDialog, setIsCredentialsDialog, credentialsNotPresent, setCredentialsNotPresent } = useStore((state: any) => state);
+    const { user, isAuthenticated, logout } = useAuthStore();
+    const navigate = useNavigate();
 
-    const setOpen = () => {
-        if (credentialsNotPresent) {
-            setIsCredentialsDialog(true);
-        } else {
-            setIsCredentialsDialog(!isCredentialsDialog);
-        }
+    if (!isAuthenticated || !user) {
+        return null;
     }
 
-    function clearAllCookies() {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookieName = cookies[i].split('=')[0].trim();
-            // Set cookie expiration date to a past date
-            document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-        }
+    function handleLogout() {
+        logout();
+        navigate("/login");
     }
 
-    const logoutHandler = async () => {
-        await getRequest("/auth/logout");
-        clearAllCookies();
-        
-        toast({
-            title: "Logged out successfully",
-            description: "You have been logged out successfully",
-        })
-        
-        setCredentialsNotPresent(true);
-    }
-
-  return (
-    <Collapsible
-        key="credentials"
-        asChild
-        defaultOpen={true}
-        className="group/collapsible"
-    >
-
-        <SidebarMenu className="flex flex-row items-center justify-center">
-        <SidebarMenuItem className="w-full">
-            <hr />
-            <Dialog open={isCredentialsDialog} onOpenChange={setOpen}>
-                <DialogOverlay className="fixed inset-0 z-50 backdrop-blur-sm bg-black/30" />
-                <DialogTrigger className="mt-2 w-full" asChild>
-                    {
-                        credentialsNotPresent ? (
-                            <Button variant="outline" onClick={setOpen}>
-                                <LogInIcon className="w-4 h-4 mr-2" />
-                                Login
-                            </Button>
-                        ) : (
-                            <Button variant="outline" onClick={logoutHandler}>
-                                <LogOutIcon className="w-4 h-4 mr-2" />
-                                Logout
-                            </Button>
-                        )
-                    }
-                </DialogTrigger>
-                <DialogDemo />
-            </Dialog>
-            {/* <Button className="mt-2 w-full">Set Credentials</Button> */}
-        </SidebarMenuItem>
+    return (
+        <SidebarMenu>
+            <SidebarMenuItem>
+                <div className="flex items-center gap-2 px-2 py-2">
+                    <UserCircle className="h-6 w-6 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{user.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                            {user.email}
+                        </p>
+                    </div>
+                    <ThemeToggle />
+                </div>
+                <hr className="my-1" />
+                <Button
+                    variant="outline"
+                    className="w-full mt-1"
+                    onClick={handleLogout}
+                >
+                    <LogOutIcon className="w-4 h-4 mr-2" />
+                    Logout
+                </Button>
+            </SidebarMenuItem>
         </SidebarMenu>
-    </Collapsible>
-  )
+    );
 }

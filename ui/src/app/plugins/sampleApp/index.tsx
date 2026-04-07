@@ -1,39 +1,14 @@
 import { useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import useStore from "@/store"
-import { useToast } from "@/hooks/use-toast"
 
 export default function SampleApp() {
-    const { toast } = useToast()
-
     const { setPluginName, setPluginInfo } = useStore((state: any) => state);
 
-
-    function successToast() {
-        toast({
-            variant: "default",
-            className: "bg-green-500 text-white",
-            title: "Success toast",
-            description: "The toast is a success toast",
-        });
-    }
-
-   function destructiveToast() {
-    setPluginName("Sample")
-    setPluginInfo("This is a sample page.")
-    toast({
-        variant: "destructive",
-        title: "Invalid",
-        description: "test toast",
-    })
-   }
-
-   useEffect(() => {
-    successToast();
-    setTimeout(() => {
-        destructiveToast();
-    }, 3000);
-   }, []);
+    useEffect(() => {
+        setPluginName("Sample")
+        setPluginInfo("This is a sample page.")
+    }, [setPluginName, setPluginInfo]);
 
     return (
         <div className="container mx-auto p-4">
@@ -48,4 +23,3 @@ export default function SampleApp() {
         </div>
     )
 }
-

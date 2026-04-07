@@ -2,10 +2,8 @@
 
 import { BrainCircuit, BookOpen, UserPlus } from "lucide-react";
 import { useEffect } from "react";
-
 import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
-
 import {
     Sidebar,
     SidebarContent,

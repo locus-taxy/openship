@@ -1,6 +1,5 @@
 import { createBrowserRouter } from "react-router";
 import Layout from "../app/dashboard";
-import LoginPage from "../app/login";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Home } from "lucide-react";
@@ -10,10 +9,8 @@ import SyllabusDetailPage from "@/app/plugins/syllabi/detail";
 import GenerateContentPage from "@/app/plugins/generateContent";
 import GenerateSyllabusPage from "@/app/plugins/generateSyllabus";
 import SubscribePage from "@/app/plugins/subscribe";
-
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-    return children;
-};
+import LoginPage from "@/app/auth/login";
+import SignupPage from "@/app/auth/signup";
 
 const GlobalErrorBoundary = () => {
     return (
@@ -23,7 +20,9 @@ const GlobalErrorBoundary = () => {
                     <CardTitle className="text-xl">Something went wrong</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-muted-foreground">We're sorry, but we encountered an unexpected error.</p>
+                    <p className="text-muted-foreground">
+                        We're sorry, but we encountered an unexpected error.
+                    </p>
                 </CardContent>
                 <CardFooter>
                     <Button asChild>
@@ -40,71 +39,47 @@ const GlobalErrorBoundary = () => {
 
 const router = createBrowserRouter([
     {
+        path: "/login",
+        element: <LoginPage />,
+    },
+    {
+        path: "/signup",
+        element: <SignupPage />,
+    },
+    {
         path: "/",
         element: <Layout />,
         errorElement: <GlobalErrorBoundary />,
         children: [
             {
                 path: "",
-                element: (
-                    <ProtectedRoute>
-                        <SampleApp />
-                    </ProtectedRoute>
-                ),
+                element: <SampleApp />,
             },
             {
-                path: "/sample-route",
-                element: (
-                    <ProtectedRoute>
-                        <SampleApp />
-                    </ProtectedRoute>
-                ),
+                path: "sample-route",
+                element: <SampleApp />,
             },
             {
-                path: "/syllabi",
-                element: (
-                    <ProtectedRoute>
-                        <SyllabiPage />
-                    </ProtectedRoute>
-                ),
+                path: "syllabi",
+                element: <SyllabiPage />,
             },
             {
-                path: "/subscribe",
-                element: (
-                    <ProtectedRoute>
-                        <SubscribePage />
-                    </ProtectedRoute>
-                ),
+                path: "subscribe",
+                element: <SubscribePage />,
             },
             {
-                path: "/generate-syllabus",
-                element: (
-                    <ProtectedRoute>
-                        <GenerateSyllabusPage />
-                    </ProtectedRoute>
-                ),
+                path: "generate-syllabus",
+                element: <GenerateSyllabusPage />,
             },
             {
-                path: "/generate-content",
-                element: (
-                    <ProtectedRoute>
-                        <GenerateContentPage />
-                    </ProtectedRoute>
-                ),
+                path: "generate-content",
+                element: <GenerateContentPage />,
             },
             {
-                path: "/syllabi/:skillId",
-                element: (
-                    <ProtectedRoute>
-                        <SyllabusDetailPage />
-                    </ProtectedRoute>
-                ),
+                path: "syllabi/:skillId",
+                element: <SyllabusDetailPage />,
             },
         ],
-    },
-    {
-        path: "login",
-        element: <LoginPage />,
     },
 ]);
 
