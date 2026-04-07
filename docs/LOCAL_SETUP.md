@@ -39,7 +39,7 @@ If you use PostgreSQL 15+ and migrations fail on the `public` schema, see [postg
 make dev
 ```
 
-This starts in parallel:
+This starts the **API first** (so Alembic migrations and the app are ready), **waits until** `http://127.0.0.1:3005` responds, then starts the UI:
 
 - **API:** FastAPI with Uvicorn on **http://127.0.0.1:3005** (with reload)
 - **UI:** Vite dev server (default **http://127.0.0.1:5173**)
@@ -87,7 +87,7 @@ make format-check
 | `make help`   | Short usage summary                          |
 | `make setup`  | Venv, Python deps, UI deps, Husky            |
 | `make install`| Same as `make setup`                         |
-| `make dev`    | API + UI in parallel                         |
+| `make dev`    | API first (wait for :3005), then Vite UI     |
 | `make run-api`| Backend only                                 |
 | `make run-ui` | Frontend only                                |
 | `make format` | Black via pre-commit (all files)             |
@@ -98,3 +98,5 @@ make format-check
 - **`openship: missing .venv/bin/pre-commit`** — Run `make setup` from the repo root.
 - **Husky did not run** — Ensure you cloned with Git and that `npm install` ran at the repo root (part of `make setup`).
 - **Port in use** — Change the Uvicorn port in `Makefile` (`run-api`) or the Vite config in `ui/` if 3005 / 5173 conflict with other apps.
+- **`permission denied for schema public` (Alembic)** — PostgreSQL 15+ limits `public`; grant `USAGE, CREATE` to your app user. See [postgres-public-schema.md](./postgres-public-schema.md).
+- **`email-validator is not installed` / `ImportError` on auth routes** — Run `pip install -r requirements.txt` (includes `email-validator` for Pydantic `EmailStr`).

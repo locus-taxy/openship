@@ -36,7 +36,7 @@ Use the **Makefile** for setup, hooks, and running API + UI together. Full steps
 
 ```bash
 make setup   # venv, Python + UI deps, Husky (pre-commit → Black on commit)
-make dev     # API on :3005 and Vite UI in parallel
+make dev     # API first (wait until :3005 is up), then Vite UI
 ```
 
 Manual alternative: install `requirements.txt` and `requirements-dev.txt`, copy `.env.example` to `.env`, then `uvicorn main:app --reload --port 3005` from the project root (with venv activated).

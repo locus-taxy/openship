@@ -9,7 +9,7 @@ ROOT := $(abspath .)
 help:
 	@echo "Openship Makefile"
 	@echo "  make setup       Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env"
-	@echo "  make dev         Run API (port 3005) and UI (5173) in parallel; opens browser for UI"
+	@echo "  make dev         Start API first (migrations run), wait until :3005 is up, then Vite UI"
 	@echo "  make run-api     FastAPI only (reload)"
 	@echo "  make run-ui      Vite dev server only"
 	@echo "  make format      Run Black + single-blank-line pass via pre-commit (may run twice)"
@@ -37,7 +37,19 @@ setup:
 	@echo "Setup complete. Next: edit .env if needed, then: make dev"
 
 dev:
-	@$(MAKE) -j2 run-api run-ui
+	@echo "Starting API, then UI (waits until API is up so migrations + auth run against a live server)..."
+	@bash -c 'set -e; cd "$(ROOT)"; "$(VENV)/bin/uvicorn" main:app --reload --host 0.0.0.0 --port 3005 & \
+		API_PID=$$!; \
+		trap "kill $$API_PID 2>/dev/null" EXIT INT TERM; \
+		i=0; \
+		while [ $$i -lt 60 ]; do \
+			if curl -sf "http://127.0.0.1:3005/openapi.json" >/dev/null 2>&1; then break; fi; \
+			if ! kill -0 $$API_PID 2>/dev/null; then echo "API process exited early; check errors above."; exit 1; fi; \
+			sleep 0.25; \
+			i=$$((i + 1)); \
+		done; \
+		curl -sf "http://127.0.0.1:3005/openapi.json" >/dev/null || { echo "API did not become ready on :3005"; exit 1; }; \
+		cd "$(ROOT)/ui" && npm run dev'
 
 run-api:
 	cd "$(ROOT)" && $(VENV)/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005

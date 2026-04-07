@@ -207,8 +207,7 @@ export default function SyllabiPage() {
         fetchSyllabi()
     }, [])
 
-    function handleSyllabusGenerated(skillId: number) {
-        // refresh only that card by re-fetching the list
+    function handleSyllabusGenerated() {
         fetchSyllabi()
     }
 
