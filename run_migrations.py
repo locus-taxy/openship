@@ -1,4 +1,9 @@
-"""Apply Alembic migrations programmatically (e.g. on FastAPI startup)."""
+"""Apply Alembic migrations programmatically (e.g. on FastAPI startup).
+
+Concurrent startup (multiple Uvicorn workers or instances) is serialized for
+PostgreSQL: ``alembic/env.py`` acquires a session-level advisory lock on the
+same connection used for ``context.run_migrations()`` before running upgrades.
+"""
 
 import logging
 from pathlib import Path
