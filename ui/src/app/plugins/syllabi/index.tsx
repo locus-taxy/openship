@@ -238,6 +238,7 @@ export default function SyllabiPage() {
                         placeholder="Search courses..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
+                        aria-label="Search courses"
                         className="pl-9"
                     />
                 </div>
