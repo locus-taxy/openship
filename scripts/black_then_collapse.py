@@ -10,6 +10,7 @@ import hashlib
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 BLACK = ROOT / ".venv" / "bin" / "black"
@@ -28,11 +29,21 @@ def iter_py_under_root() -> list[Path]:
         out.append(p)
     return sorted(out)
 
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def digest(path: Path) -> Optional[str]:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return None
 
 def snap(paths: list[Path]) -> dict[str, str]:
-    return {str(p.resolve()): digest(p) for p in paths if p.is_file()}
+    out: dict[str, str] = {}
+    for p in paths:
+        if not p.is_file():
+            continue
+        h = digest(p)
+        if h is not None:
+            out[str(p.resolve())] = h
+    return out
 
 def main() -> int:
     if not BLACK.is_file():

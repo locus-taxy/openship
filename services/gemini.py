@@ -4,6 +4,7 @@ import os
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlsplit
 
 import requests
 from dotenv import dotenv_values
@@ -12,18 +13,33 @@ _JSON_HEADERS = {"Content-Type": "application/json"}
 # Repo root (parent of `services/`)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+def _norm_env_str(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    s = value.strip()
+    return s if s else None
+
 def _fresh_gemini_creds() -> Tuple[Optional[str], Optional[str]]:
     """Re-read `.env` each call so uvicorn reload / IDE cwd cannot serve stale empty keys.
 
-    Uses dotenv_values (no process env mutation) instead of load_dotenv on the hot path.
+    Process environment overrides ``.env`` (non-empty ``GEMINI_*`` wins).
     """
     env_path = _PROJECT_ROOT / ".env"
     values = dotenv_values(env_path) if env_path.is_file() else {}
-    key = values["GEMINI_API_KEY"] if "GEMINI_API_KEY" in values else os.getenv("GEMINI_API_KEY")
-    url = values["GEMINI_API_URL"] if "GEMINI_API_URL" in values else os.getenv("GEMINI_API_URL")
-    key = key.strip() if key else None
-    url = url.strip() if url else None
-    return (key if key else None, url if url else None)
+    key = _norm_env_str(os.getenv("GEMINI_API_KEY")) or _norm_env_str(values.get("GEMINI_API_KEY"))
+    url = _norm_env_str(os.getenv("GEMINI_API_URL")) or _norm_env_str(values.get("GEMINI_API_URL"))
+    return (key, url)
+
+def _gemini_url_for_logs(gemini_url: str) -> str:
+    """Log-safe Gemini base URL (no query string / API key)."""
+    parts = urlsplit(gemini_url)
+    if parts.scheme or parts.netloc:
+        path = parts.path or ""
+        return f"{parts.scheme}://{parts.netloc}{path}".rstrip("/") or gemini_url
+    return gemini_url.split("?", 1)[0]
+
+def _request_exc_message(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: request failed (details omitted to avoid leaking secrets)"
 
 def _response_text_fingerprint(text: Optional[str]) -> Tuple[int, str]:
     """Length and short SHA-256 prefix of body text for logs (no raw content)."""
@@ -236,7 +252,10 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
             else:
                 return None
         except requests.exceptions.RequestException as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
+            print(
+                f"Attempt {attempt + 1} failed: {_request_exc_message(e)} "
+                f"(endpoint={_gemini_url_for_logs(gemini_url)})"
+            )
             if attempt < max_retries - 1:
                 time.sleep(delay)
                 delay *= 2
@@ -294,10 +313,16 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
     except requests.exceptions.HTTPError as e:
         if e.response is not None:
             _log_gemini_failure("generate_newsletter_html (HTTPError)", None, e.response)
-        print(f"Gemini newsletter API call failed: {e}")
+        print(
+            f"Gemini newsletter API call failed: {type(e).__name__} "
+            f"(endpoint={_gemini_url_for_logs(gemini_url)})"
+        )
         return None
     except requests.exceptions.RequestException as e:
-        print(f"Gemini newsletter API call failed: {e}")
+        print(
+            f"Gemini newsletter API call failed: {_request_exc_message(e)} "
+            f"(endpoint={_gemini_url_for_logs(gemini_url)})"
+        )
         return None
     except json.JSONDecodeError:
         print("Failed to decode JSON from Gemini newsletter response.")

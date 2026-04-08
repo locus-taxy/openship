@@ -9,11 +9,27 @@ from dotenv import load_dotenv
 _ROOT = Path(__file__).resolve().parent
 load_dotenv(_ROOT / ".env")
 
+_TRUTHY_BOOL = frozenset({"1", "true", "yes", "on"})
+_FALSEY_BOOL = frozenset({"0", "false", "no", "off"})
+
 def _env_bool(name: str, default: bool) -> bool:
-    val = os.getenv(name)
-    if val is None:
+    raw = os.getenv(name)
+    if raw is None:
         return default
-    return val.strip().lower() in ("1", "true", "yes", "on")
+    token = raw.strip().lower()
+    if token in _TRUTHY_BOOL:
+        return True
+    if token in _FALSEY_BOOL:
+        return False
+    raise ValueError(
+        f"Invalid boolean for environment variable {name!r}: {raw!r} "
+        f"(use one of: {sorted(_TRUTHY_BOOL | _FALSEY_BOOL)})"
+    )
+
+def is_smtp_outbound_configured() -> bool:
+    """True when SMTP_HOST is set to a non-empty value (outbound email wired)."""
+    host = os.getenv("SMTP_HOST")
+    return bool(host and host.strip())
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:

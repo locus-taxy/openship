@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from config import is_smtp_outbound_configured
 from models.user import User
 from schemas.skill import SendChapterEmailRequest
 from services.skill import get_syllabus_detail, get_email_id_from_skill_id
@@ -14,6 +15,12 @@ def send_chapter_email(payload: SendChapterEmailRequest, current_user: User):
     if not chapter["newsletter"]:
         raise HTTPException(status_code=400, detail="No content generated for this chapter yet")
 
+    if not is_smtp_outbound_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Email delivery is not configured (set SMTP_HOST and related SMTP settings).",
+        )
+
     email = get_email_id_from_skill_id(chapter["skill_id"])
     if not email:
         raise HTTPException(status_code=404, detail="Could not find email for this skill")
@@ -22,7 +29,10 @@ def send_chapter_email(payload: SendChapterEmailRequest, current_user: User):
     if not send_newsletter(email_to=email, title=title, content=chapter["newsletter"]):
         raise HTTPException(
             status_code=503,
-            detail="Email delivery is not configured yet. SMTP will be wired in a future change.",
+            detail=(
+                "Email was not sent (SMTP transport is not implemented in this branch, "
+                "or delivery failed)."
+            ),
         )
 
     mark_task_completed(payload.task_id)
