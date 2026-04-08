@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { BookMarked, BookOpen, ChevronDown, Loader2, CheckCircle2, CalendarDays, Clock } from "lucide-react"
+import { Sparkles, BookOpen, ChevronDown, Loader2, CheckCircle2, CalendarDays, Clock } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -156,7 +156,7 @@ export default function GenerateSyllabusPage() {
                             </>
                         ) : (
                             <>
-                                <BookMarked className="h-4 w-4 mr-2" />
+                                <Sparkles className="h-4 w-4 mr-2" />
                                 Generate Syllabus
                             </>
                         )}

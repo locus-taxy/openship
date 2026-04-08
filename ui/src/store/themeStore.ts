@@ -16,7 +16,7 @@ function applyTheme(theme: Theme) {
     }
 }
 
-const stored = (localStorage.getItem("theme") as Theme) || "light";
+const stored = (localStorage.getItem("theme") as Theme) || "dark";
 applyTheme(stored);
 
 const useThemeStore = create<ThemeState>((set) => ({

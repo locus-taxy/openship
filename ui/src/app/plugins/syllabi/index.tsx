@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useMemo } from "react"
 import { useNavigate } from "react-router"
-import { BookOpen, Clock, CalendarDays, Mail, TrendingUp, BookMarked, PlayCircle, Loader2, RotateCw } from "lucide-react"
+import { BookOpen, Clock, CalendarDays, Mail, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
 import { getRequest, postRequest } from "@/services"
 import useStore from "@/store"
 
@@ -122,7 +123,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart }: {
                         {generating ? (
                             <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
                         ) : (
-                            <><BookMarked className="h-4 w-4 mr-2" />Generate Syllabus</>
+                            <><Sparkles className="h-4 w-4 mr-2" />Generate Syllabus</>
                         )}
                     </Button>
                 ) : (
@@ -185,8 +186,15 @@ function CardSkeleton() {
 export default function SyllabiPage() {
     const [syllabi, setSyllabi] = useState<Syllabus[]>([])
     const [loading, setLoading] = useState(true)
+    const [search, setSearch] = useState("")
     const navigate = useNavigate()
     const { setPluginName, setPluginInfo } = useStore((state: any) => state)
+
+    const filteredSyllabi = useMemo(() => {
+        const q = search.trim().toLowerCase()
+        if (!q) return syllabi
+        return syllabi.filter((s) => s.skill.toLowerCase().includes(q))
+    }, [syllabi, search])
 
     useEffect(() => {
         setPluginName("Syllabi")
@@ -223,6 +231,18 @@ export default function SyllabiPage() {
                 </Button>
             </div>
 
+            {!loading && syllabi.length > 0 && (
+                <div className="relative max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search courses..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="pl-9"
+                    />
+                </div>
+            )}
+
             {loading ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
@@ -234,9 +254,15 @@ export default function SyllabiPage() {
                     <p className="text-muted-foreground text-sm mt-1 mb-4">Subscribe to a subject to get started.</p>
                     <Button onClick={() => navigate("/subscribe")}>+ New Subscription</Button>
                 </Card>
+            ) : filteredSyllabi.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Search className="h-10 w-10 text-muted-foreground mb-3" />
+                    <h3 className="font-semibold text-lg">No courses found</h3>
+                    <p className="text-muted-foreground text-sm mt-1">No courses match "{search}"</p>
+                </div>
             ) : (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {syllabi.map((item) => (
+                    {filteredSyllabi.map((item) => (
                         <SyllabusCard
                             key={item.skill_id}
                             item={item}
