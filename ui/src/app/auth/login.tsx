@@ -37,6 +37,13 @@ export default function LoginPage() {
         }
     }, [sessionExpired, clearSessionExpired]);
 
+    useEffect(() => {
+        const root = document.documentElement;
+        const wasDark = root.classList.contains("dark");
+        root.classList.remove("dark");
+        return () => { if (wasDark) root.classList.add("dark"); };
+    }, []);
+
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         setError("");
@@ -60,13 +67,6 @@ export default function LoginPage() {
     }
 
     if (isAuthenticated) return null;
-
-    useEffect(() => {
-        const root = document.documentElement;
-        const wasDark = root.classList.contains("dark");
-        root.classList.remove("dark");
-        return () => { if (wasDark) root.classList.add("dark"); };
-    }, []);
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-zinc-800 px-4">
