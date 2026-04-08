@@ -1,0 +1,3 @@
+# Local development only (formatting + git hooks). Not required for production runtime.
+black
+pre-commit

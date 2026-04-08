@@ -20,7 +20,7 @@ Openship is an AI-powered personalized learning platform that generates a custom
 
 - **FastAPI** — async REST API backend
 - **Google Gemini API** — syllabus and content generation (structured JSON output)
-- **SQLite** — user, skill, and task storage
+- **PostgreSQL** (or SQLAlchemy-supported DB) — user, skill, and task storage
 
 ## API Endpoints
 
@@ -32,21 +32,22 @@ Openship is an AI-powered personalized learning platform that generates a custom
 
 ## Getting Started
 
+Use the **Makefile** for setup, hooks, and running API + UI together. Full steps: [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md).
+
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment variables
-cp .env.example .env  # add your Gemini API key, Linkifyi credentials, etc.
-
-# Run the server
-uvicorn main:app --reload
+make setup   # venv, Python + UI deps, Husky (pre-commit → Black on commit)
+make dev     # API first (wait until :3005 is up), then Vite UI
 ```
+
+Manual alternative: install `requirements.txt` and `requirements-dev.txt`, copy `.env.example` to `.env`, then `uvicorn main:app --reload --port 3005` from the project root (with venv activated).
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
+| `DATABASE_URL` | SQLAlchemy URL (required); PostgreSQL example in `.env.example` |
+| `RUN_MIGRATIONS_ON_STARTUP` | If `true` (default), runs `alembic upgrade head` before serving |
 | `GEMINI_API_KEY` | Google Gemini API key |
-| `LINKIFYI_API_KEY` | Linkifyi email service API key |
 | `SENTRY_DSN` | (Optional) Sentry DSN for error tracking |
+
+Outbound email uses SMTP in a planned follow-up; there are no third-party email API env vars in this branch.

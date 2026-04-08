@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import HTTPException
 from models.user import User
 from schemas.skill import GenerateSyllabusRequest
@@ -9,6 +11,8 @@ from services.skill import (
 )
 from services.gemini import generate_syllabus_json
 from services.daily_task import store_syllabus_tasks
+
+logger = logging.getLogger(__name__)
 
 def list_syllabi(current_user: User):
     return get_all_syllabi(email=current_user.email)
@@ -32,11 +36,34 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
         raise HTTPException(status_code=404, detail="Skill ID not found")
 
     syllabus_data = generate_syllabus_json(payload.skill, skill["days"], skill["hours"])
-    if not syllabus_data:
-        raise HTTPException(status_code=500, detail="Failed to generate syllabus")
+    if syllabus_data is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate syllabus (Gemini returned no data). "
+            "Confirm .env is beside config.py and restart the API; check uvicorn logs.",
+        )
+    if not isinstance(syllabus_data, (list, tuple)):
+        logger.warning(
+            "Unexpected syllabus JSON type from Gemini: %s (expected a list of months).",
+            type(syllabus_data).__name__,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini returned syllabus data in an unexpected format (expected a JSON array). "
+            "Check uvicorn logs or try again.",
+        )
+    syllabus_data = list(syllabus_data)
+    if len(syllabus_data) == 0:
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini returned an empty syllabus. Try again or shorten the plan (days).",
+        )
 
     if not store_syllabus_tasks(
         str(current_user.id), payload.skill, syllabus_data, skill["hours"], skill_id
     ):
-        raise HTTPException(status_code=500, detail="Failed to save syllabus tasks")
+        raise HTTPException(
+            status_code=500,
+            detail="Syllabus was generated but could not be saved to the database",
+        )
     return {"status": "success", "message": f"Syllabus generated for '{payload.skill}'"}

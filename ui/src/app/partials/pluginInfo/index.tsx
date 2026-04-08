@@ -27,10 +27,10 @@ export default function PluginInfo() {
                     </Breadcrumb>
                 </div>
             </header>
-            
+
             <div className="mt-0 ml-3 mr-2 max-h-[70vh] overflow-y-auto pr-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
                 <Markdown>{pluginInfo}</Markdown>
-            </div>   
+            </div>
         </>
     )
 }

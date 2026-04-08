@@ -23,6 +23,9 @@ interface AuthState {
     clearSessionExpired: () => void;
 }
 
+/** Short timeout so login/signup are not blocked for ~30s when the API is down or still starting. */
+const AUTH_PROBE_TIMEOUT_MS = 5000;
+
 const useAuthStore = create<AuthState>((set, get) => ({
     user: null,
     isAuthenticated: false,
@@ -58,8 +61,12 @@ const useAuthStore = create<AuthState>((set, get) => ({
         if (get().initialized || get().isLoading) return;
         set({ isLoading: true });
         try {
-            await axios.post("/py/auth/refresh");
-            const userRes = await axios.get("/py/auth/me");
+            await axios.post("/py/auth/refresh", undefined, {
+                timeout: AUTH_PROBE_TIMEOUT_MS,
+            });
+            const userRes = await axios.get("/py/auth/me", {
+                timeout: AUTH_PROBE_TIMEOUT_MS,
+            });
             set({
                 user: userRes.data,
                 isAuthenticated: true,

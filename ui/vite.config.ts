@@ -10,6 +10,7 @@ export default defineConfig({
     },
   },
   server: {
+    open: true,
     proxy: {
         "/py": {
             target: "http://localhost:3005",
