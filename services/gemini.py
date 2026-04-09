@@ -202,8 +202,6 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": SYLLABUS_SCHEMA,
-            # Gemini 2.5 thinking models may omit public text unless thoughts are off:
-            "thinkingConfig": {"includeThoughts": False},
         },
     }
 
@@ -289,9 +287,6 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
     payload = {
         "contents": [{"parts": [{"text": user_prompt}]}],
         "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {
-            "thinkingConfig": {"includeThoughts": False},
-        },
     }
 
     try:
