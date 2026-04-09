@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useMemo } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
-import { BookOpen, Clock, CalendarDays, Mail, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search } from "lucide-react"
+import { BookOpen, Clock, CalendarDays, Mail, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { getRequest, postRequest } from "@/services"
 import useStore from "@/store"
+
+interface MatchingChapter {
+    id: number
+    day: number
+    topic: string
+    task: string
+}
 
 interface Syllabus {
     skill_id: number
@@ -20,14 +27,18 @@ interface Syllabus {
     created_at: string
     total_tasks: number
     completed_tasks: number
+    matching_chapters?: MatchingChapter[]
 }
 
-function SyllabusCard({ item, onSyllabusGenerated, onStart }: {
+function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     item: Syllabus
     onSyllabusGenerated: (skillId: number) => void
     onStart: (skillId: number) => void
+    searchQuery: string
 }) {
     const [generating, setGenerating] = useState(false)
+    const chapters = item.matching_chapters ?? []
+    const hasMatchingChapters = searchQuery.trim() !== "" && chapters.length > 0
 
     const progress = item.total_tasks > 0
         ? Math.round((item.completed_tasks / item.total_tasks) * 100)
@@ -79,70 +90,105 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart }: {
                 </div>
             </CardHeader>
 
-            <CardContent className="space-y-4 flex-1 flex flex-col justify-between">
-                <div className="space-y-4">
-                    {hasSyllabus ? (
-                        <div className="space-y-1.5">
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                                <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3" />Progress</span>
-                                <span className="font-medium text-foreground">{item.completed_tasks} / {item.total_tasks} days</span>
+            <CardContent className="flex-1 flex flex-col">
+                {hasSyllabus || hasMatchingChapters ? (
+                    <div className="space-y-4 flex-1 flex flex-col">
+                        {hasSyllabus && (
+                            <div className="space-y-1.5">
+                                <div className="flex justify-between text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3" />Progress</span>
+                                    <span className="font-medium text-foreground">{item.completed_tasks} / {item.total_tasks} days</span>
+                                </div>
+                                <Progress value={progress} className="h-2" />
+                                <p className="text-right text-xs font-semibold text-primary">{progress}%</p>
                             </div>
-                            <Progress value={progress} className="h-2" />
-                            <p className="text-right text-xs font-semibold text-primary">{progress}%</p>
-                        </div>
-                    ) : (
-                        <p className="text-xs text-muted-foreground italic">No syllabus yet — generate one to get started.</p>
-                    )}
+                        )}
 
-                    <div className="grid grid-cols-2 gap-2">
-                        <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-                            <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                                <p className="text-xs text-muted-foreground">Duration</p>
-                                <p className="text-sm font-medium">{item.days} days</p>
+                        {hasMatchingChapters && (
+                            <div className="space-y-1.5">
+                                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                                    <FileText className="h-3 w-3" />
+                                    Matching chapters ({chapters.length})
+                                </p>
+                                <ul className="space-y-1 h-[6.5rem] overflow-y-auto">
+                                    {chapters.map((ch) => (
+                                        <li key={ch.id} className="text-xs rounded-md bg-muted/50 px-2.5 py-1.5">
+                                            <span className="font-medium">Day {ch.day}:</span>{" "}
+                                            <span className="text-muted-foreground">{ch.topic}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
+                                <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                                <div>
+                                    <p className="text-xs text-muted-foreground">Duration</p>
+                                    <p className="text-sm font-medium">{item.days} days</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
+                                <Clock className="h-4 w-4 text-muted-foreground" />
+                                <div>
+                                    <p className="text-xs text-muted-foreground">Daily</p>
+                                    <p className="text-sm font-medium">{item.hours} hr{item.hours !== 1 ? "s" : ""}</p>
+                                </div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-                            <Clock className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                                <p className="text-xs text-muted-foreground">Daily</p>
-                                <p className="text-sm font-medium">{item.hours} hr{item.hours !== 1 ? "s" : ""}</p>
-                            </div>
+
+                        <div className="mt-auto pt-2">
+                            {!hasSyllabus ? (
+                                <Button
+                                    className="w-full"
+                                    variant="outline"
+                                    disabled={generating}
+                                    onClick={handleGenerate}
+                                >
+                                    {generating ? (
+                                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
+                                    ) : (
+                                        <><Sparkles className="h-4 w-4 mr-2" />Generate Syllabus</>
+                                    )}
+                                </Button>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <Button
+                                        className="flex-1"
+                                        onClick={() => onStart(item.skill_id)}
+                                    >
+                                        <PlayCircle className="h-4 w-4 mr-2" />
+                                        {isInProgress ? "Continue" : "Start Course"}
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Regenerate syllabus"
+                                        disabled={generating}
+                                        onClick={handleGenerate}
+                                    >
+                                        {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     </div>
-                </div>
-
-                {/* action button */}
-                {!hasSyllabus ? (
-                    <Button
-                        className="w-full mt-2"
-                        variant="outline"
-                        disabled={generating}
-                        onClick={handleGenerate}
-                    >
-                        {generating ? (
-                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
-                        ) : (
-                            <><Sparkles className="h-4 w-4 mr-2" />Generate Syllabus</>
-                        )}
-                    </Button>
                 ) : (
-                    <div className="flex gap-2 mt-2">
+                    <div className="flex-1 flex flex-col items-center justify-center text-center py-4">
+                        <BookOpen className="h-8 w-8 text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground italic mb-4">No syllabus yet — generate one to get started.</p>
                         <Button
-                            className="flex-1"
-                            onClick={() => onStart(item.skill_id)}
-                        >
-                            <PlayCircle className="h-4 w-4 mr-2" />
-                            {isInProgress ? "Continue" : "Start Course"}
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Regenerate syllabus"
+                            className="w-full"
+                            variant="outline"
                             disabled={generating}
                             onClick={handleGenerate}
                         >
-                            {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                            {generating ? (
+                                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
+                            ) : (
+                                <><Sparkles className="h-4 w-4 mr-2" />Generate Syllabus</>
+                            )}
                         </Button>
                     </div>
                 )}
@@ -185,16 +231,12 @@ function CardSkeleton() {
 
 export default function SyllabiPage() {
     const [syllabi, setSyllabi] = useState<Syllabus[]>([])
+    const [displayList, setDisplayList] = useState<Syllabus[]>([])
     const [loading, setLoading] = useState(true)
+    const [searching, setSearching] = useState(false)
     const [search, setSearch] = useState("")
     const navigate = useNavigate()
     const { setPluginName, setPluginInfo } = useStore((state: any) => state)
-
-    const filteredSyllabi = useMemo(() => {
-        const q = search.trim().toLowerCase()
-        if (!q) return syllabi
-        return syllabi.filter((s) => s.skill.toLowerCase().includes(q))
-    }, [syllabi, search])
 
     useEffect(() => {
         setPluginName("Syllabi")
@@ -203,17 +245,38 @@ export default function SyllabiPage() {
 
     const fetchedRef = useRef(false)
 
-    async function fetchSyllabi() {
+    const fetchSyllabi = useCallback(async () => {
         const { success, data } = await getRequest("/py/syllabi")
-        if (success) setSyllabi(data)
+        if (success) {
+            setSyllabi(data)
+            setDisplayList(data)
+        }
         setLoading(false)
-    }
+    }, [])
 
     useEffect(() => {
         if (fetchedRef.current) return
         fetchedRef.current = true
         fetchSyllabi()
-    }, [])
+    }, [fetchSyllabi])
+
+    useEffect(() => {
+        const q = search.trim()
+        if (!q) {
+            setDisplayList(syllabi)
+            setSearching(false)
+            return
+        }
+        setSearching(true)
+        const timer = setTimeout(async () => {
+            const { success, data } = await getRequest(
+                `/py/syllabi/search?q=${encodeURIComponent(q)}`
+            )
+            if (success) setDisplayList(data)
+            setSearching(false)
+        }, 350)
+        return () => clearTimeout(timer)
+    }, [search, syllabi])
 
     function handleSyllabusGenerated() {
         fetchSyllabi()
@@ -235,12 +298,15 @@ export default function SyllabiPage() {
                 <div className="relative max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search courses..."
+                        placeholder="Search courses & chapters..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        aria-label="Search courses"
+                        aria-label="Search courses and chapters"
                         className="pl-9"
                     />
+                    {searching && (
+                        <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
                 </div>
             )}
 
@@ -255,18 +321,19 @@ export default function SyllabiPage() {
                     <p className="text-muted-foreground text-sm mt-1 mb-4">Subscribe to a subject to get started.</p>
                     <Button onClick={() => navigate("/subscribe")}>+ New Subscription</Button>
                 </Card>
-            ) : filteredSyllabi.length === 0 ? (
+            ) : displayList.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                     <Search className="h-10 w-10 text-muted-foreground mb-3" />
                     <h3 className="font-semibold text-lg">No courses found</h3>
-                    <p className="text-muted-foreground text-sm mt-1">No courses match "{search}"</p>
+                    <p className="text-muted-foreground text-sm mt-1">No courses or chapters match "{search}"</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {filteredSyllabi.map((item) => (
+                    {displayList.map((item) => (
                         <SyllabusCard
                             key={item.skill_id}
                             item={item}
+                            searchQuery={search}
                             onSyllabusGenerated={handleSyllabusGenerated}
                             onStart={(skillId) => navigate(`/syllabi/${skillId}`)}
                         />

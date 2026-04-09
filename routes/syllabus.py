@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from models.user import User
 from schemas.skill import GenerateSyllabusRequest
 from dependencies.auth import get_current_user
@@ -9,6 +9,13 @@ router = APIRouter(tags=["syllabus"])
 @router.get("/syllabi")
 def list_syllabi(current_user: User = Depends(get_current_user)):
     return syllabus_controller.list_syllabi(current_user)
+
+@router.get("/syllabi/search")
+def search_syllabi(
+    q: str = Query("", description="Keyword to search"),
+    current_user: User = Depends(get_current_user),
+):
+    return syllabus_controller.search(q, current_user)
 
 @router.get("/syllabi/{skill_id}")
 def get_syllabus(skill_id: int, current_user: User = Depends(get_current_user)):

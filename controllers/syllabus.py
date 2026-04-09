@@ -8,6 +8,7 @@ from services.skill import (
     get_all_syllabi,
     get_syllabus_detail,
     get_skill_id_by_email_and_skill,
+    search_syllabi,
 )
 from services.gemini import generate_syllabus_json
 from services.daily_task import store_syllabus_tasks
@@ -16,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 def list_syllabi(current_user: User):
     return get_all_syllabi(email=current_user.email)
+
+def search(query: str, current_user: User):
+    if not query or not query.strip():
+        return get_all_syllabi(email=current_user.email)
+    return search_syllabi(email=current_user.email, query=query.strip())
 
 def get_syllabus(skill_id: int, current_user: User):
     detail = get_syllabus_detail(skill_id)
