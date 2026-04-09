@@ -268,14 +268,19 @@ export default function SyllabiPage() {
             return
         }
         setSearching(true)
+        let cancelled = false
         const timer = setTimeout(async () => {
             const { success, data } = await getRequest(
                 `/py/syllabi/search?q=${encodeURIComponent(q)}`
             )
+            if (cancelled) return
             if (success) setDisplayList(data)
             setSearching(false)
         }, 350)
-        return () => clearTimeout(timer)
+        return () => {
+            cancelled = true
+            clearTimeout(timer)
+        }
     }, [search, syllabi])
 
     function handleSyllabusGenerated() {

@@ -4,17 +4,13 @@ import requests
 from config import GEMINI_API_KEY, GEMINI_API_URL
 
 def _extract_text(result: dict):
-    """Extract the final text from a Gemini response, skipping any 'thought' parts."""
+    """Extract all non-thought text parts from a Gemini response and join them."""
     try:
         parts = result["candidates"][0]["content"]["parts"]
-        for part in reversed(parts):
-            if part.get("thought"):
-                continue
-            if "text" in part:
-                return part["text"]
+        texts = [part["text"] for part in parts if not part.get("thought") and "text" in part]
+        return "".join(texts) if texts else None
     except (KeyError, IndexError):
-        pass
-    return None
+        return None
 
 SYLLABUS_SCHEMA = {
     "type": "ARRAY",
@@ -137,7 +133,7 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
             else:
                 return None
         except requests.exceptions.RequestException as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
+            print(f"Attempt {attempt + 1} failed: {type(e).__name__}")
             if attempt < max_retries - 1:
                 time.sleep(delay)
                 delay *= 2
@@ -177,6 +173,7 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
     try:
         response = requests.post(
             f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+            headers={"Content-Type": "application/json"},
             data=json.dumps(payload),
             timeout=(10, 120),
         )
@@ -188,7 +185,7 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
         print("Unexpected Gemini API response structure.")
         return None
     except requests.exceptions.RequestException as e:
-        print(f"Gemini newsletter API call failed: {e}")
+        print(f"Gemini newsletter API call failed: {type(e).__name__}")
         return None
     except json.JSONDecodeError:
         print("Failed to decode JSON from Gemini newsletter response.")

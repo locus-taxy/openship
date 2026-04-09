@@ -136,7 +136,9 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
         matching_skill_ids = set()
 
         skill_matches = session.exec(
-            select(Skill.id).where(Skill.email == email, Skill.skill.ilike(q))
+            select(Skill.id).where(
+                Skill.email == email, Skill.skill.ilike(q), Skill.stop_sending == False
+            )
         ).all()
         matching_skill_ids.update(skill_matches)
 
