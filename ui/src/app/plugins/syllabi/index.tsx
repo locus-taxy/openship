@@ -165,6 +165,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                                         variant="ghost"
                                         size="icon"
                                         title="Regenerate syllabus"
+                                        aria-label="Regenerate syllabus"
                                         disabled={generating}
                                         onClick={handleGenerate}
                                     >
@@ -249,10 +250,10 @@ export default function SyllabiPage() {
         const { success, data } = await getRequest("/py/syllabi")
         if (success) {
             setSyllabi(data)
-            setDisplayList(data)
+            if (!search.trim()) setDisplayList(data)
         }
         setLoading(false)
-    }, [])
+    }, [search])
 
     useEffect(() => {
         if (fetchedRef.current) return
