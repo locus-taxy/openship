@@ -28,12 +28,11 @@ export default function SubscribePage() {
     const [hours, setHours] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
-    const { setPluginName, setPluginInfo } = useStore((state: any) => state);
+    const { setPluginName } = useStore((state: any) => state);
 
     useEffect(() => {
         setPluginName("Subscribe");
-        setPluginInfo("Start a new learning journey.");
-    }, [setPluginName, setPluginInfo]);
+    }, [setPluginName]);
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();

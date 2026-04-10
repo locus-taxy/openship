@@ -3,12 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import useStore from "@/store"
 
 export default function SampleApp() {
-    const { setPluginName, setPluginInfo } = useStore((state: any) => state);
+    const { setPluginName } = useStore((state: any) => state);
 
     useEffect(() => {
         setPluginName("Sample")
-        setPluginInfo("This is a sample page.")
-    }, [setPluginName, setPluginInfo]);
+    }, [setPluginName]);
 
     return (
         <div className="container mx-auto p-4">

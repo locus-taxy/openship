@@ -24,12 +24,11 @@ export default function GenerateContentPage() {
     const [selectedId, setSelectedId] = useState<number | "">("")
     const [generating, setGenerating] = useState(false)
     const [done, setDone] = useState(false)
-    const { setPluginName, setPluginInfo } = useStore((state: any) => state)
+    const { setPluginName } = useStore((state: any) => state)
 
     useEffect(() => {
         setPluginName("Generate Content")
-        setPluginInfo("Generate newsletter content for a subscriber's upcoming days.")
-    }, [setPluginName, setPluginInfo])
+    }, [setPluginName])
 
     const fetchedRef = useRef(false)
 
