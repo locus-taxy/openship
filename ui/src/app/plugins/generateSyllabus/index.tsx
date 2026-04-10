@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { getRequest, postRequest } from "@/services"
 import useStore from "@/store"
 
-interface Subscriber {
+interface Enrollee {
     skill_id: number
     email: string
     skill: string
@@ -17,7 +17,7 @@ interface Subscriber {
 }
 
 export default function GenerateSyllabusPage() {
-    const [subscribers, setSubscribers] = useState<Subscriber[]>([])
+    const [enrollees, setEnrollees] = useState<Enrollee[]>([])
     const [loadingList, setLoadingList] = useState(true)
     const [selectedId, setSelectedId] = useState<number | "">("")
     const [generating, setGenerating] = useState(false)
@@ -33,15 +33,15 @@ export default function GenerateSyllabusPage() {
     useEffect(() => {
         if (fetchedRef.current) return
         fetchedRef.current = true
-        async function fetchSubscribers() {
+        async function fetchEnrollees() {
             const { success, data } = await getRequest("/py/syllabi")
-            if (success) setSubscribers(data)
+            if (success) setEnrollees(data)
             setLoadingList(false)
         }
-        fetchSubscribers()
+        fetchEnrollees()
     }, [])
 
-    const selected = subscribers.find((s) => s.skill_id === selectedId)
+    const selected = enrollees.find((s) => s.skill_id === selectedId)
     const alreadyHasSyllabus = (selected?.total_tasks ?? 0) > 0
 
     async function handleGenerate() {
@@ -60,13 +60,13 @@ export default function GenerateSyllabusPage() {
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Generate Syllabus</h1>
                 <p className="text-muted-foreground mt-1">
-                    Pick a subscriber and generate their Month → Week → Day learning plan.
+                    Pick an enrollee and generate their Month → Week → Day learning plan.
                 </p>
             </div>
 
             <Card>
                 <CardHeader className="pb-3">
-                    <p className="text-sm font-medium">Select subscriber</p>
+                    <p className="text-sm font-medium">Select enrollee</p>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     {loadingList ? (
@@ -81,8 +81,8 @@ export default function GenerateSyllabusPage() {
                                     setDone(false)
                                 }}
                             >
-                                <option value="">— choose a subscriber —</option>
-                                {subscribers.map((s) => (
+                                <option value="">— choose an enrollee —</option>
+                                {enrollees.map((s) => (
                                     <option key={s.skill_id} value={s.skill_id}>
                                         {s.skill} · {s.email}
                                     </option>
@@ -132,7 +132,7 @@ export default function GenerateSyllabusPage() {
                             </div>
                             {alreadyHasSyllabus && (
                                 <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
-                                    This subscriber already has {selected.total_tasks} days planned. Generating again will add duplicate tasks.
+                                    This enrollee already has {selected.total_tasks} days planned. Generating again will add duplicate tasks.
                                 </p>
                             )}
                         </div>
@@ -163,7 +163,7 @@ export default function GenerateSyllabusPage() {
 
                     {done && (
                         <p className="text-center text-sm text-emerald-600">
-                            Syllabus generated successfully. You can now generate content for this subscriber.
+                            Syllabus generated successfully. You can now generate content for this enrollee.
                         </p>
                     )}
                 </CardContent>

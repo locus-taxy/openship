@@ -62,13 +62,13 @@ export default function GenerateContentPage() {
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Generate Content</h1>
                 <p className="text-muted-foreground mt-1">
-                    Pick a subscriber and generate newsletter content for their next 10 days.
+                    Pick an enrollee and generate newsletter content for their next 10 days.
                 </p>
             </div>
 
             <Card>
                 <CardHeader className="pb-3">
-                    <p className="text-sm font-medium">Select subscriber</p>
+                    <p className="text-sm font-medium">Select enrollee</p>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     {loadingList ? (
@@ -83,7 +83,7 @@ export default function GenerateContentPage() {
                                     setDone(false)
                                 }}
                             >
-                                <option value="">— choose a subscriber —</option>
+                                <option value="">— choose an enrollee —</option>
                                 {syllabi.map((s) => (
                                     <option key={s.skill_id} value={s.skill_id}>
                                         {s.skill} · {s.email}
@@ -94,7 +94,7 @@ export default function GenerateContentPage() {
                         </div>
                     )}
 
-                    {/* preview card for selected subscriber */}
+                    {/* preview card for selected enrollee */}
                     {selected && (
                         <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
                             <div className="flex items-center justify-between gap-2">
