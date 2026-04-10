@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress"
 import { getRequest, postRequest } from "@/services"
 import api from "@/services"
 import useStore from "@/store"
+import { sanitizeHtml } from "@/lib/sanitize"
 
 interface Chapter {
     id: number
@@ -178,7 +179,7 @@ function ChapterRow({ chapter, onContentGenerated }: {
                                             [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-1
                                             [&_p]:text-muted-foreground [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal
                                             [&_ol]:pl-4 [&_li]:text-muted-foreground [&_li]:mb-0.5 [&_a]:text-primary [&_a]:underline"
-                                        dangerouslySetInnerHTML={{ __html: newsletterHtml }}
+                                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(newsletterHtml) }}
                                     />
                                     <div className="px-4 py-3 flex items-center justify-between gap-3">
                                         {sent ? (

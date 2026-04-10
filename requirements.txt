@@ -16,3 +16,4 @@ passlib[bcrypt]==1.7.4
 bcrypt>=3.2.2,<5
 PyJWT==2.12.1
 slowapi==0.1.9
+bleach==6.2.0

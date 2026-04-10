@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { useParams } from "react-router"
 import {
     BookOpen, Clock, ChevronDown, ChevronRight, FileText,
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import axios from "axios"
+import { sanitizeHtml } from "@/lib/sanitize"
 
 interface PublicTask {
     id: number
@@ -79,7 +80,7 @@ function ChapterRow({ chapter }: { chapter: PublicTask }) {
                             </div>
                             <div
                                 className="px-4 py-3 prose prose-sm max-w-none text-foreground overflow-auto max-h-[500px]"
-                                dangerouslySetInnerHTML={{ __html: chapter.newsletter }}
+                                dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.newsletter) }}
                             />
                         </div>
                     )}
@@ -199,20 +200,26 @@ export default function PublicSyllabusPage() {
     const [syllabus, setSyllabus] = useState<PublicSyllabus | null>(null)
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
+    const [retryable, setRetryable] = useState(false)
     const [selectedMonth, setSelectedMonth] = useState<number | null>(null)
     const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
 
-    const fetchedRef = useRef(false)
-
     useEffect(() => {
-        if (fetchedRef.current) return
-        fetchedRef.current = true
+        setLoading(true)
+        setNotFound(false)
+        setRetryable(false)
+        setSyllabus(null)
         async function fetchPublic() {
             try {
                 const res = await axios.get(`/py/public/syllabi/${skillId}`)
                 setSyllabus(res.data)
-            } catch {
-                setNotFound(true)
+            } catch (err: any) {
+                const status = err?.response?.status
+                if (status === 404) {
+                    setNotFound(true)
+                } else {
+                    setRetryable(true)
+                }
             } finally {
                 setLoading(false)
             }
@@ -231,6 +238,24 @@ export default function PublicSyllabusPage() {
     }
 
     if (loading) return <PageSkeleton />
+
+    if (retryable) {
+        return (
+            <div className="max-w-4xl mx-auto p-6 flex flex-col items-center justify-center min-h-[60vh] text-center">
+                <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
+                <h1 className="text-2xl font-bold mb-2">Something went wrong</h1>
+                <p className="text-muted-foreground mb-4">
+                    Could not load this syllabus. Please try again in a moment.
+                </p>
+                <button
+                    className="text-sm text-primary underline"
+                    onClick={() => window.location.reload()}
+                >
+                    Retry
+                </button>
+            </div>
+        )
+    }
 
     if (notFound || !syllabus) {
         return (
@@ -310,7 +335,7 @@ export default function PublicSyllabusPage() {
                         <MonthSection
                             key={month.month}
                             month={month}
-                            selectedWeek={selectedMonth === month.month ? selectedWeek : null}
+                            selectedWeek={selectedWeek}
                             onSelectWeek={(w) => setSelectedWeek(w)}
                         />
                     ))}
