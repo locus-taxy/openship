@@ -21,7 +21,7 @@ const SUBJECTS = [
 const DAY_OPTIONS = [30, 60, 90, 120, 180];
 const HOUR_OPTIONS = [1, 2, 3, 4];
 
-export default function SubscribePage() {
+export default function EnrollPage() {
     const navigate = useNavigate();
     const [subject, setSubject] = useState("");
     const [days, setDays] = useState(90);
@@ -31,7 +31,7 @@ export default function SubscribePage() {
     const { setPluginName } = useStore((state: any) => state);
 
     useEffect(() => {
-        setPluginName("Subscribe");
+        setPluginName("Enroll");
     }, [setPluginName]);
 
     async function handleSubmit(e: React.FormEvent) {
@@ -62,7 +62,7 @@ export default function SubscribePage() {
 
             <Card>
                 <CardHeader className="pb-2">
-                    <p className="text-sm font-medium">New subscription</p>
+                    <p className="text-sm font-medium">New enrollment</p>
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={handleSubmit} className="space-y-5">
@@ -135,11 +135,11 @@ export default function SubscribePage() {
                         <Button type="submit" className="w-full" disabled={loading}>
                             {loading ? (
                                 <>
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Subscribing…
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Enrolling…
                                 </>
                             ) : (
                                 <>
-                                    <UserPlus className="h-4 w-4 mr-2" /> Subscribe
+                                    <UserPlus className="h-4 w-4 mr-2" /> Enroll
                                 </>
                             )}
                         </Button>

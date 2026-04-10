@@ -8,7 +8,7 @@ import SyllabiPage from "@/app/plugins/syllabi";
 import SyllabusDetailPage from "@/app/plugins/syllabi/detail";
 import GenerateContentPage from "@/app/plugins/generateContent";
 import GenerateSyllabusPage from "@/app/plugins/generateSyllabus";
-import SubscribePage from "@/app/plugins/subscribe";
+import EnrollPage from "@/app/plugins/enroll";
 import LoginPage from "@/app/auth/login";
 import SignupPage from "@/app/auth/signup";
 
@@ -64,8 +64,8 @@ const router = createBrowserRouter([
                 element: <SyllabiPage />,
             },
             {
-                path: "subscribe",
-                element: <SubscribePage />,
+                path: "enroll",
+                element: <EnrollPage />,
             },
             {
                 path: "generate-syllabus",

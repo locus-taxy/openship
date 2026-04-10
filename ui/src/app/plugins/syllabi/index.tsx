@@ -294,8 +294,8 @@ export default function SyllabiPage() {
                     <h1 className="text-2xl font-bold tracking-tight">Syllabi</h1>
                     <p className="text-muted-foreground mt-1">All active learning plans</p>
                 </div>
-                <Button onClick={() => navigate("/subscribe")}>
-                    + New Subscription
+                <Button onClick={() => navigate("/enroll")}>
+                    + New Enrollment
                 </Button>
             </div>
 
@@ -322,9 +322,9 @@ export default function SyllabiPage() {
             ) : syllabi.length === 0 ? (
                 <Card className="flex flex-col items-center justify-center py-16 text-center border-dashed">
                     <BookOpen className="h-10 w-10 text-muted-foreground mb-3" />
-                    <h3 className="font-semibold text-lg">No subscriptions yet</h3>
-                    <p className="text-muted-foreground text-sm mt-1 mb-4">Subscribe to a subject to get started.</p>
-                    <Button onClick={() => navigate("/subscribe")}>+ New Subscription</Button>
+                    <h3 className="font-semibold text-lg">No enrollments yet</h3>
+                    <p className="text-muted-foreground text-sm mt-1 mb-4">Enroll in a subject to get started.</p>
+                    <Button onClick={() => navigate("/enroll")}>+ New Enrollment</Button>
                 </Card>
             ) : displayList.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">

@@ -34,9 +34,9 @@ const data = {
             isActive: true,
             items: [
                 {
-                    title: "Subscribe",
+                    title: "Enroll",
                     icon: UserPlus,
-                    url: "/subscribe",
+                    url: "/enroll",
                     isActive: false,
                 },
                 {
