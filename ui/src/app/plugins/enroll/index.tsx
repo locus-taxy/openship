@@ -89,13 +89,18 @@ export default function EnrollPage() {
         }
         setError("");
         setLoading(true);
-        const { success } = await postRequest("/py/subscribe", {
-            skill: finalSubject,
-            days,
-            hours,
-        });
-        setLoading(false);
-        if (success) navigate("/syllabi");
+        try {
+            const { success } = await postRequest("/py/subscribe", {
+                skill: finalSubject,
+                days,
+                hours,
+            });
+            if (success) navigate("/syllabi");
+        } catch {
+            setError("Something went wrong. Please try again.");
+        } finally {
+            setLoading(false);
+        }
     }
 
     return (
@@ -120,7 +125,13 @@ export default function EnrollPage() {
                             <div ref={dropdownRef} className="relative">
                                 <button
                                     type="button"
+                                    aria-haspopup="listbox"
+                                    aria-expanded={open}
                                     onClick={() => setOpen((o) => !o)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Escape") setOpen(false);
+                                        if ((e.key === "ArrowDown" || e.key === "Enter") && !open) setOpen(true);
+                                    }}
                                     className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
                                 >
                                     <span className={subject ? "text-foreground" : "text-muted-foreground"}>
@@ -137,20 +148,30 @@ export default function EnrollPage() {
                                             <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                             <input
                                                 autoFocus
+                                                aria-label="Search courses"
                                                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                                                 placeholder="Search courses…"
                                                 value={search}
                                                 onChange={(e) => setSearch(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Escape") { setOpen(false); }
+                                                    if (e.key === "ArrowDown") {
+                                                        e.preventDefault();
+                                                        const list = dropdownRef.current?.querySelector("[role='listbox']");
+                                                        (list?.querySelector("[role='option']") as HTMLElement)?.focus();
+                                                    }
+                                                }}
                                             />
                                         </div>
 
-                                        <ul className="max-h-52 overflow-y-auto py-1">
+                                        <ul role="listbox" className="max-h-52 overflow-y-auto py-1">
                                             {noResults ? (
-                                                <li className="px-3 py-4 text-center space-y-2">
+                                                <li role="option" aria-selected={false} className="px-3 py-4 text-center space-y-2">
                                                     <p className="text-sm text-muted-foreground">No courses found for <span className="font-medium text-foreground">"{search}"</span></p>
                                                     <button
                                                         type="button"
                                                         onClick={() => selectOther(search)}
+                                                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") selectOther(search); }}
                                                         className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700"
                                                     >
                                                         <PenLine className="h-3.5 w-3.5" />
@@ -161,8 +182,22 @@ export default function EnrollPage() {
                                                 filtered.map((item) => (
                                                     <li
                                                         key={item}
+                                                        role="option"
+                                                        aria-selected={subject === item && !isOther}
+                                                        tabIndex={0}
                                                         onClick={() => selectSubject(item)}
-                                                        className={`px-3 py-2 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground ${subject === item && !isOther ? "bg-accent/50 font-medium" : ""}`}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectSubject(item); }
+                                                            if (e.key === "Escape") setOpen(false);
+                                                            if (e.key === "ArrowDown") { e.preventDefault(); (e.currentTarget.nextElementSibling as HTMLElement)?.focus(); }
+                                                            if (e.key === "ArrowUp") {
+                                                                e.preventDefault();
+                                                                const prev = e.currentTarget.previousElementSibling as HTMLElement;
+                                                                if (prev) prev.focus();
+                                                                else dropdownRef.current?.querySelector<HTMLElement>("input")?.focus();
+                                                            }
+                                                        }}
+                                                        className={`px-3 py-2 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none ${subject === item && !isOther ? "bg-accent/50 font-medium" : ""}`}
                                                     >
                                                         {item}
                                                     </li>
@@ -175,8 +210,19 @@ export default function EnrollPage() {
                                             <div className="border-t border-border p-1.5">
                                                 <button
                                                     type="button"
+                                                    role="option"
+                                                    aria-selected={isOther}
                                                     onClick={() => selectOther()}
-                                                    className={`w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOther(); }
+                                                        if (e.key === "Escape") setOpen(false);
+                                                        if (e.key === "ArrowUp") {
+                                                            e.preventDefault();
+                                                            const list = dropdownRef.current?.querySelector("[role='listbox']");
+                                                            (list?.lastElementChild as HTMLElement)?.focus();
+                                                        }
+                                                    }}
+                                                    className={`w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-ring
                                                         ${isOther
                                                             ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400"
                                                             : "text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 dark:text-indigo-400"
