@@ -67,7 +67,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
                             <BookOpen className="h-5 w-5" />
                         </div>
-                        <h3 className="text-lg font-semibold leading-tight">{item.skill}</h3>
+                        <h3 className="text-lg font-semibold leading-tight line-clamp-2 min-h-[2.75rem]">{item.skill}</h3>
                     </div>
                     {hasSyllabus && (
                         <Badge
@@ -176,21 +176,25 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center py-4">
-                        <BookOpen className="h-8 w-8 text-muted-foreground mb-2" />
-                        <p className="text-sm text-muted-foreground italic mb-4">No syllabus yet — generate one to get started.</p>
-                        <Button
-                            className="w-full"
-                            variant="outline"
-                            disabled={generating}
-                            onClick={handleGenerate}
-                        >
-                            {generating ? (
-                                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
-                            ) : (
-                                <><Sparkles className="h-4 w-4 mr-2" />Generate Syllabus</>
-                            )}
-                        </Button>
+                    <div className="flex-1 flex flex-col">
+                        <div className="flex-1 flex flex-col items-center justify-center text-center py-4">
+                            <BookOpen className="h-8 w-8 text-muted-foreground mb-2" />
+                            <p className="text-sm text-muted-foreground italic">No syllabus yet — generate one to get started.</p>
+                        </div>
+                        <div className="mt-auto pt-2">
+                            <Button
+                                className="w-full"
+                                variant="outline"
+                                disabled={generating}
+                                onClick={handleGenerate}
+                            >
+                                {generating ? (
+                                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
+                                ) : (
+                                    <><Sparkles className="h-4 w-4 mr-2" />Generate Syllabus</>
+                                )}
+                            </Button>
+                        </div>
                     </div>
                 )}
             </CardContent>
