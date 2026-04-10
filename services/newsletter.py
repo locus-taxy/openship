@@ -1,7 +1,24 @@
 import time
+import smtplib
+import ssl
+from email.message import EmailMessage
+from email.utils import formataddr
 from typing import Optional
 
-from config import is_smtp_outbound_configured
+from config import (
+    SMTP_FROM_EMAIL,
+    SMTP_FROM_NAME,
+    SMTP_HOST,
+    SMTP_PASSWORD,
+    SMTP_PORT,
+    SMTP_TIMEOUT_SECONDS,
+    SMTP_USE_SSL,
+    SMTP_USE_TLS,
+    SMTP_USER,
+    is_smtp_outbound_configured,
+    is_smtp_ready_to_send,
+    smtp_not_ready_reason,
+)
 from services.skill import get_list_of_skill_ids, get_email_id_from_skill_id
 from services.daily_task import get_tasks_based_on_skill_id, mark_task_completed
 
@@ -28,9 +45,45 @@ def send_newsletter(
         print(f"Newsletter skipped (SMTP_HOST not set); subject={title!r}.{suffix}")
         return treat_disabled_smtp_as_done
 
-    # SMTP configured but transport not implemented in this branch
-    print(f"Newsletter not sent (SMTP transport not implemented); subject={title!r}")
-    return False
+    if not is_smtp_ready_to_send():
+        print(
+            "Newsletter not sent (SMTP configuration incomplete); "
+            f"subject={title!r} reason={smtp_not_ready_reason()!r}"
+        )
+        return False
+
+    if bool(SMTP_USER) != bool(SMTP_PASSWORD):
+        print(
+            "Newsletter not sent (SMTP auth configuration incomplete); "
+            f"subject={title!r} reason={'both SMTP_USER and SMTP_PASSWORD are required for auth'}"
+        )
+        return False
+
+    msg = EmailMessage()
+    msg["Subject"] = title
+    msg["From"] = formataddr((SMTP_FROM_NAME or "", SMTP_FROM_EMAIL or ""))
+    msg["To"] = email_to
+    msg.set_content("Your email client does not support HTML content.")
+    msg.add_alternative(content, subtype="html")
+
+    recipient_hint = _recipient_hint(email_to)
+    try:
+        if SMTP_USE_SSL:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS) as server:
+                _smtp_send_message(server, msg)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS) as server:
+                if SMTP_USE_TLS:
+                    server.starttls(context=ssl.create_default_context())
+                _smtp_send_message(server, msg)
+        print(f"Newsletter sent successfully; subject={title!r} to={recipient_hint!r}")
+        return True
+    except (smtplib.SMTPException, OSError) as exc:
+        print(
+            "Newsletter send failed; "
+            f"subject={title!r} to={recipient_hint!r} error_type={exc.__class__.__name__}"
+        )
+        return False
 
 def issue_todays_newsletters():
     valid_skill_ids = _get_valid_skill_ids()
@@ -70,3 +123,13 @@ def _get_valid_skill_ids():
         if tasks:
             valid.append(skill_id)
     return valid
+
+def _smtp_send_message(server: smtplib.SMTP, msg: EmailMessage) -> None:
+    if SMTP_USER and SMTP_PASSWORD:
+        server.login(SMTP_USER, SMTP_PASSWORD)
+    server.send_message(msg)
+
+def _recipient_hint(email: str) -> str:
+    if "@" not in email:
+        return "[invalid]"
+    return "@" + email.split("@", 1)[1]

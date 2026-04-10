@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router"
 import {
     ArrowLeft, BookOpen, CheckCircle2, Circle, Clock,
-    FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send, Eye
+    FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send, Eye,
+    Globe, Copy, Check,
 } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { getRequest, postRequest } from "@/services"
+import api from "@/services"
 import useStore from "@/store"
 
 interface Chapter {
@@ -38,6 +40,7 @@ interface SyllabusDetail {
     email: string
     days: number
     hours: number
+    share_enabled: boolean
     created_at: string
     months: Month[]
 }
@@ -171,7 +174,10 @@ function ChapterRow({ chapter, onContentGenerated }: {
                             ) : newsletterHtml ? (
                                 <>
                                     <div
-                                        className="px-4 py-3 prose prose-sm max-w-none text-foreground overflow-auto max-h-[500px] border-b border-border/50"
+                                        className="px-4 py-3 text-sm text-foreground leading-relaxed overflow-auto max-h-[500px] border-b border-border/50
+                                            [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-1
+                                            [&_p]:text-muted-foreground [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal
+                                            [&_ol]:pl-4 [&_li]:text-muted-foreground [&_li]:mb-0.5 [&_a]:text-primary [&_a]:underline"
                                         dangerouslySetInnerHTML={{ __html: newsletterHtml }}
                                     />
                                     <div className="px-4 py-3 flex items-center justify-between gap-3">
@@ -267,7 +273,11 @@ function MonthSection({ month, onContentGenerated }: {
             </CardHeader>
             <CardContent className="pt-4 space-y-4">
                 {month.weeks.map((week) => (
-                    <WeekSection key={week.week} week={week} onContentGenerated={onContentGenerated} />
+                    <WeekSection
+                        key={week.week}
+                        week={week}
+                        onContentGenerated={onContentGenerated}
+                    />
                 ))}
             </CardContent>
         </Card>
@@ -307,6 +317,10 @@ export default function SyllabusDetailPage() {
     const [detail, setDetail] = useState<SyllabusDetail | null>(null)
     const [loading, setLoading] = useState(true)
     const { setPluginName } = useStore((state: any) => state)
+    const [shareEnabled, setShareEnabled] = useState(false)
+    const [togglingShare, setTogglingShare] = useState(false)
+    const [copied, setCopied] = useState(false)
+    
 
     const fetchedRef = useRef(false)
 
@@ -317,12 +331,14 @@ export default function SyllabusDetailPage() {
             const { success, data } = await getRequest(`/py/syllabi/${skillId}`)
             if (success) {
                 setDetail(data)
+                setShareEnabled(data.share_enabled ?? false)
                 setPluginName(data.skill)
             }
             setLoading(false)
         }
         fetchDetail()
     }, [skillId, setPluginName])
+
 
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length
@@ -343,6 +359,26 @@ export default function SyllabusDetailPage() {
                 })),
             }
         })
+    }
+
+    async function handleToggleShare() {
+        setTogglingShare(true)
+        const nextValue = !shareEnabled
+        try {
+            await api.patch(`/py/syllabi/${skillId}/share?enable=${nextValue}`)
+            setShareEnabled(nextValue)
+        } catch {
+            // leave state unchanged on error
+        } finally {
+            setTogglingShare(false)
+        }
+    }
+
+    async function handleCopyLink() {
+        const url = `${window.location.origin}/public/syllabi/${skillId}`
+        await navigator.clipboard.writeText(url)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
     }
 
     if (loading) return <DetailSkeleton />
@@ -390,6 +426,54 @@ export default function SyllabusDetailPage() {
                     </div>
                     <Progress value={overallProgress} className="h-2" />
                 </div>
+
+                {/* share controls */}
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
+                    <div className="flex items-center gap-3">
+                        <div className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                            shareEnabled
+                                ? "bg-emerald-500/15 text-emerald-500"
+                                : "bg-muted text-muted-foreground"
+                        }`}>
+                            <Globe className="h-4 w-4" />
+                        </div>
+                        <div>
+                            <p className="text-sm font-medium leading-none">Public page</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                                {shareEnabled
+                                    ? "Anyone with the link can view this syllabus"
+                                    : "Share a read-only view with anyone"}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {shareEnabled && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 gap-1.5 text-xs"
+                                onClick={handleCopyLink}
+                            >
+                                {copied
+                                    ? <><Check className="h-3 w-3 text-emerald-500" />Copied</>
+                                    : <><Copy className="h-3 w-3" />Copy link</>
+                                }
+                            </Button>
+                        )}
+                        <Button
+                            size="sm"
+                            variant={shareEnabled ? "ghost" : "default"}
+                            className={`h-7 text-xs ${shareEnabled ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10" : ""}`}
+                            disabled={togglingShare}
+                            onClick={handleToggleShare}
+                        >
+                            {togglingShare
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : shareEnabled ? "Disable" : "Enable"
+                            }
+                        </Button>
+                    </div>
+                </div>
             </div>
 
             {/* months */}
@@ -405,7 +489,11 @@ export default function SyllabusDetailPage() {
             ) : (
                 <div className="space-y-4">
                     {detail.months.map((month) => (
-                        <MonthSection key={month.month} month={month} onContentGenerated={handleContentGenerated} />
+                        <MonthSection
+                            key={month.month}
+                            month={month}
+                            onContentGenerated={handleContentGenerated}
+                        />
                     ))}
                 </div>
             )}

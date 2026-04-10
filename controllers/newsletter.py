@@ -1,8 +1,8 @@
 from fastapi import HTTPException
-from config import is_smtp_outbound_configured
+from config import is_smtp_outbound_configured, is_smtp_ready_to_send, smtp_not_ready_reason
 from models.user import User
 from schemas.skill import SendChapterEmailRequest
-from services.skill import get_syllabus_detail, get_email_id_from_skill_id
+from services.skill import get_email_id_from_skill_id
 from services.daily_task import get_chapter_content, mark_task_completed
 from services.newsletter import send_newsletter, issue_todays_newsletters
 
@@ -18,7 +18,12 @@ def send_chapter_email(payload: SendChapterEmailRequest, current_user: User):
     if not is_smtp_outbound_configured():
         raise HTTPException(
             status_code=503,
-            detail="Email delivery is not configured (set SMTP_HOST and related SMTP settings).",
+            detail="Email delivery is not configured (set SMTP_HOST).",
+        )
+    if not is_smtp_ready_to_send():
+        raise HTTPException(
+            status_code=503,
+            detail=f"Email delivery SMTP config is incomplete ({smtp_not_ready_reason()}).",
         )
 
     email = get_email_id_from_skill_id(chapter["skill_id"])
@@ -29,10 +34,7 @@ def send_chapter_email(payload: SendChapterEmailRequest, current_user: User):
     if not send_newsletter(email_to=email, title=title, content=chapter["newsletter"]):
         raise HTTPException(
             status_code=503,
-            detail=(
-                "Email was not sent (SMTP transport is not implemented in this branch, "
-                "or delivery failed)."
-            ),
+            detail="Email was not sent (SMTP delivery failed or was rejected by server).",
         )
 
     mark_task_completed(payload.task_id)

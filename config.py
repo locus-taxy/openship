@@ -26,11 +26,6 @@ def _env_bool(name: str, default: bool) -> bool:
         f"(use one of: {sorted(_TRUTHY_BOOL | _FALSEY_BOOL)})"
     )
 
-def is_smtp_outbound_configured() -> bool:
-    """True when SMTP_HOST is set to a non-empty value (outbound email wired)."""
-    host = os.getenv("SMTP_HOST")
-    return bool(host and host.strip())
-
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set. Add it to your .env file.")
@@ -42,10 +37,51 @@ def _strip_opt(name: str) -> Optional[str]:
     s = v.strip()
     return s if s else None
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    token = raw.strip()
+    if not token:
+        return default
+    try:
+        return int(token)
+    except ValueError as exc:
+        raise ValueError(f"Invalid integer for environment variable {name!r}: {raw!r}") from exc
+
 GEMINI_API_KEY = _strip_opt("GEMINI_API_KEY")
 GEMINI_API_URL = _strip_opt("GEMINI_API_URL")
 
 RUN_MIGRATIONS_ON_STARTUP = _env_bool("RUN_MIGRATIONS_ON_STARTUP", True)
+
+SMTP_HOST = _strip_opt("SMTP_HOST")
+SMTP_PORT = _env_int("SMTP_PORT", 587)
+SMTP_USER = _strip_opt("SMTP_USER")
+SMTP_PASSWORD = _strip_opt("SMTP_PASSWORD")
+SMTP_FROM_EMAIL = _strip_opt("SMTP_FROM_EMAIL")
+SMTP_FROM_NAME = _strip_opt("SMTP_FROM_NAME")
+SMTP_USE_TLS = _env_bool("SMTP_USE_TLS", True)
+SMTP_USE_SSL = _env_bool("SMTP_USE_SSL", False)
+SMTP_TIMEOUT_SECONDS = _env_int("SMTP_TIMEOUT_SECONDS", 20)
+
+def is_smtp_outbound_configured() -> bool:
+    """True when SMTP_HOST is set to a non-empty value."""
+    return bool(SMTP_HOST)
+
+def smtp_not_ready_reason() -> Optional[str]:
+    """Explain why SMTP cannot send, or None if minimum settings are ready."""
+    if not SMTP_HOST:
+        return "SMTP_HOST is not set"
+    if not SMTP_FROM_EMAIL:
+        return "SMTP_FROM_EMAIL is not set"
+    if SMTP_PORT <= 0:
+        return "SMTP_PORT must be a positive integer"
+    if SMTP_USE_SSL and SMTP_USE_TLS:
+        return "SMTP_USE_SSL and SMTP_USE_TLS cannot both be true"
+    return None
+
+def is_smtp_ready_to_send() -> bool:
+    return smtp_not_ready_reason() is None
 
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
 _MIN_SECRET_LEN = 32
@@ -61,6 +97,3 @@ if (
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "2"))
 JWT_REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_HOURS", "7"))
-
-LINKIFYI_TOKEN = os.getenv("LINKIFYI_TOKEN")
-LEXI_PASSWORD = os.getenv("LEXI_PASSWORD")

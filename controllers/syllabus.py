@@ -9,6 +9,8 @@ from services.skill import (
     get_syllabus_detail,
     get_skill_id_by_email_and_skill,
     search_syllabi,
+    get_public_syllabus_detail,
+    toggle_skill_share,
 )
 from services.gemini import generate_syllabus_json
 from services.daily_task import store_syllabus_tasks
@@ -30,6 +32,20 @@ def get_syllabus(skill_id: int, current_user: User):
     if detail["user_id"] != str(current_user.id):
         raise HTTPException(status_code=403, detail="You do not own this skill")
     return detail
+
+def get_public_syllabus(skill_id: int):
+    detail = get_public_syllabus_detail(skill_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Syllabus {skill_id} not found or not shared")
+    return detail
+
+def toggle_share(skill_id: int, enable: bool, current_user: User):
+    result = toggle_skill_share(skill_id, enable, str(current_user.id))
+    if result is None:
+        raise HTTPException(
+            status_code=404, detail=f"Syllabus {skill_id} not found or not owned by you"
+        )
+    return {"skill_id": skill_id, "share_enabled": result}
 
 def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     email = current_user.email
