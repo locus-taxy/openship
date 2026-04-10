@@ -130,7 +130,7 @@ export default function EnrollPage() {
                                     onClick={() => setOpen((o) => !o)}
                                     onKeyDown={(e) => {
                                         if (e.key === "Escape") setOpen(false);
-                                        if ((e.key === "ArrowDown" || e.key === "Enter") && !open) setOpen(true);
+                                        if (e.key === "ArrowDown" && !open) setOpen(true);
                                     }}
                                     className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
                                 >
@@ -166,17 +166,27 @@ export default function EnrollPage() {
 
                                         <ul role="listbox" className="max-h-52 overflow-y-auto py-1">
                                             {noResults ? (
-                                                <li role="option" aria-selected={false} className="px-3 py-4 text-center space-y-2">
+                                                <li
+                                                    role="option"
+                                                    aria-selected={false}
+                                                    tabIndex={0}
+                                                    onClick={() => selectOther(search)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOther(search); }
+                                                        if (e.key === "Escape") setOpen(false);
+                                                        if (e.key === "ArrowDown") { e.preventDefault(); (e.currentTarget.nextElementSibling as HTMLElement)?.focus(); }
+                                                        if (e.key === "ArrowUp") {
+                                                            e.preventDefault();
+                                                            dropdownRef.current?.querySelector<HTMLElement>("input")?.focus();
+                                                        }
+                                                    }}
+                                                    className="px-3 py-4 text-center space-y-1 focus:outline-none focus:bg-accent cursor-pointer"
+                                                >
                                                     <p className="text-sm text-muted-foreground">No courses found for <span className="font-medium text-foreground">"{search}"</span></p>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => selectOther(search)}
-                                                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") selectOther(search); }}
-                                                        className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700"
-                                                    >
+                                                    <p className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600">
                                                         <PenLine className="h-3.5 w-3.5" />
                                                         Add "{search}" as custom course
-                                                    </button>
+                                                    </p>
                                                 </li>
                                             ) : (
                                                 filtered.map((item) => (
@@ -203,26 +213,26 @@ export default function EnrollPage() {
                                                     </li>
                                                 ))
                                             )}
-                                        </ul>
 
-                                        {/* Other — always visible at the bottom unless no-results is showing it */}
-                                        {!noResults && (
-                                            <div className="border-t border-border p-1.5">
-                                                <button
-                                                    type="button"
+                                            {/* Other — inside the listbox as a proper option */}
+                                            {!noResults && (
+                                                <li
                                                     role="option"
                                                     aria-selected={isOther}
+                                                    tabIndex={0}
                                                     onClick={() => selectOther()}
                                                     onKeyDown={(e) => {
                                                         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOther(); }
                                                         if (e.key === "Escape") setOpen(false);
+                                                        if (e.key === "ArrowDown") { e.preventDefault(); (e.currentTarget.nextElementSibling as HTMLElement)?.focus(); }
                                                         if (e.key === "ArrowUp") {
                                                             e.preventDefault();
-                                                            const list = dropdownRef.current?.querySelector("[role='listbox']");
-                                                            (list?.lastElementChild as HTMLElement)?.focus();
+                                                            const prev = e.currentTarget.previousElementSibling as HTMLElement;
+                                                            if (prev) prev.focus();
+                                                            else dropdownRef.current?.querySelector<HTMLElement>("input")?.focus();
                                                         }
                                                     }}
-                                                    className={`w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-ring
+                                                    className={`mx-1.5 mb-1 mt-1 flex items-center gap-2 rounded-md border-t border-border pt-2 px-3 py-2 text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring
                                                         ${isOther
                                                             ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400"
                                                             : "text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 dark:text-indigo-400"
@@ -230,9 +240,9 @@ export default function EnrollPage() {
                                                 >
                                                     <PenLine className="h-3.5 w-3.5 shrink-0" />
                                                     Other — type your own
-                                                </button>
-                                            </div>
-                                        )}
+                                                </li>
+                                            )}
+                                        </ul>
                                     </div>
                                 )}
                             </div>
