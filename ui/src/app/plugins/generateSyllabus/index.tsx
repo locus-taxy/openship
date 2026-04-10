@@ -22,12 +22,11 @@ export default function GenerateSyllabusPage() {
     const [selectedId, setSelectedId] = useState<number | "">("")
     const [generating, setGenerating] = useState(false)
     const [done, setDone] = useState(false)
-    const { setPluginName, setPluginInfo } = useStore((state: any) => state)
+    const { setPluginName } = useStore((state: any) => state)
 
     useEffect(() => {
         setPluginName("Generate Syllabus")
-        setPluginInfo("Generate a learning syllabus for a subscriber.")
-    }, [setPluginName, setPluginInfo])
+    }, [setPluginName])
 
     const fetchedRef = useRef(false)
 

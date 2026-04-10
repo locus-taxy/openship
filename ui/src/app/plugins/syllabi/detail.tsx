@@ -306,7 +306,7 @@ export default function SyllabusDetailPage() {
     const navigate = useNavigate()
     const [detail, setDetail] = useState<SyllabusDetail | null>(null)
     const [loading, setLoading] = useState(true)
-    const { setPluginName, setPluginInfo } = useStore((state: any) => state)
+    const { setPluginName } = useStore((state: any) => state)
 
     const fetchedRef = useRef(false)
 
@@ -318,12 +318,11 @@ export default function SyllabusDetailPage() {
             if (success) {
                 setDetail(data)
                 setPluginName(data.skill)
-                setPluginInfo(`${data.email} · ${data.days} days`)
             }
             setLoading(false)
         }
         fetchDetail()
-    }, [skillId, setPluginName, setPluginInfo])
+    }, [skillId, setPluginName])
 
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length

@@ -237,12 +237,11 @@ export default function SyllabiPage() {
     const [searching, setSearching] = useState(false)
     const [search, setSearch] = useState("")
     const navigate = useNavigate()
-    const { setPluginName, setPluginInfo } = useStore((state: any) => state)
+    const { setPluginName } = useStore((state: any) => state)
 
     useEffect(() => {
         setPluginName("Syllabi")
-        setPluginInfo("View and manage all learning plans.")
-    }, [setPluginName, setPluginInfo])
+    }, [setPluginName])
 
     const fetchedRef = useRef(false)
 
