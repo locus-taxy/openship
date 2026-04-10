@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { UserPlus, ChevronDown, Loader2 } from "lucide-react";
+import { UserPlus, ChevronDown, Loader2, Search, PenLine } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { postRequest } from "@/services";
 import useStore from "@/store";
 
@@ -21,18 +22,60 @@ const SUBJECTS = [
 const DAY_OPTIONS = [30, 60, 90, 120, 180];
 const HOUR_OPTIONS = [1, 2, 3, 4];
 
+const ALL_ITEMS = ([] as string[]).concat(...SUBJECTS.map((g) => g.items));
+
 export default function EnrollPage() {
     const navigate = useNavigate();
     const [subject, setSubject] = useState("");
+    const [customSubject, setCustomSubject] = useState("");
+    const [search, setSearch] = useState("");
+    const [open, setOpen] = useState(false);
+    const [isOther, setIsOther] = useState(false);
     const [days, setDays] = useState(90);
     const [hours, setHours] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const { setPluginName } = useStore((state: any) => state);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const finalSubject = isOther ? customSubject.trim() : subject;
+
+    const filtered = search.trim()
+        ? ALL_ITEMS.filter((item) => item.toLowerCase().includes(search.toLowerCase()))
+        : ALL_ITEMS;
+
+    const noResults = search.trim() !== "" && filtered.length === 0;
 
     useEffect(() => {
         setPluginName("Enroll");
     }, [setPluginName]);
+
+    useEffect(() => {
+        function handleClickOutside(e: MouseEvent) {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    function selectSubject(item: string) {
+        setSubject(item);
+        setIsOther(false);
+        setSearch("");
+        setOpen(false);
+        setError("");
+    }
+
+    function selectOther(prefill?: string) {
+        setSubject("Other");
+        setIsOther(true);
+        if (prefill) setCustomSubject(prefill);
+        setSearch("");
+        setOpen(false);
+        setError("");
+    }
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -40,10 +83,14 @@ export default function EnrollPage() {
             setError("Please select a subject.");
             return;
         }
+        if (isOther && !customSubject.trim()) {
+            setError("Please enter a subject name.");
+            return;
+        }
         setError("");
         setLoading(true);
         const { success } = await postRequest("/py/subscribe", {
-            skill: subject,
+            skill: finalSubject,
             days,
             hours,
         });
@@ -67,28 +114,93 @@ export default function EnrollPage() {
                 <CardContent>
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div className="space-y-1.5">
-                            <Label htmlFor="subject">Subject</Label>
-                            <div className="relative">
-                                <select
-                                    id="subject"
-                                    className="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                                    value={subject}
-                                    onChange={(e) => setSubject(e.target.value)}
-                                    required
+                            <Label>Subject</Label>
+
+                            {/* Trigger button */}
+                            <div ref={dropdownRef} className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpen((o) => !o)}
+                                    className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
                                 >
-                                    <option value="">— choose a subject —</option>
-                                    {SUBJECTS.map((group) => (
-                                        <optgroup key={group.group} label={group.group}>
-                                            {group.items.map((item) => (
-                                                <option key={item} value={item}>
-                                                    {item}
-                                                </option>
-                                            ))}
-                                        </optgroup>
-                                    ))}
-                                </select>
-                                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <span className={subject ? "text-foreground" : "text-muted-foreground"}>
+                                        {subject || "— choose a subject —"}
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 ml-2" />
+                                </button>
+
+                                {/* Dropdown */}
+                                {open && (
+                                    <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-lg">
+                                        {/* Search box */}
+                                        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                                            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                            <input
+                                                autoFocus
+                                                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                                                placeholder="Search courses…"
+                                                value={search}
+                                                onChange={(e) => setSearch(e.target.value)}
+                                            />
+                                        </div>
+
+                                        <ul className="max-h-52 overflow-y-auto py-1">
+                                            {noResults ? (
+                                                <li className="px-3 py-4 text-center space-y-2">
+                                                    <p className="text-sm text-muted-foreground">No courses found for <span className="font-medium text-foreground">"{search}"</span></p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => selectOther(search)}
+                                                        className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                                                    >
+                                                        <PenLine className="h-3.5 w-3.5" />
+                                                        Add "{search}" as custom course
+                                                    </button>
+                                                </li>
+                                            ) : (
+                                                filtered.map((item) => (
+                                                    <li
+                                                        key={item}
+                                                        onClick={() => selectSubject(item)}
+                                                        className={`px-3 py-2 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground ${subject === item && !isOther ? "bg-accent/50 font-medium" : ""}`}
+                                                    >
+                                                        {item}
+                                                    </li>
+                                                ))
+                                            )}
+                                        </ul>
+
+                                        {/* Other — always visible at the bottom unless no-results is showing it */}
+                                        {!noResults && (
+                                            <div className="border-t border-border p-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => selectOther()}
+                                                    className={`w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors
+                                                        ${isOther
+                                                            ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400"
+                                                            : "text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 dark:text-indigo-400"
+                                                        }`}
+                                                >
+                                                    <PenLine className="h-3.5 w-3.5 shrink-0" />
+                                                    Other — type your own
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
+
+                            {/* Custom subject input */}
+                            {isOther && (
+                                <Input
+                                    className="mt-2"
+                                    placeholder="e.g. Solidity, Game Development, UX Design…"
+                                    value={customSubject}
+                                    onChange={(e) => setCustomSubject(e.target.value)}
+                                    autoFocus
+                                />
+                            )}
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
