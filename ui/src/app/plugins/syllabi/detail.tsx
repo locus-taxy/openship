@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { useParams, useNavigate } from "react-router"
 import {
     ArrowLeft, BookOpen, CheckCircle2, Circle, Clock,
@@ -323,13 +323,12 @@ export default function SyllabusDetailPage() {
     const [copied, setCopied] = useState(false)
     
 
-    const fetchedRef = useRef(false)
-
     useEffect(() => {
-        if (fetchedRef.current) return
-        fetchedRef.current = true
+        let cancelled = false
+        setLoading(true)
         async function fetchDetail() {
             const { success, data } = await getRequest(`/py/syllabi/${skillId}`)
+            if (cancelled) return
             if (success) {
                 setDetail(data)
                 setShareEnabled(data.share_enabled ?? false)
@@ -338,6 +337,7 @@ export default function SyllabusDetailPage() {
             setLoading(false)
         }
         fetchDetail()
+        return () => { cancelled = true }
     }, [skillId, setPluginName])
 
 

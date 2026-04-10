@@ -1,5 +1,17 @@
 import DOMPurify from "dompurify"
 
+// Force rel="noopener noreferrer" on any anchor that opens a new tab,
+// preventing the linked page from accessing window.opener.
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (node.tagName === "A" && node.getAttribute("target") === "_blank") {
+        const existing = node.getAttribute("rel") ?? ""
+        const parts = new Set(existing.split(/\s+/).filter(Boolean))
+        parts.add("noopener")
+        parts.add("noreferrer")
+        node.setAttribute("rel", [...parts].join(" "))
+    }
+})
+
 /**
  * Sanitize HTML from Gemini newsletter output before rendering with
  * dangerouslySetInnerHTML. Strips scripts, event handlers, and dangerous

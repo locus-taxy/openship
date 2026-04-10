@@ -205,15 +205,21 @@ export default function PublicSyllabusPage() {
     const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
 
     useEffect(() => {
+        const controller = new AbortController()
         setLoading(true)
         setNotFound(false)
         setRetryable(false)
         setSyllabus(null)
+        setSelectedMonth(null)
+        setSelectedWeek(null)
         async function fetchPublic() {
             try {
-                const res = await axios.get(`/py/public/syllabi/${skillId}`)
+                const res = await axios.get(`/py/public/syllabi/${skillId}`, {
+                    signal: controller.signal,
+                })
                 setSyllabus(res.data)
             } catch (err: any) {
+                if (axios.isCancel(err)) return
                 const status = err?.response?.status
                 if (status === 404) {
                     setNotFound(true)
@@ -221,10 +227,11 @@ export default function PublicSyllabusPage() {
                     setRetryable(true)
                 }
             } finally {
-                setLoading(false)
+                if (!controller.signal.aborted) setLoading(false)
             }
         }
         fetchPublic()
+        return () => controller.abort()
     }, [skillId])
 
     function handleSelectMonth(m: number) {
