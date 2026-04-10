@@ -72,6 +72,10 @@ def run_migrations_online() -> None:
                     f"{_MIGRATION_LOCK_MAX_WAIT_S:.0f}s (another process may be running migrations). "
                     "Retry startup; migrations are idempotent once complete."
                 )
+            # The advisory lock SELECT opens an implicit transaction in SQLAlchemy 2.x.
+            # Commit it now so alembic's own begin_transaction() gets a clean connection
+            # and its commit actually persists the migration + version update.
+            connection.commit()
         try:
             context.configure(connection=connection, target_metadata=target_metadata)
             with context.begin_transaction():
@@ -82,6 +86,7 @@ def run_migrations_online() -> None:
                     text("SELECT pg_advisory_unlock(:k1, :k2)"),
                     {"k1": _ADVISORY_LOCK_KEY_1, "k2": _ADVISORY_LOCK_KEY_2},
                 )
+                connection.commit()
 
 if context.is_offline_mode():
     run_migrations_offline()

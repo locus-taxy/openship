@@ -6,6 +6,7 @@ import { Home } from "lucide-react";
 import SampleApp from "@/app/plugins/sampleApp";
 import SyllabiPage from "@/app/plugins/syllabi";
 import SyllabusDetailPage from "@/app/plugins/syllabi/detail";
+import PublicSyllabusPage from "@/app/plugins/syllabi/public";
 import GenerateContentPage from "@/app/plugins/generateContent";
 import GenerateSyllabusPage from "@/app/plugins/generateSyllabus";
 import EnrollPage from "@/app/plugins/enroll";
@@ -47,16 +48,16 @@ const router = createBrowserRouter([
         element: <SignupPage />,
     },
     {
+        path: "/public/syllabi/:skillId",
+        element: <PublicSyllabusPage />,
+    },
+    {
         path: "/",
         element: <Layout />,
         errorElement: <GlobalErrorBoundary />,
         children: [
             {
                 path: "",
-                element: <SampleApp />,
-            },
-            {
-                path: "sample-route",
                 element: <SampleApp />,
             },
             {

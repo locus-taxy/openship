@@ -124,10 +124,3 @@ def store_syllabus_tasks(
     except Exception as e:
         print(f"Error storing syllabus tasks: {e}")
         return False
-
-def get_task_row(task_id: int) -> Optional[Dict[str, Any]]:
-    with Session(engine) as session:
-        t = session.get(DailyTask, task_id)
-        if t is None:
-            return None
-        return {"id": t.id, "skill": t.skill, "topic": t.topic, "task": t.task, "hours": t.hours}

@@ -66,6 +66,7 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
             "skill": skill_row.skill,
             "days": skill_row.days,
             "hours": skill_row.hours,
+            "share_enabled": skill_row.share_enabled,
             "created_at": str(skill_row.created_at) if skill_row.created_at else None,
             "months": [
                 {
@@ -204,3 +205,61 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
             }
             for row in rows
         ]
+
+def get_public_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
+    """Return sanitized public syllabus data (no email/user_id) only when share_enabled."""
+    with Session(engine) as session:
+        skill_row = session.get(Skill, skill_id)
+        if skill_row is None or not skill_row.share_enabled:
+            return None
+
+        statement = (
+            select(DailyTask)
+            .where(DailyTask.skill_id == skill_id)
+            .order_by(DailyTask.month, DailyTask.week, DailyTask.day)
+        )
+        tasks = session.exec(statement).all()
+
+        months: dict = {}
+        for t in tasks:
+            m = months.setdefault(t.month, {})
+            w = m.setdefault(t.week, [])
+            w.append(
+                {
+                    "id": t.id,
+                    "day": t.day,
+                    "topic": t.topic,
+                    "task": t.task,
+                    "hours": t.hours,
+                    "newsletter": t.newsletter,
+                }
+            )
+
+        return {
+            "skill_id": skill_row.id,
+            "skill": skill_row.skill,
+            "days": skill_row.days,
+            "hours": skill_row.hours,
+            "created_at": str(skill_row.created_at) if skill_row.created_at else None,
+            "months": [
+                {
+                    "month": m,
+                    "weeks": [
+                        {"week": w, "tasks": tasks_list} for w, tasks_list in sorted(weeks.items())
+                    ],
+                }
+                for m, weeks in sorted(months.items())
+            ],
+        }
+
+def toggle_skill_share(skill_id: int, enable: bool, user_id: str) -> Optional[bool]:
+    """Set share_enabled on a skill. Returns new value, or None if not found / not owner."""
+    with Session(engine) as session:
+        skill_row = session.get(Skill, skill_id)
+        if skill_row is None or skill_row.user_id != user_id:
+            return None
+        skill_row.share_enabled = enable
+        session.add(skill_row)
+        session.commit()
+        session.refresh(skill_row)
+        return skill_row.share_enabled

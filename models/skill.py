@@ -11,6 +11,7 @@ class Skill(SQLModel, table=True):
     days: int = Field(default=90)
     hours: int = Field(default=1)
     stop_sending: bool = Field(default=False)
+    share_enabled: bool = Field(default=False)
     created_at: Optional[datetime] = Field(
         default=None,
         sa_column=Column(DateTime, server_default=func.now()),
