@@ -202,8 +202,6 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": SYLLABUS_SCHEMA,
-            # Gemini 2.5 thinking models may omit public text unless thoughts are off:
-            "thinkingConfig": {"includeThoughts": False},
         },
     }
 
@@ -239,10 +237,8 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
             if e.response is not None:
                 _log_gemini_failure("generate_syllabus_json (HTTPError)", None, e.response)
             if status == 429:
-                wait = 60 * (attempt + 1)
-                print(f"Rate limited — waiting {wait}s before retry...")
-                time.sleep(wait)
-                continue
+                print("Rate limited by Gemini API — try again in a few minutes.")
+                return None
             if 400 <= status < 500:
                 print(f"Client error {status} — not retrying.")
                 return None
@@ -291,9 +287,6 @@ def generate_newsletter_html(task_description: str, task_title: str, skill: str)
     payload = {
         "contents": [{"parts": [{"text": user_prompt}]}],
         "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {
-            "thinkingConfig": {"includeThoughts": False},
-        },
     }
 
     try:

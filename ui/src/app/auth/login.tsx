@@ -37,6 +37,13 @@ export default function LoginPage() {
         }
     }, [sessionExpired, clearSessionExpired]);
 
+    useEffect(() => {
+        const root = document.documentElement;
+        const wasDark = root.classList.contains("dark");
+        root.classList.remove("dark");
+        return () => { if (wasDark) root.classList.add("dark"); };
+    }, []);
+
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         setError("");
@@ -65,9 +72,11 @@ export default function LoginPage() {
         <div className="flex min-h-screen items-center justify-center bg-zinc-800 px-4">
             <div className="w-full max-w-sm space-y-6">
                 <div className="text-center">
-                    <h1 className="text-3xl font-bold text-white">Openship</h1>
+                    <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
+                        Openship
+                    </h1>
                     <p className="mt-2 text-sm text-zinc-400">
-                        Sign in to your account
+                        Your AI-powered learning companion
                     </p>
                 </div>
 
@@ -118,7 +127,7 @@ export default function LoginPage() {
 
                         <Button
                             type="submit"
-                            className="w-full mt-1"
+                            className="w-full mt-1 bg-zinc-900 text-white hover:bg-zinc-800"
                             disabled={loading}
                         >
                             {loading ? (

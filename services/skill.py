@@ -129,3 +129,78 @@ def get_skill_id_by_email_and_skill(email: str, skill: str) -> Optional[int]:
     with Session(engine) as session:
         statement = select(Skill.id).where(Skill.email == email, Skill.skill == skill)
         return session.exec(statement).first()
+
+def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
+    q = f"%{query}%"
+    with Session(engine) as session:
+        matching_skill_ids = set()
+
+        skill_matches = session.exec(
+            select(Skill.id).where(
+                Skill.email == email, Skill.skill.ilike(q), Skill.stop_sending == False
+            )
+        ).all()
+        matching_skill_ids.update(skill_matches)
+
+        user_skill_ids = select(Skill.id).where(Skill.email == email, Skill.stop_sending == False)
+        topic_match = DailyTask.topic.ilike(q)
+        content_match = (DailyTask.newsletter != None) & (DailyTask.newsletter.ilike(q))
+        task_rows = session.exec(
+            select(DailyTask).where(
+                DailyTask.skill_id.in_(user_skill_ids),
+                topic_match | content_match,
+            )
+        ).all()
+
+        task_skill_ids = {t.skill_id for t in task_rows}
+        matching_skill_ids.update(task_skill_ids)
+
+        if not matching_skill_ids:
+            return []
+
+        completed_expr = func.coalesce(func.sum(case((DailyTask.completed == True, 1), else_=0)), 0)
+        statement = (
+            select(
+                Skill.id,
+                Skill.user_id,
+                Skill.email,
+                Skill.skill,
+                Skill.days,
+                Skill.hours,
+                Skill.created_at,
+                func.count(DailyTask.id).label("total_tasks"),
+                completed_expr.label("completed_tasks"),
+            )
+            .outerjoin(DailyTask, DailyTask.skill_id == Skill.id)
+            .where(Skill.id.in_(matching_skill_ids))
+            .group_by(Skill.id)
+            .order_by(Skill.created_at.desc())
+        )
+        rows = session.exec(statement).all()
+
+        matching_tasks_by_skill: Dict[int, List[Dict[str, Any]]] = {}
+        for t in task_rows:
+            matching_tasks_by_skill.setdefault(t.skill_id, []).append(
+                {
+                    "id": t.id,
+                    "day": t.day,
+                    "topic": t.topic,
+                    "task": t.task,
+                }
+            )
+
+        return [
+            {
+                "skill_id": row[0],
+                "user_id": row[1],
+                "email": row[2],
+                "skill": row[3],
+                "days": row[4],
+                "hours": row[5],
+                "created_at": str(row[6]) if row[6] else None,
+                "total_tasks": row[7] or 0,
+                "completed_tasks": int(row[8] or 0),
+                "matching_chapters": matching_tasks_by_skill.get(row[0], []),
+            }
+            for row in rows
+        ]
