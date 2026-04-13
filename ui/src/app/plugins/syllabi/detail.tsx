@@ -320,7 +320,8 @@ export default function SyllabusDetailPage() {
     const [shareEnabled, setShareEnabled] = useState(false)
     const [togglingShare, setTogglingShare] = useState(false)
     const [copied, setCopied] = useState(false)
-    
+    const [copyFailed, setCopyFailed] = useState(false)
+
 
     useEffect(() => {
         let cancelled = false
@@ -376,9 +377,15 @@ export default function SyllabusDetailPage() {
 
     async function handleCopyLink() {
         const url = `${window.location.origin}/public/syllabi/${skillId}`
-        await navigator.clipboard.writeText(url)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+        try {
+            await navigator.clipboard.writeText(url)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        } catch (err) {
+            console.error("Clipboard write failed:", err)
+            setCopyFailed(true)
+            setTimeout(() => setCopyFailed(false), 2000)
+        }
     }
 
     if (loading) return <DetailSkeleton />
@@ -427,51 +434,64 @@ export default function SyllabusDetailPage() {
                 </div>
 
                 {/* share controls */}
-                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                        <div className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                            shareEnabled
-                                ? "bg-emerald-500/15 text-emerald-500"
-                                : "bg-muted text-muted-foreground"
-                        }`}>
-                            <Globe className="h-4 w-4" />
+                <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                            <div className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                                shareEnabled
+                                    ? "bg-emerald-500/15 text-emerald-500"
+                                    : "bg-muted text-muted-foreground"
+                            }`}>
+                                <Globe className="h-4 w-4" />
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium leading-none">Public page</p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {shareEnabled
+                                        ? "Anyone with the link can view this syllabus"
+                                        : "Share a read-only view with anyone"}
+                                </p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-sm font-medium leading-none">Public page</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                                {shareEnabled
-                                    ? "Anyone with the link can view this syllabus"
-                                    : "Share a read-only view with anyone"}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {shareEnabled && (
+                        <div className="flex items-center gap-2">
+                            {shareEnabled && (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 gap-1.5 text-xs"
+                                    onClick={handleCopyLink}
+                                >
+                                    {copied
+                                        ? <><Check className="h-3 w-3 text-emerald-500" />Copied</>
+                                        : <><Copy className="h-3 w-3" />Copy link</>
+                                    }
+                                </Button>
+                            )}
                             <Button
                                 size="sm"
-                                variant="outline"
-                                className="h-7 gap-1.5 text-xs"
-                                onClick={handleCopyLink}
+                                variant={shareEnabled ? "ghost" : "default"}
+                                className={`h-7 text-xs ${shareEnabled ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10" : ""}`}
+                                disabled={togglingShare}
+                                onClick={handleToggleShare}
                             >
-                                {copied
-                                    ? <><Check className="h-3 w-3 text-emerald-500" />Copied</>
-                                    : <><Copy className="h-3 w-3" />Copy link</>
+                                {togglingShare
+                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    : shareEnabled ? "Disable" : "Enable"
                                 }
                             </Button>
-                        )}
-                        <Button
-                            size="sm"
-                            variant={shareEnabled ? "ghost" : "default"}
-                            className={`h-7 text-xs ${shareEnabled ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10" : ""}`}
-                            disabled={togglingShare}
-                            onClick={handleToggleShare}
-                        >
-                            {togglingShare
-                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                : shareEnabled ? "Disable" : "Enable"
-                            }
-                        </Button>
+                        </div>
                     </div>
+                    {copyFailed && (
+                        <div className="space-y-1">
+                            <p className="text-xs text-destructive">Clipboard access denied — copy the link manually:</p>
+                            <input
+                                readOnly
+                                value={`${window.location.origin}/public/syllabi/${skillId}`}
+                                onFocus={(e) => e.target.select()}
+                                className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
 
