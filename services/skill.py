@@ -61,8 +61,7 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
 
         return {
             "skill_id": skill_row.id,
-            "user_id": skill_row.user_id,
-            "email": skill_row.email,
+            "_user_id": skill_row.user_id,  # internal only — stripped before returning to UI
             "skill": skill_row.skill,
             "days": skill_row.days,
             "hours": skill_row.hours,
@@ -104,8 +103,6 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
         return [
             {
                 "skill_id": row[0],
-                "user_id": row[1],
-                "email": row[2],
                 "skill": row[3],
                 "days": row[4],
                 "hours": row[5],
@@ -193,8 +190,6 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
         return [
             {
                 "skill_id": row[0],
-                "user_id": row[1],
-                "email": row[2],
                 "skill": row[3],
                 "days": row[4],
                 "hours": row[5],

@@ -38,7 +38,6 @@ interface Month {
 interface SyllabusDetail {
     skill_id: number
     skill: string
-    email: string
     days: number
     hours: number
     share_enabled: boolean
@@ -407,7 +406,6 @@ export default function SyllabusDetailPage() {
                         </div>
                         <div>
                             <h1 className="text-2xl font-bold tracking-tight">{detail.skill}</h1>
-                            <p className="text-sm text-muted-foreground">{detail.email}</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">

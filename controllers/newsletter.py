@@ -10,7 +10,7 @@ def send_chapter_email(payload: SendChapterEmailRequest, current_user: User):
     chapter = get_chapter_content(payload.task_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"Chapter {payload.task_id} not found")
-    if chapter["user_id"] != str(current_user.id):
+    if chapter.pop("_user_id") != str(current_user.id):
         raise HTTPException(status_code=403, detail="You do not own this task")
     if not chapter["newsletter"]:
         raise HTTPException(status_code=400, detail="No content generated for this chapter yet")

@@ -29,7 +29,7 @@ def get_syllabus(skill_id: int, current_user: User):
     detail = get_syllabus_detail(skill_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Syllabus {skill_id} not found")
-    if detail["user_id"] != str(current_user.id):
+    if detail.pop("_user_id") != str(current_user.id):
         raise HTTPException(status_code=403, detail="You do not own this skill")
     return detail
 

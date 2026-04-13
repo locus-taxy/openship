@@ -62,7 +62,7 @@ def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
             return None
         return {
             "id": t.id,
-            "user_id": t.user_id,
+            "_user_id": t.user_id,  # internal only — stripped before returning to UI
             "skill": t.skill,
             "skill_id": t.skill_id,
             "topic": t.topic,

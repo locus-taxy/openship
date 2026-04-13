@@ -10,7 +10,6 @@ import useStore from "@/store"
 
 interface Syllabus {
     skill_id: number
-    email: string
     skill: string
     days: number
     hours: number
@@ -86,7 +85,7 @@ export default function GenerateContentPage() {
                                 <option value="">— choose an enrollee —</option>
                                 {syllabi.map((s) => (
                                     <option key={s.skill_id} value={s.skill_id}>
-                                        {s.skill} · {s.email}
+                                        {s.skill}
                                     </option>
                                 ))}
                             </select>
@@ -104,7 +103,6 @@ export default function GenerateContentPage() {
                                     </div>
                                     <div>
                                         <p className="text-sm font-semibold">{selected.skill}</p>
-                                        <p className="text-xs text-muted-foreground">{selected.email}</p>
                                     </div>
                                 </div>
                                 <Badge variant="outline" className="text-xs">
