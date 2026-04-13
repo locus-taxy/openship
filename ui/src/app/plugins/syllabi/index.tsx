@@ -67,7 +67,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
                             <BookOpen className="h-5 w-5" />
                         </div>
-                        <h3 className="text-lg font-semibold leading-tight">{item.skill}</h3>
+                        <h3 className="text-lg font-semibold leading-tight line-clamp-2 min-h-[2.75rem]">{item.skill}</h3>
                     </div>
                     {hasSyllabus && (
                         <Badge
@@ -176,21 +176,25 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center py-4">
-                        <BookOpen className="h-8 w-8 text-muted-foreground mb-2" />
-                        <p className="text-sm text-muted-foreground italic mb-4">No syllabus yet — generate one to get started.</p>
-                        <Button
-                            className="w-full"
-                            variant="outline"
-                            disabled={generating}
-                            onClick={handleGenerate}
-                        >
-                            {generating ? (
-                                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
-                            ) : (
-                                <><Sparkles className="h-4 w-4 mr-2" />Generate Syllabus</>
-                            )}
-                        </Button>
+                    <div className="flex-1 flex flex-col">
+                        <div className="flex-1 flex flex-col items-center justify-center text-center py-4">
+                            <BookOpen className="h-8 w-8 text-muted-foreground mb-2" />
+                            <p className="text-sm text-muted-foreground italic">No syllabus yet — generate one to get started.</p>
+                        </div>
+                        <div className="mt-auto pt-2">
+                            <Button
+                                className="w-full"
+                                variant="outline"
+                                disabled={generating}
+                                onClick={handleGenerate}
+                            >
+                                {generating ? (
+                                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
+                                ) : (
+                                    <><Sparkles className="h-4 w-4 mr-2" />Generate Syllabus</>
+                                )}
+                            </Button>
+                        </div>
                     </div>
                 )}
             </CardContent>
@@ -294,8 +298,8 @@ export default function SyllabiPage() {
                     <h1 className="text-2xl font-bold tracking-tight">Syllabi</h1>
                     <p className="text-muted-foreground mt-1">All active learning plans</p>
                 </div>
-                <Button onClick={() => navigate("/subscribe")}>
-                    + New Subscription
+                <Button onClick={() => navigate("/enroll")}>
+                    + New Enrollment
                 </Button>
             </div>
 
@@ -322,9 +326,9 @@ export default function SyllabiPage() {
             ) : syllabi.length === 0 ? (
                 <Card className="flex flex-col items-center justify-center py-16 text-center border-dashed">
                     <BookOpen className="h-10 w-10 text-muted-foreground mb-3" />
-                    <h3 className="font-semibold text-lg">No subscriptions yet</h3>
-                    <p className="text-muted-foreground text-sm mt-1 mb-4">Subscribe to a subject to get started.</p>
-                    <Button onClick={() => navigate("/subscribe")}>+ New Subscription</Button>
+                    <h3 className="font-semibold text-lg">No enrollments yet</h3>
+                    <p className="text-muted-foreground text-sm mt-1 mb-4">Enroll in a subject to get started.</p>
+                    <Button onClick={() => navigate("/enroll")}>+ New Enrollment</Button>
                 </Card>
             ) : displayList.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">

@@ -180,7 +180,7 @@ function ChapterRow({ chapter, onContentGenerated }: {
                                                 <CheckCircle2 className="h-4 w-4" /> Email sent
                                             </span>
                                         ) : (
-                                            <p className="text-xs text-muted-foreground">Ready to send to subscriber's inbox.</p>
+                                            <p className="text-xs text-muted-foreground">Ready to send to enrollee's inbox.</p>
                                         )}
                                         <Button
                                             size="sm"
