@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 # Load `.env` from the project root (this file's directory), not the process cwd.
 # Otherwise `uvicorn` started from another folder won't see GEMINI_* / DATABASE_URL.
@@ -94,6 +96,8 @@ if (
         f"JWT_SECRET_KEY is missing, insecure, or too short (min {_MIN_SECRET_LEN} chars). "
         'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
     )
+limiter = Limiter(key_func=get_remote_address)
+
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "2"))
 JWT_REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_HOURS", "7"))
