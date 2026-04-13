@@ -3,7 +3,7 @@ from models.user import User
 from schemas.skill import GenerateSyllabusRequest
 from dependencies.auth import get_current_user
 from controllers import syllabus as syllabus_controller
-from limiter import limiter
+from rate_limit import limiter
 
 router = APIRouter(tags=["syllabus"])
 
