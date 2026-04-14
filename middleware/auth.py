@@ -31,9 +31,10 @@ PUBLIC_EXACT: frozenset[tuple[str, str]] = frozenset(
 PUBLIC_PREFIXES: tuple[str, ...] = ("/public/",)
 
 def _is_public(method: str, path: str) -> bool:
-    if (method.upper(), path) in PUBLIC_EXACT:
+    normalized = path.rstrip("/") or "/"
+    if (method.upper(), normalized) in PUBLIC_EXACT:
         return True
-    return any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+    return any(normalized.startswith(prefix) for prefix in PUBLIC_PREFIXES)
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
