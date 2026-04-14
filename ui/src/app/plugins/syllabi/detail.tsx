@@ -6,6 +6,10 @@ import {
     Globe, Copy, Check, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+    Dialog, DialogContent, DialogDescription, DialogFooter,
+    DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { getRequest, postRequest } from "@/services"
@@ -58,6 +62,7 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
     const [sending, setSending] = useState(false)
     const [sent, setSent] = useState(chapter.completed)
     const [hasContent, setHasContent] = useState(chapter.has_content)
+    const [confirmOpen, setConfirmOpen] = useState(false)
     const proseRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -155,6 +160,7 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
     }
 
     async function handleGenerate() {
+        setConfirmOpen(false)
         setGenerating(true)
         const { success } = await postRequest("/py/generate-content/chapter", { task_id: chapter.id })
         setGenerating(false)
@@ -204,7 +210,7 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
                                     <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                         <FileText className="h-3 w-3" /> Content
                                     </div>
-                                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1.5" disabled={generating} onClick={handleGenerate}>
+                                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1.5" disabled={generating} onClick={() => setConfirmOpen(true)}>
                                         {generating
                                             ? <><Loader2 className="h-3 w-3 animate-spin" />Regenerating…</>
                                             : <><Sparkles className="h-3 w-3" />Regenerate</>
@@ -275,6 +281,25 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
                     )}
                 </div>
             </div>
+
+            {/* Confirmation dialog */}
+            <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Regenerate content?</DialogTitle>
+                        <DialogDescription>
+                            This will replace the existing content for this chapter. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+                        <Button onClick={handleGenerate}>
+                            <Sparkles className="h-4 w-4 mr-1.5" />
+                            Yes, Regenerate
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

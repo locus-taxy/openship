@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { UserPlus, ChevronDown, Loader2, Search, PenLine } from "lucide-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { UserPlus, ChevronDown, Loader2, Search, PenLine, BookOpen, Clock, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { postRequest } from "@/services";
 import useStore from "@/store";
 
@@ -19,8 +19,22 @@ const SUBJECTS = [
     { group: "Other", items: ["Cybersecurity Fundamentals", "Blockchain Development", "Prompt Engineering", "API Design & REST"] },
 ];
 
-const DAY_OPTIONS = [30, 60, 90, 120, 180];
-const HOUR_OPTIONS = [1, 2, 3, 4];
+const DAY_OPTIONS = [
+    { value: 30, label: "30 days" },
+    { value: 60, label: "60 days" },
+    { value: 90, label: "90 days" },
+    { value: 120, label: "4 months" },
+    { value: 180, label: "6 months" },
+];
+
+const HOUR_OPTIONS = [
+    { value: 1, label: "1 hr" },
+    { value: 2, label: "2 hrs" },
+    { value: 3, label: "3 hrs" },
+    { value: 4, label: "4 hrs" },
+];
+
+const QUICK_PICKS = ["Python", "React", "TypeScript", "Machine Learning", "System Design", "Docker & Kubernetes"];
 
 const ALL_ITEMS = ([] as string[]).concat(...SUBJECTS.map((g) => g.items));
 
@@ -104,100 +118,126 @@ export default function EnrollPage() {
     }
 
     return (
-        <div className="p-6 max-w-lg space-y-6">
-            <div>
-                <h1 className="text-2xl font-bold tracking-tight">Start Learning</h1>
-                <p className="text-muted-foreground mt-1">
-                    Choose a subject and we'll build a personalised syllabus for you.
-                </p>
-            </div>
+        <div className="p-6 md:p-10">
+            <div className="max-w-xl mx-auto space-y-8">
 
-            <Card>
-                <CardHeader className="pb-2">
-                    <p className="text-sm font-medium">New enrollment</p>
-                </CardHeader>
-                <CardContent>
-                    <form onSubmit={handleSubmit} className="space-y-5">
-                        <div className="space-y-1.5">
-                            <Label>Subject</Label>
+                {/* Hero header */}
+                <div className="space-y-1">
+                    <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-primary/10 text-primary mb-3">
+                        <BookOpen className="h-5 w-5" />
+                    </div>
+                    <h1 className="text-2xl font-bold tracking-tight">Start Learning</h1>
+                    <p className="text-muted-foreground text-sm">
+                        Choose a subject and we'll build a personalised syllabus for you.
+                    </p>
+                </div>
 
-                            {/* Trigger button */}
-                            <div ref={dropdownRef} className="relative">
-                                <button
-                                    type="button"
-                                    aria-haspopup="listbox"
-                                    aria-expanded={open}
-                                    onClick={() => setOpen((o) => !o)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Escape") setOpen(false);
-                                        if (e.key === "ArrowDown" && !open) setOpen(true);
-                                    }}
-                                    className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                >
-                                    <span className={subject ? "text-foreground" : "text-muted-foreground"}>
-                                        {subject || "— choose a subject —"}
-                                    </span>
-                                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 ml-2" />
-                                </button>
+                {/* Form card */}
+                <div className="rounded-2xl border border-border bg-card shadow-sm">
+                    <form onSubmit={handleSubmit}>
+                        <div className="p-6 space-y-6">
 
-                                {/* Dropdown */}
-                                {open && (
-                                    <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-lg">
-                                        {/* Search box */}
-                                        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-                                            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                            <input
-                                                autoFocus
-                                                aria-label="Search courses"
-                                                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                                                placeholder="Search courses…"
-                                                value={search}
-                                                onChange={(e) => setSearch(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === "Escape") { setOpen(false); }
-                                                    if (e.key === "ArrowDown") {
-                                                        e.preventDefault();
-                                                        const list = dropdownRef.current?.querySelector("[role='listbox']");
-                                                        (list?.querySelector("[role='option']") as HTMLElement)?.focus();
-                                                    }
-                                                }}
-                                            />
-                                        </div>
+                            {/* Subject */}
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Subject</Label>
 
-                                        <ul role="listbox" className="max-h-52 overflow-y-auto py-1">
-                                            {noResults ? (
-                                                <li
-                                                    role="option"
-                                                    aria-selected={false}
-                                                    tabIndex={0}
-                                                    onClick={() => selectOther(search)}
+                                {/* Combobox trigger */}
+                                <div ref={dropdownRef} className="relative">
+                                    <button
+                                        type="button"
+                                        aria-haspopup="listbox"
+                                        aria-expanded={open}
+                                        onClick={() => setOpen((o) => !o)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Escape") setOpen(false);
+                                            if (e.key === "ArrowDown" && !open) setOpen(true);
+                                        }}
+                                        className="w-full flex items-center justify-between rounded-xl border border-input bg-background px-4 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:border-ring/50"
+                                    >
+                                        <span className={subject ? "text-foreground font-medium" : "text-muted-foreground"}>
+                                            {subject || "— choose a subject —"}
+                                        </span>
+                                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground shrink-0 ml-2 transition-transform", open && "rotate-180")} />
+                                    </button>
+
+                                    {open && (
+                                        <div className="absolute z-50 mt-1.5 w-full rounded-xl border border-border bg-popover shadow-xl overflow-hidden">
+                                            <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+                                                <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                                <input
+                                                    autoFocus
+                                                    aria-label="Search courses"
+                                                    className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                                                    placeholder="Search courses…"
+                                                    value={search}
+                                                    onChange={(e) => setSearch(e.target.value)}
                                                     onKeyDown={(e) => {
-                                                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOther(search); }
-                                                        if (e.key === "Escape") setOpen(false);
-                                                        if (e.key === "ArrowDown") { e.preventDefault(); (e.currentTarget.nextElementSibling as HTMLElement)?.focus(); }
-                                                        if (e.key === "ArrowUp") {
+                                                        if (e.key === "Escape") { setOpen(false); }
+                                                        if (e.key === "ArrowDown") {
                                                             e.preventDefault();
-                                                            dropdownRef.current?.querySelector<HTMLElement>("input")?.focus();
+                                                            const list = dropdownRef.current?.querySelector("[role='listbox']");
+                                                            (list?.querySelector("[role='option']") as HTMLElement)?.focus();
                                                         }
                                                     }}
-                                                    className="px-3 py-4 text-center space-y-1 focus:outline-none focus:bg-accent cursor-pointer"
-                                                >
-                                                    <p className="text-sm text-muted-foreground">No courses found for <span className="font-medium text-foreground">"{search}"</span></p>
-                                                    <p className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600">
-                                                        <PenLine className="h-3.5 w-3.5" />
-                                                        Add "{search}" as custom course
-                                                    </p>
-                                                </li>
-                                            ) : (
-                                                filtered.map((item) => (
+                                                />
+                                            </div>
+
+                                            <ul role="listbox" className="max-h-52 overflow-y-auto py-1">
+                                                {noResults ? (
                                                     <li
-                                                        key={item}
                                                         role="option"
-                                                        aria-selected={subject === item && !isOther}
+                                                        aria-selected={false}
                                                         tabIndex={0}
-                                                        onClick={() => selectSubject(item)}
+                                                        onClick={() => selectOther(search)}
                                                         onKeyDown={(e) => {
-                                                            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectSubject(item); }
+                                                            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOther(search); }
+                                                            if (e.key === "Escape") setOpen(false);
+                                                        }}
+                                                        className="px-3 py-4 text-center space-y-1 focus:outline-none focus:bg-accent cursor-pointer"
+                                                    >
+                                                        <p className="text-sm text-muted-foreground">No courses found for <span className="font-medium text-foreground">"{search}"</span></p>
+                                                        <p className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600">
+                                                            <PenLine className="h-3.5 w-3.5" />
+                                                            Add "{search}" as custom course
+                                                        </p>
+                                                    </li>
+                                                ) : (
+                                                    filtered.map((item) => (
+                                                        <li
+                                                            key={item}
+                                                            role="option"
+                                                            aria-selected={subject === item && !isOther}
+                                                            tabIndex={0}
+                                                            onClick={() => selectSubject(item)}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectSubject(item); }
+                                                                if (e.key === "Escape") setOpen(false);
+                                                                if (e.key === "ArrowDown") { e.preventDefault(); (e.currentTarget.nextElementSibling as HTMLElement)?.focus(); }
+                                                                if (e.key === "ArrowUp") {
+                                                                    e.preventDefault();
+                                                                    const prev = e.currentTarget.previousElementSibling as HTMLElement;
+                                                                    if (prev) prev.focus();
+                                                                    else dropdownRef.current?.querySelector<HTMLElement>("input")?.focus();
+                                                                }
+                                                            }}
+                                                            className={cn(
+                                                                "px-3 py-2 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none",
+                                                                subject === item && !isOther && "bg-accent/50 font-medium"
+                                                            )}
+                                                        >
+                                                            {item}
+                                                        </li>
+                                                    ))
+                                                )}
+
+                                                {!noResults && (
+                                                    <li
+                                                        role="option"
+                                                        aria-selected={isOther}
+                                                        tabIndex={0}
+                                                        onClick={() => selectOther()}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOther(); }
                                                             if (e.key === "Escape") setOpen(false);
                                                             if (e.key === "ArrowDown") { e.preventDefault(); (e.currentTarget.nextElementSibling as HTMLElement)?.focus(); }
                                                             if (e.key === "ArrowUp") {
@@ -207,113 +247,122 @@ export default function EnrollPage() {
                                                                 else dropdownRef.current?.querySelector<HTMLElement>("input")?.focus();
                                                             }
                                                         }}
-                                                        className={`px-3 py-2 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none ${subject === item && !isOther ? "bg-accent/50 font-medium" : ""}`}
+                                                        className={cn(
+                                                            "mx-1.5 mb-1 mt-1 flex items-center gap-2 rounded-md border-t border-border pt-2 px-3 py-2 text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring",
+                                                            isOther
+                                                                ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400"
+                                                                : "text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 dark:text-indigo-400"
+                                                        )}
                                                     >
-                                                        {item}
+                                                        <PenLine className="h-3.5 w-3.5 shrink-0" />
+                                                        Other — type your own
                                                     </li>
-                                                ))
-                                            )}
+                                                )}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </div>
 
-                                            {/* Other — inside the listbox as a proper option */}
-                                            {!noResults && (
-                                                <li
-                                                    role="option"
-                                                    aria-selected={isOther}
-                                                    tabIndex={0}
-                                                    onClick={() => selectOther()}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOther(); }
-                                                        if (e.key === "Escape") setOpen(false);
-                                                        if (e.key === "ArrowDown") { e.preventDefault(); (e.currentTarget.nextElementSibling as HTMLElement)?.focus(); }
-                                                        if (e.key === "ArrowUp") {
-                                                            e.preventDefault();
-                                                            const prev = e.currentTarget.previousElementSibling as HTMLElement;
-                                                            if (prev) prev.focus();
-                                                            else dropdownRef.current?.querySelector<HTMLElement>("input")?.focus();
-                                                        }
-                                                    }}
-                                                    className={`mx-1.5 mb-1 mt-1 flex items-center gap-2 rounded-md border-t border-border pt-2 px-3 py-2 text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring
-                                                        ${isOther
-                                                            ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400"
-                                                            : "text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 dark:text-indigo-400"
-                                                        }`}
-                                                >
-                                                    <PenLine className="h-3.5 w-3.5 shrink-0" />
-                                                    Other — type your own
-                                                </li>
-                                            )}
-                                        </ul>
+                                {/* Custom subject input */}
+                                {isOther && (
+                                    <Input
+                                        className="mt-2 rounded-xl"
+                                        placeholder="e.g. Solidity, Game Development, UX Design…"
+                                        value={customSubject}
+                                        onChange={(e) => setCustomSubject(e.target.value)}
+                                        autoFocus
+                                    />
+                                )}
+
+                                {/* Quick picks */}
+                                {!isOther && (
+                                    <div className="flex flex-wrap gap-1.5 pt-1">
+                                        {QUICK_PICKS.map((s) => (
+                                            <button
+                                                key={s}
+                                                type="button"
+                                                onClick={() => selectSubject(s)}
+                                                className={cn(
+                                                    "text-xs px-2.5 py-1 rounded-full border transition-all duration-150",
+                                                    subject === s
+                                                        ? "border-primary bg-primary/10 text-primary font-medium"
+                                                        : "border-border text-muted-foreground hover:border-primary/60 hover:text-foreground"
+                                                )}
+                                            >
+                                                {s}
+                                            </button>
+                                        ))}
                                     </div>
                                 )}
                             </div>
 
-                            {/* Custom subject input */}
-                            {isOther && (
-                                <Input
-                                    className="mt-2"
-                                    placeholder="e.g. Solidity, Game Development, UX Design…"
-                                    value={customSubject}
-                                    onChange={(e) => setCustomSubject(e.target.value)}
-                                    autoFocus
-                                />
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="days">Duration</Label>
-                                <div className="relative">
-                                    <select
-                                        id="days"
-                                        className="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                        value={days}
-                                        onChange={(e) => setDays(Number(e.target.value))}
-                                    >
-                                        {DAY_OPTIONS.map((d) => (
-                                            <option key={d} value={d}>
-                                                {d} days
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            {/* Duration pills */}
+                            <div className="space-y-2.5">
+                                <div className="flex items-center gap-2">
+                                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                                    <Label className="text-sm font-medium">Duration</Label>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {DAY_OPTIONS.map((d) => (
+                                        <button
+                                            key={d.value}
+                                            type="button"
+                                            onClick={() => setDays(d.value)}
+                                            className={cn(
+                                                "px-4 py-2 rounded-xl border text-sm font-medium transition-all duration-150",
+                                                days === d.value
+                                                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                                    : "border-border bg-background hover:border-primary/50 hover:bg-muted text-foreground"
+                                            )}
+                                        >
+                                            {d.label}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="hours">Daily commitment</Label>
-                                <div className="relative">
-                                    <select
-                                        id="hours"
-                                        className="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                        value={hours}
-                                        onChange={(e) => setHours(Number(e.target.value))}
-                                    >
-                                        {HOUR_OPTIONS.map((h) => (
-                                            <option key={h} value={h}>
-                                                {h} hr{h > 1 ? "s" : ""} / day
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+
+                            {/* Daily commitment pills */}
+                            <div className="space-y-2.5">
+                                <div className="flex items-center gap-2">
+                                    <Clock className="h-4 w-4 text-muted-foreground" />
+                                    <Label className="text-sm font-medium">Daily commitment</Label>
+                                </div>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {HOUR_OPTIONS.map((h) => (
+                                        <button
+                                            key={h.value}
+                                            type="button"
+                                            onClick={() => setHours(h.value)}
+                                            className={cn(
+                                                "flex flex-col items-center justify-center py-3 rounded-xl border text-sm transition-all duration-150",
+                                                hours === h.value
+                                                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                                    : "border-border bg-background hover:border-primary/50 hover:bg-muted text-foreground"
+                                            )}
+                                        >
+                                            <span className="text-lg font-bold leading-none">{h.value}</span>
+                                            <span className="text-xs mt-0.5 opacity-70">{h.value > 1 ? "hrs" : "hr"}</span>
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
+
                         </div>
 
-                        {error && <p className="text-sm text-destructive">{error}</p>}
-
-                        <Button type="submit" className="w-full" disabled={loading}>
-                            {loading ? (
-                                <>
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Enrolling…
-                                </>
-                            ) : (
-                                <>
-                                    <UserPlus className="h-4 w-4 mr-2" /> Enroll
-                                </>
-                            )}
-                        </Button>
+                        {/* Footer */}
+                        <div className="border-t border-border px-6 py-4 bg-muted/30 rounded-b-2xl space-y-3">
+                            {error && <p className="text-sm text-destructive">{error}</p>}
+                            <Button type="submit" className="w-full h-10 rounded-xl" disabled={loading}>
+                                {loading ? (
+                                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Enrolling…</>
+                                ) : (
+                                    <><UserPlus className="h-4 w-4 mr-2" />Enroll</>
+                                )}
+                            </Button>
+                        </div>
                     </form>
-                </CardContent>
-            </Card>
+                </div>
+            </div>
         </div>
     );
 }
