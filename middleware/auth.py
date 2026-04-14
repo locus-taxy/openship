@@ -5,6 +5,7 @@ Every request is authenticated by default. To make a route public, add it to
 PUBLIC_EXACT (exact method + path match) or PUBLIC_PREFIXES (path prefix match).
 """
 
+from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -49,8 +50,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         try:
             payload = decode_token(token)
-        except Exception:
-            return JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
+        except HTTPException as e:
+            return JSONResponse(status_code=401, content={"detail": e.detail})
 
         if payload.get("type") != "access":
             return JSONResponse(status_code=401, content={"detail": "Invalid token type"})
