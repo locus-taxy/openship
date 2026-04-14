@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
-import { BookOpen, Clock, CalendarDays, Mail, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText } from "lucide-react"
+import { BookOpen, Clock, CalendarDays, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,8 +19,6 @@ interface MatchingChapter {
 
 interface Syllabus {
     skill_id: number
-    user_id: string
-    email: string
     skill: string
     days: number
     hours: number
@@ -83,10 +81,6 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                             {isCompleted ? "Completed" : isInProgress ? "In Progress" : "Not Started"}
                         </Badge>
                     )}
-                </div>
-                <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1 ml-11">
-                    <Mail className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{item.email}</span>
                 </div>
             </CardHeader>
 

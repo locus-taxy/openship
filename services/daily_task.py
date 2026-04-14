@@ -1,7 +1,59 @@
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
+import bleach
 from database import engine
 from models.daily_task import DailyTask
+
+# Tags and attributes produced by Gemini newsletter HTML that we want to keep.
+# Everything else (script, iframe, object, event handlers, javascript: URLs) is stripped.
+_ALLOWED_TAGS = [
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "br",
+    "hr",
+    "ul",
+    "ol",
+    "li",
+    "strong",
+    "b",
+    "em",
+    "i",
+    "u",
+    "s",
+    "code",
+    "pre",
+    "blockquote",
+    "a",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "div",
+    "span",
+]
+_ALLOWED_ATTRS = {
+    "a": ["href", "title", "target", "rel"],
+    "th": ["scope"],
+    "td": ["colspan", "rowspan"],
+}
+_ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
+
+def _sanitize_html(raw: str) -> str:
+    """Strip scripts, event handlers, and dangerous URLs from Gemini-generated HTML."""
+    return bleach.clean(
+        raw,
+        tags=_ALLOWED_TAGS,
+        attributes=_ALLOWED_ATTRS,
+        protocols=_ALLOWED_PROTOCOLS,
+        strip=True,
+    )
 
 def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:
@@ -10,7 +62,7 @@ def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
             return None
         return {
             "id": t.id,
-            "user_id": t.user_id,
+            "_user_id": t.user_id,  # internal only — stripped before returning to UI
             "skill": t.skill,
             "skill_id": t.skill_id,
             "topic": t.topic,
@@ -75,7 +127,7 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
             task = session.get(DailyTask, task_id)
             if task is None:
                 return False
-            task.newsletter = newsletter
+            task.newsletter = _sanitize_html(newsletter)
             session.add(task)
             session.commit()
             return True
@@ -124,10 +176,3 @@ def store_syllabus_tasks(
     except Exception as e:
         print(f"Error storing syllabus tasks: {e}")
         return False
-
-def get_task_row(task_id: int) -> Optional[Dict[str, Any]]:
-    with Session(engine) as session:
-        t = session.get(DailyTask, task_id)
-        if t is None:
-            return None
-        return {"id": t.id, "skill": t.skill, "topic": t.topic, "task": t.task, "hours": t.hours}

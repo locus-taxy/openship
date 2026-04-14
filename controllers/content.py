@@ -11,11 +11,11 @@ from services.daily_task import (
 from services.gemini import generate_newsletter_html
 
 def _check_skill_ownership(detail: dict, current_user: User):
-    if detail["user_id"] != str(current_user.id):
+    if detail.pop("_user_id") != str(current_user.id):
         raise HTTPException(status_code=403, detail="You do not own this skill")
 
 def _check_task_ownership(chapter: dict, current_user: User):
-    if chapter["user_id"] != str(current_user.id):
+    if chapter.pop("_user_id") != str(current_user.id):
         raise HTTPException(status_code=403, detail="You do not own this task")
 
 def generate_skill_content(payload: GenerateContentRequest, current_user: User):
