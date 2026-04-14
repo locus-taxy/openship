@@ -5,6 +5,7 @@ Every request is authenticated by default. To make a route public, add it to
 PUBLIC_EXACT (exact method + path match) or PUBLIC_PREFIXES (path prefix match).
 """
 
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -55,10 +56,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(status_code=401, content={"detail": "Invalid token type"})
 
         user_id = payload.get("sub")
-        if not user_id:
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
             return JSONResponse(status_code=401, content={"detail": "Invalid token payload"})
 
-        user = get_user_by_id(int(user_id))
+        user = await run_in_threadpool(get_user_by_id, user_id)
         if user is None or not user.is_active:
             return JSONResponse(status_code=401, content={"detail": "User not found or inactive"})
 
