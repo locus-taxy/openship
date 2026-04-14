@@ -1,12 +1,10 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router"
 import {
     ArrowLeft, BookOpen, CheckCircle2, Circle, Clock,
-    FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send, Eye,
-    Globe, Copy, Check,
+    FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send,
+    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
@@ -14,6 +12,9 @@ import { getRequest, postRequest } from "@/services"
 import api from "@/services"
 import useStore from "@/store"
 import { sanitizeHtml } from "@/lib/sanitize"
+import { useSidebar } from "@/components/ui/sidebar"
+import hljs from "highlight.js"
+import "highlight.js/styles/atom-one-dark.css"
 
 interface Chapter {
     id: number
@@ -45,37 +46,122 @@ interface SyllabusDetail {
     months: Month[]
 }
 
-function ChapterRow({ chapter, onContentGenerated }: {
+// ─── Chapter Content Panel (right) ───────────────────────────────────────────
+
+function ChapterContentPanel({ chapter, onContentGenerated }: {
     chapter: Chapter
     onContentGenerated: (taskId: number) => void
 }) {
-    const [expanded, setExpanded] = useState(false)
+    const [content, setContent] = useState<string | null>(null)
+    const [loading, setLoading] = useState(false)
     const [generating, setGenerating] = useState(false)
-    const [hasContent, setHasContent] = useState(chapter.has_content)
-    const [newsletterHtml, setNewsletterHtml] = useState<string | null>(null)
-    const [loadingContent, setLoadingContent] = useState(false)
     const [sending, setSending] = useState(false)
     const [sent, setSent] = useState(chapter.completed)
+    const [hasContent, setHasContent] = useState(chapter.has_content)
+    const proseRef = useRef<HTMLDivElement>(null)
 
-    async function handleGenerate(e: React.MouseEvent) {
-        e.stopPropagation()
+    useEffect(() => {
+        setHasContent(chapter.has_content)
+        setSent(chapter.completed)
+        setContent(null)
+        if (chapter.has_content) loadContent()
+    }, [chapter.id])
+
+    // Apply syntax highlighting, line numbers, and copy button to every <pre>
+    useEffect(() => {
+        const container = proseRef.current
+        if (!container || !content) return
+
+        container.querySelectorAll("pre").forEach((pre) => {
+            if (pre.dataset.processed) return
+            pre.dataset.processed = "true"
+
+            const codeEl = pre.querySelector("code") as HTMLElement | null
+            if (!codeEl) return
+
+            // — Syntax highlight —
+            hljs.highlightElement(codeEl)
+
+            // — Line numbers —
+            const rawText = codeEl.innerText
+            const lines = rawText.split("\n")
+            // remove trailing empty line if present
+            if (lines[lines.length - 1] === "") lines.pop()
+
+            // rebuild innerHTML: wrap each line in a span, add gutter
+            const highlighted = codeEl.innerHTML
+            const lineSpans = highlighted.split("\n")
+            if (lineSpans[lineSpans.length - 1] === "") lineSpans.pop()
+
+            codeEl.innerHTML = lineSpans
+                .map((line, i) =>
+                    `<span class="hljs-line" style="display:table-row">`
+                    + `<span style="display:table-cell;user-select:none;padding-right:16px;min-width:2.5rem;text-align:right;color:#636d83;font-size:0.75rem;line-height:1.6">${i + 1}</span>`
+                    + `<span style="display:table-cell;width:100%;line-height:1.6">${line}</span>`
+                    + `</span>`
+                )
+                .join("\n")
+
+            codeEl.style.display = "table"
+            codeEl.style.width = "100%"
+
+            // — Pre styles —
+            Object.assign(pre.style, {
+                position: "relative",
+                borderRadius: "10px",
+                padding: "0",
+                overflow: "hidden",
+                background: "transparent",
+            })
+            // wrap code in scrollable inner div
+            const scrollWrap = document.createElement("div")
+            scrollWrap.style.cssText = "overflow-x:auto;padding:1rem 1.25rem"
+            pre.insertBefore(scrollWrap, codeEl)
+            scrollWrap.appendChild(codeEl)
+
+            // — Copy button —
+            const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
+            const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+
+            const btn = document.createElement("button")
+            btn.title = "Copy code"
+            btn.innerHTML = ICON_COPY
+            Object.assign(btn.style, {
+                position: "absolute", top: "10px", right: "10px",
+                background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: "6px", padding: "5px 8px", cursor: "pointer",
+                color: "#9da5b4", display: "flex", alignItems: "center",
+                justifyContent: "center", transition: "all 0.15s",
+            })
+            btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(255,255,255,0.15)"; btn.style.color = "#fff" })
+            btn.addEventListener("mouseleave", () => { btn.style.background = "rgba(255,255,255,0.08)"; btn.style.color = "#9da5b4" })
+            btn.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(rawText)
+                    btn.innerHTML = ICON_CHECK
+                    btn.style.color = "#4ade80"
+                    setTimeout(() => { btn.innerHTML = ICON_COPY; btn.style.color = "#9da5b4" }, 2000)
+                } catch { /* clipboard denied */ }
+            })
+            pre.appendChild(btn)
+        })
+    }, [content])
+
+    async function loadContent() {
+        setLoading(true)
+        const { success, data } = await getRequest(`/py/chapter/${chapter.id}`)
+        if (success) setContent(data.newsletter)
+        setLoading(false)
+    }
+
+    async function handleGenerate() {
         setGenerating(true)
         const { success } = await postRequest("/py/generate-content/chapter", { task_id: chapter.id })
         setGenerating(false)
         if (success) {
             setHasContent(true)
             onContentGenerated(chapter.id)
-        }
-    }
-
-    async function handleExpand() {
-        setExpanded((v) => !v)
-        // load content on first expand if available
-        if (!expanded && hasContent && !newsletterHtml) {
-            setLoadingContent(true)
-            const { success, data } = await getRequest(`/py/chapter/${chapter.id}`)
-            if (success) setNewsletterHtml(data.newsletter)
-            setLoadingContent(false)
+            loadContent()
         }
     }
 
@@ -87,241 +173,287 @@ function ChapterRow({ chapter, onContentGenerated }: {
     }
 
     return (
-        <div
-            className={`rounded-lg border transition-colors ${
-                sent
-                    ? "border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/50 dark:bg-emerald-950/20"
-                    : "border-border bg-card"
-            }`}
-        >
-            <div className="flex w-full items-center gap-3 px-4 py-3">
-                <button onClick={handleExpand} className="shrink-0">
-                    {sent
-                        ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                        : <Circle className="h-4 w-4 text-muted-foreground" />
-                    }
-                </button>
-
-                <button className="flex-1 text-left text-sm font-medium leading-snug" onClick={handleExpand}>
-                    <span className="text-muted-foreground mr-2">Day {chapter.day}.</span>
-                    {chapter.topic}
-                </button>
-
-                <div className="flex items-center gap-2 shrink-0">
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        {chapter.hours}h
-                    </span>
-
-                    {hasContent ? (
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs gap-1 text-indigo-500 border-indigo-300 hover:text-indigo-600"
-                            onClick={handleExpand}
-                        >
-                            <Eye className="h-3 w-3" />
-                            {expanded ? "Hide" : "View"}
-                        </Button>
-                    ) : (
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs gap-1"
-                            disabled={generating}
-                            onClick={handleGenerate}
-                        >
-                            {generating
-                                ? <><Loader2 className="h-3 w-3 animate-spin" />Generating</>
-                                : <><Sparkles className="h-3 w-3" />Generate</>
-                            }
-                        </Button>
-                    )}
-
-                    <button onClick={handleExpand}>
-                        {expanded
-                            ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                            : <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        }
-                    </button>
-                </div>
+        <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="border-b px-8 py-5 bg-background shrink-0">
+                <p className="text-xs text-muted-foreground mb-1">Day {chapter.day} · {chapter.hours}h</p>
+                <h2 className="text-2xl font-bold tracking-tight">{chapter.topic}</h2>
             </div>
 
-            {expanded && (
-                <div className="border-t border-border/50">
-                    {/* task description */}
-                    <div className="px-4 py-3 bg-muted/20">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Task</p>
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto">
+                <div className="mx-auto w-full max-w-3xl px-8 py-6 space-y-5">
+
+                    {/* Task */}
+                    <div className="rounded-lg border bg-muted/30 px-4 py-3">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Task</p>
                         <p className="text-sm text-muted-foreground leading-relaxed">{chapter.task}</p>
                     </div>
 
-                    {/* newsletter content */}
-                    {hasContent && (
-                        <div className="border-t border-border/50">
-                            <div className="px-4 pt-3 pb-1">
-                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                                    <FileText className="h-3 w-3" /> Newsletter Content
-                                </p>
+                    {hasContent ? (
+                        loading ? (
+                            <div className="space-y-3 pt-2">
+                                {[...Array(8)].map((_, i) => (
+                                    <div key={i} className={`h-3 bg-muted rounded animate-pulse ${i % 3 === 0 ? "w-3/4" : i % 3 === 1 ? "w-full" : "w-5/6"}`} />
+                                ))}
                             </div>
-
-                            {loadingContent ? (
-                                <div className="px-4 py-6 space-y-2">
-                                    <div className="h-3 bg-muted rounded animate-pulse w-3/4" />
-                                    <div className="h-3 bg-muted rounded animate-pulse w-full" />
-                                    <div className="h-3 bg-muted rounded animate-pulse w-5/6" />
-                                    <div className="h-3 bg-muted rounded animate-pulse w-2/3" />
-                                </div>
-                            ) : newsletterHtml ? (
-                                <>
-                                    <div
-                                        className="px-4 py-3 text-sm text-foreground leading-relaxed overflow-auto max-h-[500px] border-b border-border/50
-                                            [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-1
-                                            [&_p]:text-muted-foreground [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal
-                                            [&_ol]:pl-4 [&_li]:text-muted-foreground [&_li]:mb-0.5 [&_a]:text-primary [&_a]:underline"
-                                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(newsletterHtml) }}
-                                    />
-                                    <div className="px-4 py-3 flex items-center justify-between gap-3">
-                                        {sent ? (
-                                            <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
-                                                <CheckCircle2 className="h-4 w-4" /> Email sent
-                                            </span>
-                                        ) : (
-                                            <p className="text-xs text-muted-foreground">Ready to send to enrollee's inbox.</p>
-                                        )}
-                                        <Button
-                                            size="sm"
-                                            disabled={sending || sent}
-                                            onClick={handleSendEmail}
-                                            className={sent ? "bg-emerald-600 hover:bg-emerald-700" : ""}
-                                        >
-                                            {sending ? (
-                                                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
-                                            ) : sent ? (
-                                                <><CheckCircle2 className="h-4 w-4 mr-1.5" />Sent</>
-                                            ) : (
-                                                <><Send className="h-4 w-4 mr-1.5" />Send Email</>
-                                            )}
-                                        </Button>
+                        ) : content ? (
+                            <div className="space-y-4">
+                                {/* Toolbar */}
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                        <FileText className="h-3 w-3" /> Content
                                     </div>
-                                </>
-                            ) : null}
+                                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1.5" disabled={generating} onClick={handleGenerate}>
+                                        {generating
+                                            ? <><Loader2 className="h-3 w-3 animate-spin" />Regenerating…</>
+                                            : <><Sparkles className="h-3 w-3" />Regenerate</>
+                                        }
+                                    </Button>
+                                </div>
+
+                                {/* Prose content */}
+                                <div
+                                    ref={proseRef}
+                                    className="prose prose-base max-w-none
+                                        prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
+                                        prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
+                                        prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
+                                        prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2
+                                        prose-h4:text-sm prose-h4:mt-4 prose-h4:mb-1
+                                        prose-p:text-zinc-600 prose-p:leading-7
+                                        prose-strong:text-foreground prose-strong:font-semibold
+                                        prose-em:text-zinc-600
+                                        prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
+                                        prose-ul:pl-5 prose-ol:pl-5 prose-ul:my-3 prose-ol:my-3
+                                        prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
+                                        [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
+                                        prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                                        [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm
+                                        [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
+                                        prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
+                                        prose-hr:border-border prose-hr:my-6
+                                        prose-table:w-full prose-table:border-collapse prose-table:text-sm
+                                        prose-thead:bg-muted/50
+                                        prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
+                                        prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
+                                        prose-tr:even:bg-muted/20
+                                        [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
+                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }}
+                                />
+
+                                {/* Send email footer */}
+                                <div className="pt-4 border-t border-border/50 flex items-center justify-between gap-3">
+                                    {sent ? (
+                                        <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
+                                            <CheckCircle2 className="h-4 w-4" /> Email sent
+                                        </span>
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground">Ready to send to your inbox.</p>
+                                    )}
+                                    <Button size="sm" disabled={sending || sent} onClick={handleSendEmail} className={sent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
+                                        {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
+                                            : sent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Sent</>
+                                            : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
+                                        }
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : null
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-24 text-center rounded-lg border border-dashed">
+                            <Sparkles className="h-10 w-10 text-muted-foreground mb-3" />
+                            <h3 className="font-semibold">Content not generated yet</h3>
+                            <p className="text-sm text-muted-foreground mt-1 mb-4">Generate the content for this chapter to read it here.</p>
+                            <Button onClick={handleGenerate} disabled={generating}>
+                                {generating
+                                    ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Generating…</>
+                                    : <><Sparkles className="h-4 w-4 mr-1.5" />Generate Content</>
+                                }
+                            </Button>
                         </div>
                     )}
                 </div>
-            )}
+            </div>
         </div>
     )
 }
 
-function WeekSection({ week, onContentGenerated }: {
-    week: Week
-    onContentGenerated: (taskId: number) => void
-}) {
-    const [open, setOpen] = useState(true)
-    const completedCount = week.tasks.filter((t) => t.completed).length
+// ─── Chapter Nav (left panel) ─────────────────────────────────────────────────
 
-    return (
-        <div className="space-y-2">
-            <button
-                className="flex w-full items-center justify-between py-1 text-left"
-                onClick={() => setOpen((v) => !v)}
-            >
-                <span className="text-sm font-semibold text-foreground/80">Week {week.week}</span>
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{completedCount}/{week.tasks.length} done</span>
-                    {open
-                        ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                        : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                    }
-                </div>
-            </button>
-            {open && (
-                <div className="space-y-2 pl-1">
-                    {week.tasks.map((chapter) => (
-                        <ChapterRow key={chapter.id} chapter={chapter} onContentGenerated={onContentGenerated} />
-                    ))}
-                </div>
-            )}
-        </div>
+function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink }: {
+    detail: SyllabusDetail
+    activeChapterId: number | null
+    onSelectChapter: (chapter: Chapter) => void
+    overallProgress: number
+    completedCount: number
+    totalCount: number
+    shareEnabled: boolean
+    togglingShare: boolean
+    copied: boolean
+    copyFailed: boolean
+    skillId: string
+    onToggleShare: () => void
+    onCopyLink: () => void
+}) {
+    const [openMonths, setOpenMonths] = useState<Set<number>>(
+        () => new Set(detail.months.map((m) => m.month))
     )
-}
 
-function MonthSection({ month, onContentGenerated }: {
-    month: Month
-    onContentGenerated: (taskId: number) => void
-}) {
-    const allTasks = month.weeks.flatMap((w) => w.tasks)
-    const completedCount = allTasks.filter((t) => t.completed).length
-    const progress = allTasks.length > 0 ? Math.round((completedCount / allTasks.length) * 100) : 0
+    function toggleMonth(month: number) {
+        setOpenMonths((prev) => {
+            const next = new Set(prev)
+            if (next.has(month)) next.delete(month)
+            else next.add(month)
+            return next
+        })
+    }
 
     return (
-        <Card className="overflow-hidden">
-            <CardHeader className="pb-3 bg-muted/30">
-                <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col h-full overflow-hidden">
+            {/* Progress */}
+            <div className="px-4 py-3 border-b shrink-0 space-y-2">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Progress</span>
+                    <span>{completedCount}/{totalCount} days</span>
+                </div>
+                <Progress value={overallProgress} className="h-1.5" />
+                <p className="text-xs font-semibold text-primary text-right">{overallProgress}%</p>
+            </div>
+
+            {/* Share controls */}
+            <div className="px-4 py-3 border-b shrink-0">
+                <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold">
-                            {month.month}
-                        </div>
-                        <span className="font-semibold">Month {month.month}</span>
+                        <Globe className={`h-3.5 w-3.5 ${shareEnabled ? "text-emerald-500" : "text-muted-foreground"}`} />
+                        <span className="text-xs font-medium">{shareEnabled ? "Public" : "Private"}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">{completedCount}/{allTasks.length} days</span>
-                        <Badge variant="outline" className="text-xs">{progress}%</Badge>
+                    <div className="flex items-center gap-1.5">
+                        {shareEnabled && (
+                            <Button size="sm" variant="outline" className="h-6 px-2 text-xs gap-1" onClick={onCopyLink}>
+                                {copied ? <><Check className="h-3 w-3 text-emerald-500" />Copied</> : <><Copy className="h-3 w-3" />Copy link</>}
+                            </Button>
+                        )}
+                        <Button
+                            size="sm"
+                            variant={shareEnabled ? "ghost" : "outline"}
+                            className={`h-6 px-2 text-xs ${shareEnabled ? "text-muted-foreground hover:text-destructive" : ""}`}
+                            disabled={togglingShare}
+                            onClick={onToggleShare}
+                        >
+                            {togglingShare ? <Loader2 className="h-3 w-3 animate-spin" /> : shareEnabled ? "Disable" : "Generate Link"}
+                        </Button>
                     </div>
                 </div>
-                <Progress value={progress} className="h-1.5 mt-2" />
-            </CardHeader>
-            <CardContent className="pt-4 space-y-4">
-                {month.weeks.map((week) => (
-                    <WeekSection
-                        key={week.week}
-                        week={week}
-                        onContentGenerated={onContentGenerated}
+                {copyFailed && (
+                    <input
+                        readOnly
+                        value={`${window.location.origin}/public/syllabi/${skillId}`}
+                        onFocus={(e) => e.target.select()}
+                        className="mt-2 w-full rounded border border-input bg-background px-2 py-1 text-xs font-mono focus:outline-none"
                     />
+                )}
+            </div>
+
+            {/* Legend */}
+            <div className="flex items-center gap-3 px-4 py-2 border-b text-xs text-muted-foreground shrink-0">
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" />Sent</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-indigo-400" />Generated</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground/30" />Pending</span>
+            </div>
+
+            {/* Chapter tree */}
+            <div className="flex-1 overflow-y-auto">
+                {detail.months.map((month) => (
+                    <div key={month.month}>
+                        <button
+                            className="flex w-full items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
+                            onClick={() => toggleMonth(month.month)}
+                        >
+                            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Month {month.month}</span>
+                            {openMonths.has(month.month)
+                                ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                                : <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                            }
+                        </button>
+                        {openMonths.has(month.month) && month.weeks.map((week) => (
+                            <div key={week.week} className="mb-1">
+                                <p className="px-4 py-1 text-xs text-muted-foreground/60 font-medium">Week {week.week}</p>
+                                {week.tasks.map((chapter) => (
+                                    <button
+                                        key={chapter.id}
+                                        onClick={() => onSelectChapter(chapter)}
+                                        className={`w-full flex items-start gap-2.5 px-4 py-2 text-left text-sm transition-colors ${
+                                            chapter.id === activeChapterId
+                                                ? "bg-primary/10 text-primary border-r-2 border-primary"
+                                                : "hover:bg-muted/50 text-foreground/80"
+                                        }`}
+                                    >
+                                        <span className={`mt-1.5 h-2 w-2 rounded-full flex-shrink-0 ${
+                                            chapter.completed ? "bg-emerald-500" : chapter.has_content ? "bg-indigo-400" : "bg-muted-foreground/30"
+                                        }`} />
+                                        <span className="leading-snug">
+                                            <span className="text-xs text-muted-foreground mr-1">D{chapter.day}.</span>
+                                            {chapter.topic}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
                 ))}
-            </CardContent>
-        </Card>
+            </div>
+        </div>
     )
 }
 
 function DetailSkeleton() {
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex items-center gap-3">
-                <Skeleton className="h-8 w-8 rounded" />
-                <Skeleton className="h-7 w-48" />
-            </div>
-            {[1, 2].map((i) => (
-                <Card key={i} className="overflow-hidden">
-                    <CardHeader className="bg-muted/30">
-                        <div className="flex items-center gap-2">
-                            <Skeleton className="h-7 w-7 rounded-md" />
-                            <Skeleton className="h-5 w-24" />
-                        </div>
-                        <Skeleton className="h-1.5 w-full mt-2 rounded-full" />
-                    </CardHeader>
-                    <CardContent className="pt-4 space-y-2">
-                        {[1, 2, 3, 4].map((j) => (
-                            <Skeleton key={j} className="h-11 w-full rounded-lg" />
-                        ))}
-                    </CardContent>
-                </Card>
-            ))}
+        <div className="flex overflow-hidden" style={{ height: "100vh" }}>
+            <aside className="w-72 border-r flex flex-col shrink-0">
+                <div className="px-4 py-3 border-b space-y-2">
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-1.5 w-full rounded-full" />
+                </div>
+                <div className="p-4 space-y-2">
+                    {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-8 w-full rounded" />)}
+                </div>
+            </aside>
+            <main className="flex-1 p-8 space-y-4">
+                <Skeleton className="h-8 w-64" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-4 w-4/6" />
+            </main>
         </div>
     )
 }
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SyllabusDetailPage() {
     const { skillId } = useParams<{ skillId: string }>()
     const navigate = useNavigate()
     const [detail, setDetail] = useState<SyllabusDetail | null>(null)
     const [loading, setLoading] = useState(true)
-    const { setPluginName } = useStore((state: any) => state)
+    const { setPluginName, setHideHeader } = useStore((state: any) => state)
     const [shareEnabled, setShareEnabled] = useState(false)
     const [togglingShare, setTogglingShare] = useState(false)
     const [copied, setCopied] = useState(false)
     const [copyFailed, setCopyFailed] = useState(false)
+    const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
+    const [navCollapsed, setNavCollapsed] = useState(false)
+    const { setOpen } = useSidebar()
 
+    // Collapse app sidebar + hide header on enter, restore on leave
+    useEffect(() => {
+        setOpen(false)
+        setHideHeader(true)
+        return () => {
+            setOpen(true)
+            setHideHeader(false)
+        }
+    }, [])
 
     useEffect(() => {
         let cancelled = false
@@ -340,12 +472,19 @@ export default function SyllabusDetailPage() {
         return () => { cancelled = true }
     }, [skillId, setPluginName])
 
-
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length
     const overallProgress = allTasks.length > 0 ? Math.round((completedCount / allTasks.length) * 100) : 0
 
-    // called when a chapter's content is generated — update local state without full refetch
+    // Auto-select first chapter once detail loads
+    useEffect(() => {
+        if (allTasks.length > 0 && activeChapterId === null) {
+            setActiveChapterId(allTasks[0].id)
+        }
+    }, [detail])
+
+    const activeChapter = activeChapterId ? allTasks.find((t) => t.id === activeChapterId) ?? null : null
+
     function handleContentGenerated(taskId: number) {
         setDetail((prev) => {
             if (!prev) return prev
@@ -369,7 +508,7 @@ export default function SyllabusDetailPage() {
             await api.patch(`/py/syllabi/${skillId}/share?enable=${nextValue}`)
             setShareEnabled(nextValue)
         } catch {
-            // leave state unchanged on error
+            // leave unchanged on error
         } finally {
             setTogglingShare(false)
         }
@@ -381,8 +520,7 @@ export default function SyllabusDetailPage() {
             await navigator.clipboard.writeText(url)
             setCopied(true)
             setTimeout(() => setCopied(false), 2000)
-        } catch (err) {
-            console.error("Clipboard write failed:", err)
+        } catch {
             setCopyFailed(true)
             setTimeout(() => setCopyFailed(false), 2000)
         }
@@ -400,122 +538,79 @@ export default function SyllabusDetailPage() {
     )
 
     return (
-        <div className="p-6 space-y-6">
-            {/* header */}
-            <div className="space-y-3">
-                <Button variant="ghost" size="sm" className="-ml-2" onClick={() => navigate("/syllabi")}>
-                    <ArrowLeft className="h-4 w-4 mr-1" /> All Syllabi
-                </Button>
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <BookOpen className="h-5 w-5" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-bold tracking-tight">{detail.skill}</h1>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1.5">
-                            <Clock className="h-4 w-4" />
-                            {detail.hours} hr/day · {detail.days} days
-                        </span>
-                        <Badge variant="outline" className="text-sm font-semibold">
-                            {overallProgress}% complete
-                        </Badge>
-                    </div>
-                </div>
-                <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Overall progress</span>
-                        <span>{completedCount} / {allTasks.length} chapters done</span>
-                    </div>
-                    <Progress value={overallProgress} className="h-2" />
-                </div>
+        <div className="flex overflow-hidden" style={{ height: "100vh" }}>
 
-                {/* share controls */}
-                <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-3">
-                            <div className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                                shareEnabled
-                                    ? "bg-emerald-500/15 text-emerald-500"
-                                    : "bg-muted text-muted-foreground"
-                            }`}>
-                                <Globe className="h-4 w-4" />
-                            </div>
-                            <div>
-                                <p className="text-sm font-medium leading-none">Public page</p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    {shareEnabled
-                                        ? "Anyone with the link can view this syllabus"
-                                        : "Share a read-only view with anyone"}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {shareEnabled && (
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 gap-1.5 text-xs"
-                                    onClick={handleCopyLink}
-                                >
-                                    {copied
-                                        ? <><Check className="h-3 w-3 text-emerald-500" />Copied</>
-                                        : <><Copy className="h-3 w-3" />Copy link</>
-                                    }
-                                </Button>
-                            )}
-                            <Button
-                                size="sm"
-                                variant={shareEnabled ? "ghost" : "default"}
-                                className={`h-7 text-xs ${shareEnabled ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10" : ""}`}
-                                disabled={togglingShare}
-                                onClick={handleToggleShare}
-                            >
-                                {togglingShare
-                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    : shareEnabled ? "Disable" : "Enable"
-                                }
-                            </Button>
-                        </div>
+            {/* Left nav panel */}
+            <aside className={`flex-shrink-0 border-r flex flex-col h-full overflow-hidden transition-all duration-300 ease-in-out ${navCollapsed ? "w-0 border-r-0" : "w-72"}`}>
+                <div className="w-72 flex flex-col h-full">
+                    {/* Nav header */}
+                    <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
+                        <Button variant="ghost" size="sm" className="-ml-1 h-7 text-xs" onClick={() => navigate("/syllabi")}>
+                            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> All Courses
+                        </Button>
+                        <span className="text-sm font-semibold truncate text-foreground/80 flex-1">{detail.skill}</span>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setNavCollapsed(true)} title="Collapse sidebar">
+                            <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
+                        </Button>
                     </div>
-                    {copyFailed && (
-                        <div className="space-y-1">
-                            <p className="text-xs text-destructive">Clipboard access denied — copy the link manually:</p>
-                            <input
-                                readOnly
-                                value={`${window.location.origin}/public/syllabi/${skillId}`}
-                                onFocus={(e) => e.target.select()}
-                                className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-ring"
-                            />
-                        </div>
+                    <ChapterNav
+                        detail={detail}
+                        activeChapterId={activeChapterId}
+                        onSelectChapter={(chapter) => setActiveChapterId(chapter.id)}
+                        overallProgress={overallProgress}
+                        completedCount={completedCount}
+                        totalCount={allTasks.length}
+                        shareEnabled={shareEnabled}
+                        togglingShare={togglingShare}
+                        copied={copied}
+                        copyFailed={copyFailed}
+                        skillId={skillId!}
+                        onToggleShare={handleToggleShare}
+                        onCopyLink={handleCopyLink}
+                    />
+                </div>
+            </aside>
+
+            {/* Right content panel */}
+            <main className="flex-1 overflow-y-auto flex flex-col">
+                {/* Top bar */}
+                <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setNavCollapsed((v) => !v)} title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+                        {navCollapsed ? <PanelLeftOpen className="h-4 w-4 text-muted-foreground" /> : <PanelLeftClose className="h-4 w-4 text-muted-foreground" />}
+                    </Button>
+                    {navCollapsed && (
+                        <>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => navigate("/syllabi")}>
+                                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> All Courses
+                            </Button>
+                            <span className="text-sm font-semibold text-foreground/80">{detail.skill}</span>
+                            {activeChapter && (
+                                <>
+                                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <span className="text-sm text-muted-foreground truncate">
+                                        <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
+                                    </span>
+                                </>
+                            )}
+                        </>
+                    )}
+                    {!navCollapsed && activeChapter && (
+                        <span className="text-sm text-muted-foreground truncate">
+                            <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
+                        </span>
                     )}
                 </div>
-            </div>
 
-            {/* months */}
-            {detail.months.length === 0 ? (
-                <Card className="flex flex-col items-center justify-center py-16 text-center border-dashed">
-                    <BookOpen className="h-10 w-10 text-muted-foreground mb-3" />
-                    <h3 className="font-semibold text-lg">No chapters yet</h3>
-                    <p className="text-muted-foreground text-sm mt-1">Go back and generate a syllabus first.</p>
-                    <Button variant="outline" className="mt-4" onClick={() => navigate("/syllabi")}>
-                        <ArrowLeft className="h-4 w-4 mr-1" /> Back to Syllabi
-                    </Button>
-                </Card>
-            ) : (
-                <div className="space-y-4">
-                    {detail.months.map((month) => (
-                        <MonthSection
-                            key={month.month}
-                            month={month}
+                <div className="flex-1 overflow-y-auto">
+                    {activeChapter && (
+                        <ChapterContentPanel
+                            key={activeChapter.id}
+                            chapter={activeChapter}
                             onContentGenerated={handleContentGenerated}
                         />
-                    ))}
+                    )}
                 </div>
-            )}
+            </main>
         </div>
     )
 }
