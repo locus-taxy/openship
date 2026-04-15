@@ -11,7 +11,7 @@ python-dotenv
 Jinja2
 sentry-sdk
 jwcrypto
-python-multipart==0.0.22
+python-multipart==0.0.26
 passlib[bcrypt]==1.7.4
 bcrypt>=3.2.2,<5
 PyJWT==2.12.1
