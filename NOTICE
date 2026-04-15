@@ -1,0 +1,365 @@
+Openship
+Copyright (c) 2026 Openship Contributors
+
+This product includes software developed by third parties.
+The following sets out attributions for third-party open source software
+components included in this project.
+
+================================================================================
+PYTHON DEPENDENCIES
+================================================================================
+
+--------------------------------------------------------------------------------
+FastAPI
+https://github.com/fastapi/fastapi
+License: MIT
+Copyright (c) 2018 Sebastián Ramírez
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Uvicorn
+https://github.com/encode/uvicorn
+License: BSD-3-Clause
+Copyright (c) 2017-present, Tom Christie
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Pydantic
+https://github.com/pydantic/pydantic
+License: MIT
+Copyright (c) 2017 to present Pydantic Services Inc. and individual contributors
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+email-validator
+https://github.com/JoshData/python-email-validator
+License: CC0-1.0 (Public Domain)
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+SQLModel
+https://github.com/fastapi/sqlmodel
+License: MIT
+Copyright (c) 2021 Sebastián Ramírez
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Alembic
+https://github.com/sqlalchemy/alembic
+License: MIT
+Copyright (c) 2009-2023 Michael Bayer
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+psycopg2-binary
+https://github.com/psycopg/psycopg2
+License: GNU Lesser General Public License v3 (LGPL-3.0) with exceptions
+Copyright (C) 2001-2021 Federico Di Gregorio, Daniele Varrazzo, The Psycopg Team
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+HTTPX
+https://github.com/encode/httpx
+License: BSD-3-Clause
+Copyright (c) 2019, Tom Christie
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Requests
+https://github.com/psf/requests
+License: Apache-2.0
+Copyright 2019 Kenneth Reitz
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+python-dotenv
+https://github.com/theskumar/python-dotenv
+License: BSD-3-Clause
+Copyright (c) 2014, Saurabh Kumar
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Jinja2
+https://github.com/pallets/jinja
+License: BSD-3-Clause
+Copyright 2007 Pallets
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Sentry SDK for Python
+https://github.com/getsentry/sentry-python
+License: MIT
+Copyright (c) 2018 Functional Software, Inc. dba Sentry
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+JWCrypto
+https://github.com/latchset/jwcrypto
+License: GNU Lesser General Public License v3 (LGPL-3.0)
+Copyright (C) 2015 JWCrypto Project Contributors
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+python-multipart
+https://github.com/andrew-d/python-multipart
+License: Apache-2.0
+Copyright (c) 2012 Andrew Dunham
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Passlib
+https://github.com/glic3rinu/passlib
+License: BSD-3-Clause
+Copyright (c) 2008-2020 Eli Collins
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+bcrypt
+https://github.com/pyca/bcrypt
+License: Apache-2.0
+Copyright (c) 2013 Donald Stufft and individual contributors
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+PyJWT
+https://github.com/jpadilla/pyjwt
+License: MIT
+Copyright (c) 2015-2022 José Padilla
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+SlowAPI
+https://github.com/laurentS/slowapi
+License: MIT
+Copyright (c) 2020 Laurent Savaëte
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Bleach
+https://github.com/mozilla/bleach
+License: Apache-2.0
+Copyright (c) 2014 Mozilla Foundation
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+--------------------------------------------------------------------------------
+
+================================================================================
+JAVASCRIPT / NODE.JS DEPENDENCIES
+================================================================================
+
+--------------------------------------------------------------------------------
+React
+https://github.com/facebook/react
+License: MIT
+Copyright (c) Meta Platforms, Inc. and affiliates.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+React Router
+https://github.com/remix-run/react-router
+License: MIT
+Copyright (c) Remix Software Inc.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Radix UI (react-avatar, react-collapsible, react-dialog, react-dropdown-menu,
+           react-label, react-progress, react-separator, react-slot,
+           react-tabs, react-toast, react-tooltip)
+https://github.com/radix-ui/primitives
+License: MIT
+Copyright (c) 2022 WorkOS
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Tailwind CSS
+https://github.com/tailwindlabs/tailwindcss
+License: MIT
+Copyright (c) Tailwind Labs, Inc.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+@tailwindcss/typography
+https://github.com/tailwindlabs/tailwindcss-typography
+License: MIT
+Copyright (c) Tailwind Labs, Inc.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+tailwind-merge
+https://github.com/dcastil/tailwind-merge
+License: MIT
+Copyright (c) 2021 Dany Castillo
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+tailwindcss-animate
+https://github.com/jamiebuilds/tailwindcss-animate
+License: MIT
+Copyright (c) 2022 Jamie Kyle
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Axios
+https://github.com/axios/axios
+License: MIT
+Copyright (c) 2014-present Matt Zabriskie & Collaborators
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+class-variance-authority
+https://github.com/joe-bell/cva
+License: Apache-2.0
+Copyright (c) 2022 Joe Bell
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+clsx
+https://github.com/lukeed/clsx
+License: MIT
+Copyright (c) Luke Edwards
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+date-fns
+https://github.com/date-fns/date-fns
+License: MIT
+Copyright (c) 2021 Sasha Koss and Lesha Koss
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+DOMPurify
+https://github.com/cure53/DOMPurify
+License: Apache-2.0 OR MPL-2.0
+Copyright (c) 2015 Mario Heiderich
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+highlight.js
+https://github.com/highlightjs/highlight.js
+License: BSD-3-Clause
+Copyright (c) 2006, Ivan Sagalaev
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Leaflet
+https://github.com/Leaflet/Leaflet
+License: BSD-2-Clause
+Copyright (c) 2010-2023, Vladimir Agafonkin
+Copyright (c) 2010-2011, CloudMade
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Lucide React
+https://github.com/lucide-icons/lucide
+License: ISC
+Copyright (c) 2020, Lucide Contributors
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+react-markdown
+https://github.com/remarkjs/react-markdown
+License: MIT
+Copyright (c) 2015 Espen Hovlandsdal
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Zustand
+https://github.com/pmndrs/zustand
+License: MIT
+Copyright (c) 2019 Paul Henschel
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Vite
+https://github.com/vitejs/vite
+License: MIT
+Copyright (c) 2019-present, VoidZero Inc.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+TypeScript
+https://github.com/microsoft/TypeScript
+License: Apache-2.0
+Copyright (c) Microsoft Corporation
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+ESLint
+https://github.com/eslint/eslint
+License: MIT
+Copyright OpenJS Foundation and other contributors
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+PostCSS
+https://github.com/postcss/postcss
+License: MIT
+Copyright 2013 Andrey Sitnik
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Autoprefixer
+https://github.com/postcss/autoprefixer
+License: MIT
+Copyright 2013 Andrey Sitnik
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Husky
+https://github.com/typicode/husky
+License: MIT
+Copyright (c) 2021 typicode
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+@vitejs/plugin-react-swc
+https://github.com/vitejs/vite-plugin-react-swc
+License: MIT
+Copyright (c) 2022 Arnaud Barré
+--------------------------------------------------------------------------------
