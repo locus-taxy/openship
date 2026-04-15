@@ -5,10 +5,12 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import PluginHeader from "../partials/pluginHeader";
 import { useEffect } from "react";
 import useAuthStore from "@/store/authStore";
+import useStore from "@/store";
 import { Loader2 } from "lucide-react";
 
 export default function Layout() {
     const { initialized, isAuthenticated, initAuth } = useAuthStore();
+    const { hideHeader } = useStore((state: any) => state)
 
     useEffect(() => {
         initAuth();
@@ -30,7 +32,7 @@ export default function Layout() {
         <SidebarProvider>
             <AppSidebar />
             <SidebarInset>
-                <PluginHeader />
+                {!hideHeader && <PluginHeader />}
                 <main className="flex-1 overflow-y-auto">
                     <Outlet />
                 </main>

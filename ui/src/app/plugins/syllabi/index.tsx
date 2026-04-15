@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
-import { BookOpen, Clock, CalendarDays, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText } from "lucide-react"
+import { BookOpen, Clock, CalendarDays, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText, GraduationCap, CheckCircle2, CircleDot } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 import { getRequest, postRequest } from "@/services"
 import useStore from "@/store"
 
@@ -56,27 +57,45 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     }
 
     return (
-        <Card className="relative overflow-hidden border border-border/60 bg-card hover:shadow-lg hover:border-border transition-all duration-300 flex flex-col">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500" />
+        <Card className="relative overflow-hidden border border-border/60 bg-card hover:shadow-md hover:border-border transition-all duration-200 flex flex-col group">
+            {/* Top accent bar */}
+            <div className={cn(
+                "absolute top-0 left-0 right-0 h-0.5",
+                isCompleted
+                    ? "bg-gradient-to-r from-emerald-400 to-teal-500"
+                    : isInProgress
+                    ? "bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-500"
+                    : hasSyllabus
+                    ? "bg-gradient-to-r from-zinc-300 to-zinc-400"
+                    : "bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500"
+            )} />
 
-            <CardHeader className="pb-3 pt-6">
+            <CardHeader className="pb-3 pt-5">
                 <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <BookOpen className="h-5 w-5" />
+                    <div className="flex items-start gap-3 min-w-0">
+                        <div className={cn(
+                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                            isCompleted
+                                ? "bg-emerald-500/10 text-emerald-600"
+                                : isInProgress
+                                ? "bg-indigo-500/10 text-indigo-600"
+                                : "bg-primary/10 text-primary"
+                        )}>
+                            <BookOpen className="h-4.5 w-4.5" />
                         </div>
-                        <h3 className="text-lg font-semibold leading-tight line-clamp-2 min-h-[2.75rem]">{item.skill}</h3>
+                        <h3 className="text-base font-semibold leading-snug line-clamp-2 pt-0.5">{item.skill}</h3>
                     </div>
                     {hasSyllabus && (
                         <Badge
-                            variant={isCompleted ? "default" : isInProgress ? "secondary" : "outline"}
-                            className={
+                            variant="outline"
+                            className={cn(
+                                "shrink-0 text-xs font-medium",
                                 isCompleted
-                                    ? "bg-emerald-500/15 text-emerald-600 border-emerald-300"
+                                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-200"
                                     : isInProgress
-                                    ? "bg-indigo-500/15 text-indigo-600 border-indigo-300"
+                                    ? "bg-indigo-500/10 text-indigo-600 border-indigo-200"
                                     : "text-muted-foreground"
-                            }
+                            )}
                         >
                             {isCompleted ? "Completed" : isInProgress ? "In Progress" : "Not Started"}
                         </Badge>
@@ -84,16 +103,18 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                 </div>
             </CardHeader>
 
-            <CardContent className="flex-1 flex flex-col">
+            <CardContent className="flex-1 flex flex-col pt-0">
                 {hasSyllabus || hasMatchingChapters ? (
                     <div className="space-y-4 flex-1 flex flex-col">
                         {hasSyllabus && (
                             <div className="space-y-1.5">
                                 <div className="flex justify-between text-xs text-muted-foreground">
-                                    <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3" />Progress</span>
+                                    <span className="flex items-center gap-1">
+                                        <TrendingUp className="h-3 w-3" />Progress
+                                    </span>
                                     <span className="font-medium text-foreground">{item.completed_tasks} / {item.total_tasks} days</span>
                                 </div>
-                                <Progress value={progress} className="h-2" />
+                                <Progress value={progress} className="h-1.5" />
                                 <p className="text-right text-xs font-semibold text-primary">{progress}%</p>
                             </div>
                         )}
@@ -116,23 +137,23 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                         )}
 
                         <div className="grid grid-cols-2 gap-2">
-                            <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-                                <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                            <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                                <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                 <div>
                                     <p className="text-xs text-muted-foreground">Duration</p>
-                                    <p className="text-sm font-medium">{item.days} days</p>
+                                    <p className="text-sm font-semibold">{item.days} days</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-                                <Clock className="h-4 w-4 text-muted-foreground" />
+                            <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                                <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                 <div>
                                     <p className="text-xs text-muted-foreground">Daily</p>
-                                    <p className="text-sm font-medium">{item.hours} hr{item.hours !== 1 ? "s" : ""}</p>
+                                    <p className="text-sm font-semibold">{item.hours} hr{item.hours !== 1 ? "s" : ""}</p>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="mt-auto pt-2">
+                        <div className="mt-auto pt-1">
                             {!hasSyllabus ? (
                                 <Button
                                     className="w-full"
@@ -153,7 +174,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                                         onClick={() => onStart(item.skill_id)}
                                     >
                                         <PlayCircle className="h-4 w-4 mr-2" />
-                                        {isInProgress ? "Continue" : "Start Course"}
+                                        {isCompleted ? "Review" : isInProgress ? "Continue" : "Start Course"}
                                     </Button>
                                     <Button
                                         variant="ghost"
@@ -162,6 +183,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                                         aria-label="Regenerate syllabus"
                                         disabled={generating}
                                         onClick={handleGenerate}
+                                        className="shrink-0"
                                     >
                                         {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
                                     </Button>
@@ -171,11 +193,12 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                     </div>
                 ) : (
                     <div className="flex-1 flex flex-col">
-                        <div className="flex-1 flex flex-col items-center justify-center text-center py-4">
-                            <BookOpen className="h-8 w-8 text-muted-foreground mb-2" />
-                            <p className="text-sm text-muted-foreground italic">No syllabus yet — generate one to get started.</p>
+                        <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+                            <Sparkles className="h-7 w-7 text-muted-foreground/50 mb-2" />
+                            <p className="text-sm text-muted-foreground">No syllabus yet</p>
+                            <p className="text-xs text-muted-foreground/70 mt-0.5">Generate one to get started</p>
                         </div>
-                        <div className="mt-auto pt-2">
+                        <div className="pb-1">
                             <Button
                                 className="w-full"
                                 variant="outline"
@@ -199,16 +222,15 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
 function CardSkeleton() {
     return (
         <Card className="overflow-hidden border border-border/60">
-            <div className="h-1 bg-muted" />
-            <CardHeader className="pb-3 pt-6">
+            <div className="h-0.5 bg-muted" />
+            <CardHeader className="pb-3 pt-5">
                 <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                         <Skeleton className="h-9 w-9 rounded-lg" />
                         <Skeleton className="h-5 w-32" />
                     </div>
                     <Skeleton className="h-5 w-20 rounded-full" />
                 </div>
-                <Skeleton className="h-4 w-48 ml-11 mt-1" />
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="space-y-1.5">
@@ -216,15 +238,34 @@ function CardSkeleton() {
                         <Skeleton className="h-3 w-16" />
                         <Skeleton className="h-3 w-20" />
                     </div>
-                    <Skeleton className="h-2 w-full rounded-full" />
+                    <Skeleton className="h-1.5 w-full rounded-full" />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                    <Skeleton className="h-14 rounded-md" />
-                    <Skeleton className="h-14 rounded-md" />
+                    <Skeleton className="h-14 rounded-lg" />
+                    <Skeleton className="h-14 rounded-lg" />
                 </div>
                 <Skeleton className="h-9 w-full rounded-md" />
             </CardContent>
         </Card>
+    )
+}
+
+function StatCard({ icon: Icon, label, value, color }: {
+    icon: React.ElementType
+    label: string
+    value: number
+    color: string
+}) {
+    return (
+        <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3">
+            <div className={cn("flex h-8 w-8 items-center justify-center rounded-lg", color)}>
+                <Icon className="h-4 w-4" />
+            </div>
+            <div>
+                <p className="text-xl font-bold leading-none">{value}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+            </div>
+        </div>
     )
 }
 
@@ -285,18 +326,34 @@ export default function SyllabiPage() {
         fetchSyllabi()
     }
 
+    // Compute stats
+    const total = syllabi.length
+    const inProgress = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks > 0 && s.completed_tasks < s.total_tasks).length
+    const completed = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === s.total_tasks).length
+
     return (
         <div className="p-6 space-y-6">
+            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight">Syllabi</h1>
-                    <p className="text-muted-foreground mt-1">All active learning plans</p>
+                    <h1 className="text-2xl font-bold tracking-tight">My Courses</h1>
+                    <p className="text-muted-foreground text-sm mt-0.5">All active learning plans</p>
                 </div>
                 <Button onClick={() => navigate("/enroll")}>
                     + New Enrollment
                 </Button>
             </div>
 
+            {/* Stats row */}
+            {!loading && total > 0 && (
+                <div className="grid grid-cols-3 gap-3">
+                    <StatCard icon={GraduationCap} label="Total courses" value={total} color="bg-primary/10 text-primary" />
+                    <StatCard icon={CircleDot} label="In progress" value={inProgress} color="bg-indigo-500/10 text-indigo-600" />
+                    <StatCard icon={CheckCircle2} label="Completed" value={completed} color="bg-emerald-500/10 text-emerald-600" />
+                </div>
+            )}
+
+            {/* Search */}
             {!loading && syllabi.length > 0 && (
                 <div className="relative max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -313,15 +370,20 @@ export default function SyllabiPage() {
                 </div>
             )}
 
+            {/* Content */}
             {loading ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
                 </div>
             ) : syllabi.length === 0 ? (
-                <Card className="flex flex-col items-center justify-center py-16 text-center border-dashed">
-                    <BookOpen className="h-10 w-10 text-muted-foreground mb-3" />
+                <Card className="flex flex-col items-center justify-center py-20 text-center border-dashed">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted mb-4">
+                        <BookOpen className="h-7 w-7 text-muted-foreground" />
+                    </div>
                     <h3 className="font-semibold text-lg">No enrollments yet</h3>
-                    <p className="text-muted-foreground text-sm mt-1 mb-4">Enroll in a subject to get started.</p>
+                    <p className="text-muted-foreground text-sm mt-1 mb-5 max-w-xs">
+                        Enroll in a subject and we'll generate a personalised syllabus for you.
+                    </p>
                     <Button onClick={() => navigate("/enroll")}>+ New Enrollment</Button>
                 </Card>
             ) : displayList.length === 0 ? (

@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "react-router"
 import {
-    BookOpen, Clock, ChevronDown, ChevronRight, FileText,
+    BookOpen, ChevronDown, ChevronRight, FileText,
+    PanelLeftClose, PanelLeftOpen,
 } from "lucide-react"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Badge } from "@/components/ui/badge"
 import axios from "axios"
 import { sanitizeHtml } from "@/lib/sanitize"
+import hljs from "highlight.js"
+import "highlight.js/styles/atom-one-dark.css"
 
 interface PublicTask {
     id: number
@@ -38,162 +40,227 @@ interface PublicSyllabus {
     months: PublicMonth[]
 }
 
-function ChapterRow({ chapter }: { chapter: PublicTask }) {
-    const [expanded, setExpanded] = useState(false)
+// ─── Content Panel (right) ────────────────────────────────────────────────────
+
+function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
+    const proseRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        const container = proseRef.current
+        if (!container || !chapter.newsletter) return
+
+        container.querySelectorAll("pre").forEach((pre) => {
+            if (pre.dataset.processed) return
+            pre.dataset.processed = "true"
+
+            const codeEl = pre.querySelector("code") as HTMLElement | null
+            if (!codeEl) return
+
+            hljs.highlightElement(codeEl)
+
+            const rawText = codeEl.innerText
+            const lineSpans = codeEl.innerHTML.split("\n")
+            if (lineSpans[lineSpans.length - 1] === "") lineSpans.pop()
+
+            codeEl.innerHTML = lineSpans
+                .map((line, i) =>
+                    `<span class="hljs-line" style="display:table-row">`
+                    + `<span style="display:table-cell;user-select:none;padding-right:16px;min-width:2.5rem;text-align:right;color:#636d83;font-size:0.75rem;line-height:1.6">${i + 1}</span>`
+                    + `<span style="display:table-cell;width:100%;line-height:1.6">${line}</span>`
+                    + `</span>`
+                )
+                .join("\n")
+
+            codeEl.style.display = "table"
+            codeEl.style.width = "100%"
+
+            Object.assign(pre.style, {
+                position: "relative", borderRadius: "10px",
+                padding: "0", overflow: "hidden", background: "transparent",
+            })
+
+            const scrollWrap = document.createElement("div")
+            scrollWrap.style.cssText = "overflow-x:auto;padding:1rem 1.25rem"
+            pre.insertBefore(scrollWrap, codeEl)
+            scrollWrap.appendChild(codeEl)
+
+            const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
+            const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+
+            const btn = document.createElement("button")
+            btn.title = "Copy code"
+            btn.innerHTML = ICON_COPY
+            Object.assign(btn.style, {
+                position: "absolute", top: "10px", right: "10px",
+                background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: "6px", padding: "5px 8px", cursor: "pointer",
+                color: "#9da5b4", display: "flex", alignItems: "center",
+                justifyContent: "center", transition: "all 0.15s",
+            })
+            btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(255,255,255,0.15)"; btn.style.color = "#fff" })
+            btn.addEventListener("mouseleave", () => { btn.style.background = "rgba(255,255,255,0.08)"; btn.style.color = "#9da5b4" })
+            btn.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(rawText)
+                    btn.innerHTML = ICON_CHECK
+                    btn.style.color = "#4ade80"
+                    setTimeout(() => { btn.innerHTML = ICON_COPY; btn.style.color = "#9da5b4" }, 2000)
+                } catch { /* clipboard denied */ }
+            })
+            pre.appendChild(btn)
+        })
+    }, [chapter.id])
 
     return (
-        <div className="rounded-lg border border-border bg-card">
-            <div className="flex w-full items-center gap-3 px-4 py-3">
-                <button
-                    className="flex-1 text-left text-sm font-medium leading-snug"
-                    onClick={() => setExpanded((v) => !v)}
-                >
-                    <span className="text-muted-foreground mr-2">Day {chapter.day}.</span>
-                    {chapter.topic}
-                </button>
-                <div className="flex items-center gap-2 shrink-0">
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        {chapter.hours}h
-                    </span>
-                    <button onClick={() => setExpanded((v) => !v)}>
-                        {expanded
-                            ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                            : <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        }
-                    </button>
-                </div>
+        <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="border-b px-8 py-5 bg-background shrink-0">
+                <p className="text-xs text-muted-foreground mb-1">Day {chapter.day} · {chapter.hours}h</p>
+                <h2 className="text-2xl font-bold tracking-tight">{chapter.topic}</h2>
             </div>
 
-            {expanded && (
-                <div className="border-t border-border/50">
-                    <div className="px-4 py-3 bg-muted/20">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Task</p>
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto">
+                <div className="mx-auto w-full max-w-3xl px-8 py-6 space-y-5">
+
+                    {/* Task */}
+                    <div className="rounded-lg border bg-muted/30 px-4 py-3">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Task</p>
                         <p className="text-sm text-muted-foreground leading-relaxed">{chapter.task}</p>
                     </div>
-                    {chapter.newsletter && (
-                        <div className="border-t border-border/50">
-                            <div className="px-4 pt-3 pb-1">
-                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                                    <FileText className="h-3 w-3" /> Newsletter Content
-                                </p>
+
+                    {chapter.newsletter ? (
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                <FileText className="h-3 w-3" /> Content
                             </div>
                             <div
-                                className="px-4 py-3 prose prose-sm max-w-none text-foreground overflow-auto max-h-[500px]"
+                                ref={proseRef}
+                                className="prose prose-base max-w-none
+                                    prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
+                                    prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
+                                    prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
+                                    prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2
+                                    prose-h4:text-sm prose-h4:mt-4 prose-h4:mb-1
+                                    prose-p:text-zinc-600 prose-p:leading-7
+                                    prose-strong:text-foreground prose-strong:font-semibold
+                                    prose-em:text-zinc-600
+                                    prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
+                                    prose-ul:pl-5 prose-ol:pl-5 prose-ul:my-3 prose-ol:my-3
+                                    prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
+                                    [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
+                                    prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                                    [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm
+                                    [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
+                                    prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
+                                    prose-hr:border-border prose-hr:my-6
+                                    prose-table:w-full prose-table:border-collapse prose-table:text-sm
+                                    prose-thead:bg-muted/50
+                                    prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
+                                    prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
+                                    prose-tr:even:bg-muted/20
+                                    [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
                                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.newsletter) }}
                             />
                         </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-24 text-center rounded-lg border border-dashed">
+                            <FileText className="h-10 w-10 text-muted-foreground mb-3" />
+                            <h3 className="font-semibold">No content yet</h3>
+                            <p className="text-sm text-muted-foreground mt-1">The owner hasn't generated content for this chapter.</p>
+                        </div>
                     )}
                 </div>
-            )}
+            </div>
         </div>
     )
 }
 
-function WeekSection({ week, selected, onSelect }: {
-    week: PublicWeek
-    selected: boolean
-    onSelect: (w: number | null) => void
+// ─── Chapter Nav (left) ───────────────────────────────────────────────────────
+
+function ChapterNav({ syllabus, activeChapterId, onSelectChapter }: {
+    syllabus: PublicSyllabus
+    activeChapterId: number | null
+    onSelectChapter: (chapter: PublicTask) => void
 }) {
-    const [open, setOpen] = useState(true)
+    const [openMonths, setOpenMonths] = useState<Set<number>>(
+        () => new Set(syllabus.months.map((m) => m.month))
+    )
+
+    function toggleMonth(month: number) {
+        setOpenMonths((prev) => {
+            const next = new Set(prev)
+            if (next.has(month)) next.delete(month)
+            else next.add(month)
+            return next
+        })
+    }
 
     return (
-        <div className="space-y-2">
-            <div className="flex w-full items-center justify-between py-1">
-                <button
-                    className="flex items-center gap-2 text-left"
-                    onClick={() => setOpen((v) => !v)}
-                >
-                    <span className="text-sm font-semibold text-foreground/80">Week {week.week}</span>
-                    <span className="text-xs text-muted-foreground">{week.tasks.length} days</span>
-                    {open
-                        ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                        : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                    }
-                </button>
-                <Button
-                    size="sm"
-                    variant={selected ? "default" : "outline"}
-                    className="h-6 px-2 text-xs"
-                    onClick={() => onSelect(selected ? null : week.week)}
-                >
-                    {selected ? "Showing week" : "View week"}
-                </Button>
-            </div>
-            {open && (
-                <div className="space-y-2 pl-1">
-                    {week.tasks.map((chapter) => (
-                        <ChapterRow key={chapter.id} chapter={chapter} />
+        <div className="flex-1 overflow-y-auto">
+            {syllabus.months.map((month) => (
+                <div key={month.month}>
+                    <button
+                        className="flex w-full items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
+                        onClick={() => toggleMonth(month.month)}
+                    >
+                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Month {month.month}</span>
+                        {openMonths.has(month.month)
+                            ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                            : <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        }
+                    </button>
+                    {openMonths.has(month.month) && month.weeks.map((week) => (
+                        <div key={week.week} className="mb-1">
+                            <p className="px-4 py-1 text-xs text-muted-foreground/60 font-medium">Week {week.week}</p>
+                            {week.tasks.map((chapter) => (
+                                <button
+                                    key={chapter.id}
+                                    onClick={() => onSelectChapter(chapter)}
+                                    className={`w-full flex items-start gap-2.5 px-4 py-2 text-left text-sm transition-colors ${
+                                        chapter.id === activeChapterId
+                                            ? "bg-primary/10 text-primary border-r-2 border-primary"
+                                            : "hover:bg-muted/50 text-foreground/80"
+                                    }`}
+                                >
+                                    <span className={`mt-1.5 h-2 w-2 rounded-full flex-shrink-0 ${
+                                        chapter.newsletter ? "bg-indigo-400" : "bg-muted-foreground/30"
+                                    }`} />
+                                    <span className="leading-snug">
+                                        <span className="text-xs text-muted-foreground mr-1">D{chapter.day}.</span>
+                                        {chapter.topic}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
                     ))}
                 </div>
-            )}
+            ))}
         </div>
-    )
-}
-
-function MonthSection({ month, selectedWeek, onSelectWeek }: {
-    month: PublicMonth
-    selectedWeek: number | null
-    onSelectWeek: (w: number | null) => void
-}) {
-    const totalTasks = month.weeks.reduce((acc, w) => acc + w.tasks.length, 0)
-    const visibleWeeks = selectedWeek !== null
-        ? month.weeks.filter((w) => w.week === selectedWeek)
-        : month.weeks
-
-    return (
-        <Card className="overflow-hidden">
-            <CardHeader className="pb-3 bg-muted/30">
-                <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold">
-                            {month.month}
-                        </div>
-                        <span className="font-semibold">Month {month.month}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">{totalTasks} days</span>
-                </div>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-4">
-                {visibleWeeks.map((week) => (
-                    <WeekSection
-                        key={week.week}
-                        week={week}
-                        selected={selectedWeek === week.week}
-                        onSelect={onSelectWeek}
-                    />
-                ))}
-                {visibleWeeks.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">No weeks match the current filter.</p>
-                )}
-            </CardContent>
-        </Card>
     )
 }
 
 function PageSkeleton() {
     return (
-        <div className="max-w-4xl mx-auto p-6 space-y-6">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-9 w-full rounded-lg" />
-            {[1, 2].map((i) => (
-                <Card key={i} className="overflow-hidden">
-                    <CardHeader className="bg-muted/30">
-                        <div className="flex items-center gap-2">
-                            <Skeleton className="h-7 w-7 rounded-md" />
-                            <Skeleton className="h-5 w-24" />
-                        </div>
-                    </CardHeader>
-                    <CardContent className="pt-4 space-y-2">
-                        {[1, 2, 3].map((j) => (
-                            <Skeleton key={j} className="h-11 w-full rounded-lg" />
-                        ))}
-                    </CardContent>
-                </Card>
-            ))}
+        <div className="flex h-screen overflow-hidden">
+            <aside className="w-72 border-r flex flex-col shrink-0">
+                <div className="px-4 py-3 border-b space-y-2">
+                    <Skeleton className="h-5 w-32" />
+                </div>
+                <div className="p-4 space-y-2">
+                    {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-8 w-full rounded" />)}
+                </div>
+            </aside>
+            <main className="flex-1 p-8 space-y-4">
+                <Skeleton className="h-8 w-64" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+            </main>
         </div>
     )
 }
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PublicSyllabusPage() {
     const { skillId } = useParams<{ skillId: string }>()
@@ -201,8 +268,8 @@ export default function PublicSyllabusPage() {
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
     const [retryable, setRetryable] = useState(false)
-    const [selectedMonth, setSelectedMonth] = useState<number | null>(null)
-    const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
+    const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
+    const [navCollapsed, setNavCollapsed] = useState(false)
 
     useEffect(() => {
         const controller = new AbortController()
@@ -210,22 +277,15 @@ export default function PublicSyllabusPage() {
         setNotFound(false)
         setRetryable(false)
         setSyllabus(null)
-        setSelectedMonth(null)
-        setSelectedWeek(null)
+
         async function fetchPublic() {
             try {
-                const res = await axios.get(`/py/public/syllabi/${skillId}`, {
-                    signal: controller.signal,
-                })
+                const res = await axios.get(`/py/public/syllabi/${skillId}`, { signal: controller.signal })
                 setSyllabus(res.data)
             } catch (err: any) {
                 if (axios.isCancel(err)) return
-                const status = err?.response?.status
-                if (status === 404) {
-                    setNotFound(true)
-                } else {
-                    setRetryable(true)
-                }
+                if (err?.response?.status === 404) setNotFound(true)
+                else setRetryable(true)
             } finally {
                 if (!controller.signal.aborted) setLoading(false)
             }
@@ -234,120 +294,92 @@ export default function PublicSyllabusPage() {
         return () => controller.abort()
     }, [skillId])
 
-    function handleSelectMonth(m: number) {
-        if (selectedMonth === m) {
-            setSelectedMonth(null)
-            setSelectedWeek(null)
-        } else {
-            setSelectedMonth(m)
-            setSelectedWeek(null)
+    const allTasks = syllabus?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
+
+    // Auto-select first chapter
+    useEffect(() => {
+        if (allTasks.length > 0 && activeChapterId === null) {
+            setActiveChapterId(allTasks[0].id)
         }
-    }
+    }, [syllabus])
+
+    const activeChapter = activeChapterId ? allTasks.find((t) => t.id === activeChapterId) ?? null : null
 
     if (loading) return <PageSkeleton />
 
-    if (retryable) {
-        return (
-            <div className="max-w-4xl mx-auto p-6 flex flex-col items-center justify-center min-h-[60vh] text-center">
-                <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
-                <h1 className="text-2xl font-bold mb-2">Something went wrong</h1>
-                <p className="text-muted-foreground mb-4">
-                    Could not load this syllabus. Please try again in a moment.
-                </p>
-                <button
-                    className="text-sm text-primary underline"
-                    onClick={() => window.location.reload()}
-                >
-                    Retry
-                </button>
-            </div>
-        )
-    }
+    if (retryable) return (
+        <div className="flex flex-col items-center justify-center h-screen text-center p-6">
+            <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
+            <h1 className="text-2xl font-bold mb-2">Something went wrong</h1>
+            <p className="text-muted-foreground mb-4">Could not load this syllabus. Please try again.</p>
+            <button className="text-sm text-primary underline" onClick={() => window.location.reload()}>Retry</button>
+        </div>
+    )
 
-    if (notFound || !syllabus) {
-        return (
-            <div className="max-w-4xl mx-auto p-6 flex flex-col items-center justify-center min-h-[60vh] text-center">
-                <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
-                <h1 className="text-2xl font-bold mb-2">Syllabus not found</h1>
-                <p className="text-muted-foreground">
-                    This syllabus doesn't exist or the owner has disabled public sharing.
-                </p>
-            </div>
-        )
-    }
-
-    const allTasks = syllabus.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks))
-    const visibleMonths = selectedMonth !== null
-        ? syllabus.months.filter((m) => m.month === selectedMonth)
-        : syllabus.months
+    if (notFound || !syllabus) return (
+        <div className="flex flex-col items-center justify-center h-screen text-center p-6">
+            <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
+            <h1 className="text-2xl font-bold mb-2">Syllabus not found</h1>
+            <p className="text-muted-foreground">This syllabus doesn't exist or public sharing has been disabled.</p>
+        </div>
+    )
 
     return (
-        <div className="max-w-4xl mx-auto p-6 space-y-6">
-            {/* header */}
-            <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <BookOpen className="h-5 w-5" />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-bold tracking-tight">{syllabus.skill}</h1>
-                        <p className="text-sm text-muted-foreground">
-                            {syllabus.days} days · {syllabus.hours} hr/day
-                        </p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-3 flex-wrap text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1.5">
-                        <Clock className="h-4 w-4" />
-                        {allTasks.length} total chapters
-                    </span>
-                    <Badge variant="outline">Read-only · Public view</Badge>
-                </div>
-            </div>
+        <div className="flex overflow-hidden h-screen">
 
-            {/* month navigation tabs */}
-            {syllabus.months.length > 1 && (
-                <div className="flex flex-wrap gap-2">
-                    <Button
-                        size="sm"
-                        variant={selectedMonth === null ? "default" : "outline"}
-                        className="h-8 text-xs"
-                        onClick={() => { setSelectedMonth(null); setSelectedWeek(null) }}
-                    >
-                        All months
-                    </Button>
-                    {syllabus.months.map((m) => (
-                        <Button
-                            key={m.month}
-                            size="sm"
-                            variant={selectedMonth === m.month ? "default" : "outline"}
-                            className="h-8 text-xs"
-                            onClick={() => handleSelectMonth(m.month)}
-                        >
-                            Month {m.month}
+            {/* Left nav panel */}
+            <aside className={`flex-shrink-0 border-r flex flex-col h-full overflow-hidden transition-all duration-300 ease-in-out ${navCollapsed ? "w-0 border-r-0" : "w-72"}`}>
+                <div className="w-72 flex flex-col h-full">
+                    {/* Header */}
+                    <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
+                        <span className="text-sm font-semibold truncate text-foreground/80 flex-1">{syllabus.skill}</span>
+                        <Badge variant="outline" className="text-xs shrink-0">Public</Badge>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setNavCollapsed(true)}>
+                            <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
                         </Button>
-                    ))}
-                </div>
-            )}
+                    </div>
 
-            {/* content */}
-            {syllabus.months.length === 0 ? (
-                <Card className="flex flex-col items-center justify-center py-16 text-center border-dashed">
-                    <BookOpen className="h-10 w-10 text-muted-foreground mb-3" />
-                    <h3 className="font-semibold text-lg">No chapters available yet</h3>
-                </Card>
-            ) : (
-                <div className="space-y-4">
-                    {visibleMonths.map((month) => (
-                        <MonthSection
-                            key={month.month}
-                            month={month}
-                            selectedWeek={selectedWeek}
-                            onSelectWeek={(w) => setSelectedWeek(w)}
-                        />
-                    ))}
+                    {/* Legend */}
+                    <div className="flex items-center gap-3 px-4 py-2 border-b text-xs text-muted-foreground shrink-0">
+                        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-indigo-400" />Has content</span>
+                        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground/30" />Pending</span>
+                    </div>
+
+                    <ChapterNav
+                        syllabus={syllabus}
+                        activeChapterId={activeChapterId}
+                        onSelectChapter={(chapter) => setActiveChapterId(chapter.id)}
+                    />
                 </div>
-            )}
+            </aside>
+
+            {/* Right content panel */}
+            <main className="flex-1 overflow-y-auto flex flex-col">
+                {/* Top bar */}
+                <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setNavCollapsed((v) => !v)}>
+                        {navCollapsed
+                            ? <PanelLeftOpen className="h-4 w-4 text-muted-foreground" />
+                            : <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
+                        }
+                    </Button>
+                    {navCollapsed && <span className="text-sm font-semibold text-foreground/80">{syllabus.skill}</span>}
+                    {activeChapter && (
+                        <>
+                            {navCollapsed && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                            <span className="text-sm text-muted-foreground truncate">
+                                <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
+                            </span>
+                        </>
+                    )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                    {activeChapter && (
+                        <ChapterContentPanel key={activeChapter.id} chapter={activeChapter} />
+                    )}
+                </div>
+            </main>
         </div>
     )
 }
