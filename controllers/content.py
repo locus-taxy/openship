@@ -90,5 +90,7 @@ def complete_chapter(task_id: int, current_user: User):
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"Chapter {task_id} not found")
     _check_task_ownership(chapter, current_user)
-    mark_task_completed(task_id)
+    if not mark_task_completed(task_id):
+        print(f"Failed to mark task {task_id} as completed in DB")
+        raise HTTPException(status_code=500, detail="Failed to mark chapter as completed")
     return {"status": "success"}

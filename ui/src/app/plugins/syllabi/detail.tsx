@@ -277,7 +277,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                         </Button>
                                         <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
                                             {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
-                                                : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Completed</>
+                                                : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Email Sent</>
                                                 : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
                                             }
                                         </Button>
