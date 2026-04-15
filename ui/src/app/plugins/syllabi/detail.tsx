@@ -52,9 +52,10 @@ interface SyllabusDetail {
 
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
-function ChapterContentPanel({ chapter, onContentGenerated }: {
+function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     chapter: Chapter
     onContentGenerated: (taskId: number) => void
+    onMarkComplete: (taskId: number) => void
 }) {
     const [content, setContent] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
@@ -182,7 +183,10 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
 
     async function handleMarkComplete() {
         const { success } = await postRequest(`/py/chapter/${chapter.id}/complete`, {})
-        if (success) setCompleted(true)
+        if (success) {
+            setCompleted(true)
+            onMarkComplete(chapter.id)
+        }
     }
 
     return (
@@ -541,6 +545,22 @@ export default function SyllabusDetailPage() {
         })
     }
 
+    function handleChapterCompleted(taskId: number) {
+        setDetail((prev) => {
+            if (!prev) return prev
+            return {
+                ...prev,
+                months: prev.months.map((m) => ({
+                    ...m,
+                    weeks: m.weeks.map((w) => ({
+                        ...w,
+                        tasks: w.tasks.map((t) => t.id === taskId ? { ...t, completed: true } : t),
+                    })),
+                })),
+            }
+        })
+    }
+
     async function handleToggleShare() {
         setTogglingShare(true)
         const nextValue = !shareEnabled
@@ -647,6 +667,7 @@ export default function SyllabusDetailPage() {
                             key={activeChapter.id}
                             chapter={activeChapter}
                             onContentGenerated={handleContentGenerated}
+                            onMarkComplete={handleChapterCompleted}
                         />
                     )}
                 </div>
