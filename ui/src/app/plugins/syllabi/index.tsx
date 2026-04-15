@@ -8,8 +8,11 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { getRequest, postRequest } from "@/services"
+import { getRequest } from "@/services"
+import api from "@/services"
 import useStore from "@/store"
+import { useToast } from "@/hooks/use-toast"
+import { ToastAction } from "@/components/ui/toast"
 
 interface MatchingChapter {
     id: number
@@ -36,6 +39,8 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     searchQuery: string
 }) {
     const [generating, setGenerating] = useState(false)
+    const { toast } = useToast()
+    const { setSettingsOpen } = useStore((s: any) => s)
     const chapters = item.matching_chapters ?? []
     const hasMatchingChapters = searchQuery.trim() !== "" && chapters.length > 0
 
@@ -49,11 +54,28 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     async function handleGenerate(e: React.MouseEvent) {
         e.stopPropagation()
         setGenerating(true)
-        const { success } = await postRequest("/py/generate-syllabus", {
-            skill: item.skill,
-        })
-        setGenerating(false)
-        if (success) onSyllabusGenerated(item.skill_id)
+        try {
+            await api.post("/py/generate-syllabus", { skill: item.skill })
+            onSyllabusGenerated(item.skill_id)
+        } catch (err: any) {
+            const status = err?.response?.status
+            const detail = err?.response?.data?.detail ?? ""
+            if (status === 400 && typeof detail === "string" && detail.includes("Gemini API key")) {
+                toast({
+                    title: "Gemini API key not set",
+                    description: "Add your API key in Settings to generate content.",
+                    action: (
+                        <ToastAction altText="Open Settings" onClick={() => setSettingsOpen(true)}>
+                            Open Settings
+                        </ToastAction>
+                    ),
+                })
+            } else {
+                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate syllabus." })
+            }
+        } finally {
+            setGenerating(false)
+        }
     }
 
     return (

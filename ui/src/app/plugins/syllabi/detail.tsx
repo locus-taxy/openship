@@ -10,6 +10,8 @@ import {
     Dialog, DialogContent, DialogDescription, DialogFooter,
     DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import { ToastAction } from "@/components/ui/toast"
+import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { getRequest, postRequest } from "@/services"
@@ -64,6 +66,8 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
     const [hasContent, setHasContent] = useState(chapter.has_content)
     const [confirmOpen, setConfirmOpen] = useState(false)
     const proseRef = useRef<HTMLDivElement>(null)
+    const { toast } = useToast()
+    const { setSettingsOpen } = useStore((s: any) => s)
 
     useEffect(() => {
         setHasContent(chapter.has_content)
@@ -162,12 +166,29 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
     async function handleGenerate() {
         setConfirmOpen(false)
         setGenerating(true)
-        const { success } = await postRequest("/py/generate-content/chapter", { task_id: chapter.id })
-        setGenerating(false)
-        if (success) {
+        try {
+            await api.post("/py/generate-content/chapter", { task_id: chapter.id })
             setHasContent(true)
             onContentGenerated(chapter.id)
             loadContent()
+        } catch (err: any) {
+            const status = err?.response?.status
+            const detail = err?.response?.data?.detail ?? ""
+            if (status === 400 && typeof detail === "string" && detail.includes("Gemini API key")) {
+                toast({
+                    title: "Gemini API key not set",
+                    description: "Add your API key in Settings to generate content.",
+                    action: (
+                        <ToastAction altText="Open Settings" onClick={() => setSettingsOpen(true)}>
+                            Open Settings
+                        </ToastAction>
+                    ),
+                })
+            } else {
+                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate content." })
+            }
+        } finally {
+            setGenerating(false)
         }
     }
 

@@ -18,3 +18,4 @@ class User(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now()),
     )
+    gemini_api_key: Optional[str] = Field(default=None, max_length=512)

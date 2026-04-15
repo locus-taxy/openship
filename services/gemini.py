@@ -7,28 +7,36 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit
 
 import requests
-from dotenv import dotenv_values
+from fastapi import HTTPException
 
 _JSON_HEADERS = {"Content-Type": "application/json"}
-# Repo root (parent of `services/`)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-def _norm_env_str(value: Optional[str]) -> Optional[str]:
+def _norm_str(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     s = value.strip()
     return s if s else None
 
-def _fresh_gemini_creds() -> Tuple[Optional[str], Optional[str]]:
-    """Re-read `.env` each call so uvicorn reload / IDE cwd cannot serve stale empty keys.
+def _get_gemini_url() -> str:
+    """Read GEMINI_API_URL from environment (still configured server-side)."""
+    url = _norm_str(os.getenv("GEMINI_API_URL"))
+    if not url:
+        raise HTTPException(
+            status_code=500,
+            detail="GEMINI_API_URL is not configured on the server.",
+        )
+    return url
 
-    Process environment overrides ``.env`` (non-empty ``GEMINI_*`` wins).
-    """
-    env_path = _PROJECT_ROOT / ".env"
-    values = dotenv_values(env_path) if env_path.is_file() else {}
-    key = _norm_env_str(os.getenv("GEMINI_API_KEY")) or _norm_env_str(values.get("GEMINI_API_KEY"))
-    url = _norm_env_str(os.getenv("GEMINI_API_URL")) or _norm_env_str(values.get("GEMINI_API_URL"))
-    return (key, url)
+def _require_gemini_key(user_api_key: Optional[str]) -> str:
+    """Return the user's API key or raise a 400 asking them to set it."""
+    key = _norm_str(user_api_key)
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini API key not set. Please add it in Settings.",
+        )
+    return key
 
 def _gemini_url_for_logs(gemini_url: str) -> str:
     """Log-safe Gemini base URL (no query string / API key)."""
@@ -174,15 +182,10 @@ SYLLABUS_SCHEMA = {
     },
 }
 
-def generate_syllabus_json(skill: str, days: int, hours: int):
+def generate_syllabus_json(skill: str, days: int, hours: int, user_api_key: Optional[str] = None):
     """Call Gemini API to produce a structured syllabus. Returns parsed JSON list or None."""
-    gemini_key, gemini_url = _fresh_gemini_creds()
-    if not gemini_key:
-        print("ERROR: GEMINI_API_KEY is missing (check .env next to config.py).")
-        return None
-    if not gemini_url:
-        print("ERROR: GEMINI_API_URL is missing.")
-        return None
+    gemini_key = _require_gemini_key(user_api_key)
+    gemini_url = _get_gemini_url()
 
     system_prompt = (
         "You are an expert curriculum designer and career mentor. "
@@ -261,15 +264,12 @@ def generate_syllabus_json(skill: str, days: int, hours: int):
             print("Failed to decode JSON from Gemini response.")
             return None
 
-def generate_newsletter_html(task_description: str, task_title: str, skill: str):
+def generate_newsletter_html(
+    task_description: str, task_title: str, skill: str, user_api_key: Optional[str] = None
+):
     """Call Gemini API to produce newsletter HTML for a single task. Returns HTML string or None."""
-    gemini_key, gemini_url = _fresh_gemini_creds()
-    if not gemini_key:
-        print("ERROR: GEMINI_API_KEY is missing (check .env next to config.py).")
-        return None
-    if not gemini_url:
-        print("ERROR: GEMINI_API_URL is missing.")
-        return None
+    gemini_key = _require_gemini_key(user_api_key)
+    gemini_url = _get_gemini_url()
 
     system_prompt = (
         "You are a senior technical educator and blog writer. "

@@ -32,6 +32,7 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 task_description=task["task"],
                 task_title=task["topic"],
                 skill=task["skill"],
+                user_api_key=current_user.gemini_api_key,
             )
             if not html:
                 print(f"Failed to generate content for task {task['id']}")
@@ -64,6 +65,7 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         task_description=chapter["task"],
         task_title=chapter["topic"],
         skill=chapter["skill"],
+        user_api_key=current_user.gemini_api_key,
     )
     if not html:
         raise HTTPException(

@@ -24,3 +24,11 @@ def create_user(email: str, name: str, password: str) -> User:
         session.commit()
         session.refresh(user)
         return user
+
+def update_gemini_api_key(user_id: int, api_key: Optional[str]) -> None:
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+        if user:
+            user.gemini_api_key = api_key
+            session.add(user)
+            session.commit()

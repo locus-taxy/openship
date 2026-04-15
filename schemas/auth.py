@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, EmailStr, Field
 
 class SignupRequest(BaseModel):
@@ -8,3 +9,6 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(...)
+
+class SaveSettingsRequest(BaseModel):
+    gemini_api_key: Optional[str] = Field(default=None, max_length=512)

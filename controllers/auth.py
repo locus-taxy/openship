@@ -3,7 +3,7 @@ from fastapi import HTTPException, Response
 from config import JWT_ACCESS_TOKEN_EXPIRE_MINUTES, JWT_REFRESH_TOKEN_EXPIRE_HOURS
 from models.user import User
 from schemas.auth import SignupRequest, LoginRequest
-from services.user import get_user_by_id, get_user_by_email, create_user
+from services.user import get_user_by_id, get_user_by_email, create_user, update_gemini_api_key
 from services.password import verify_password
 from services.jwt import create_access_token, create_refresh_token, decode_token
 
@@ -83,3 +83,12 @@ def logout_user(response: Response):
 
 def get_me(current_user: User):
     return _user_dict(current_user)
+
+def get_settings(current_user: User):
+    has_key = bool(current_user.gemini_api_key and current_user.gemini_api_key.strip())
+    return {"has_gemini_api_key": has_key}
+
+def save_settings(current_user: User, gemini_api_key: Optional[str]):
+    key = gemini_api_key.strip() if gemini_api_key else None
+    update_gemini_api_key(current_user.id, key)
+    return {"status": "success", "has_gemini_api_key": bool(key)}

@@ -57,12 +57,13 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     if skill_id is None:
         raise HTTPException(status_code=404, detail="Skill ID not found")
 
-    syllabus_data = generate_syllabus_json(payload.skill, skill["days"], skill["hours"])
+    syllabus_data = generate_syllabus_json(
+        payload.skill, skill["days"], skill["hours"], user_api_key=current_user.gemini_api_key
+    )
     if syllabus_data is None:
         raise HTTPException(
             status_code=500,
-            detail="Failed to generate syllabus (Gemini returned no data). "
-            "Confirm .env is beside config.py and restart the API; check uvicorn logs.",
+            detail="Failed to generate syllabus (Gemini returned no data). Check uvicorn logs.",
         )
     if not isinstance(syllabus_data, (list, tuple)):
         logger.warning(
