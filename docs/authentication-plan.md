@@ -69,8 +69,9 @@ identity verification.
 │  /auth/logout    — Delete both token cookies                     │
 │  /auth/me        — Return current user profile                   │
 │                                                                  │
-│  All other routes: Depends(get_current_user)                     │
-│  ──► Decode JWT ──► Fetch user from DB ──► Inject into handler   │
+│  All other routes: protected by AuthMiddleware (global)           │
+│  ──► Reads access_token cookie ──► Decode JWT ──► Fetch user     │
+│  ──► Attaches to request.state.user ──► Route handler reads it   │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -240,38 +241,38 @@ no more passing `email` in request bodies.
 | `POST /send-email/chapter` | Body: `{ task_id }` | Verified ownership, email sent to authenticated user's email |
 | `POST /issue-newsletters` | Anyone can trigger | **Admin-only** endpoint (future: role-based access) |
 
-### How Route Protection Works (FastAPI)
+### How Route Protection Works (Global Middleware)
 
 ```python
-# dependencies/auth.py
-from typing import Optional
-from fastapi import Cookie, HTTPException
-from models.user import User
-from services.jwt import decode_token
-from services.user import get_user_by_id
+# middleware/auth.py — runs on every request automatically
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method == "OPTIONS":           # CORS preflight — skip
+            return await call_next(request)
+        if _is_public(request.method, request.url.path):  # whitelist
+            return await call_next(request)
 
-def get_current_user(access_token: Optional[str] = Cookie(default=None)) -> User:
-    if not access_token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        token = request.cookies.get("access_token")
+        if not token:
+            return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
 
-    payload = decode_token(access_token)
+        try:
+            payload = decode_token(token)
+        except Exception:
+            return JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
 
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token type")
+        user = get_user_by_id(int(payload["sub"]))
+        request.state.user = user        # ← attached here
+        return await call_next(request)
 
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
-    user = get_user_by_id(int(user_id))
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-    return user
-
-# Usage in any route:
+# Usage in any route — no Depends needed:
 @router.get("/syllabi")
-def list_syllabi(current_user: User = Depends(get_current_user)):
-    return syllabus_controller.list_syllabi(current_user)
+def list_syllabi(request: Request):
+    return syllabus_controller.list_syllabi(request.state.user)
+
+# Public routes are whitelisted in middleware/auth.py:
+PUBLIC_EXACT = {("POST", "/auth/login"), ("POST", "/auth/signup"), ...}
+PUBLIC_PREFIXES = ("/public/",)
 ```
 
 ---
@@ -280,7 +281,7 @@ def list_syllabi(current_user: User = Depends(get_current_user)):
 
 | Token | Lifetime | Storage | Purpose |
 |-------|----------|---------|---------|
-| **Access Token** | 2 minutes (configurable via `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`) | httpOnly cookie (`access_token`, `SameSite=Lax`, path=`/`) | Sent automatically with every request; used by `get_current_user` to identify the user |
+| **Access Token** | 2 minutes (configurable via `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`) | httpOnly cookie (`access_token`, `SameSite=Lax`, path=`/`) | Sent automatically with every request; read by `AuthMiddleware` on every request to identify the user |
 | **Refresh Token** | 7 hours (configurable via `JWT_REFRESH_TOKEN_EXPIRE_HOURS`) | httpOnly cookie (`refresh_token`, `SameSite=Lax`, path=`/`) | Used only by `/auth/refresh` to issue a new access token cookie |
 
 ### Why This Approach
@@ -432,7 +433,7 @@ No new dependencies needed — Axios interceptors and Zustand are already in pla
 |-------|------|---------------|
 | **Phase 1** | PostgreSQL + SQLModel + Alembic setup, `User` model, initial migration | 1 day |
 | **Phase 2** | Auth endpoints (`/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/me`) | 1 day |
-| **Phase 3** | Protect all existing endpoints with `Depends(get_current_user)`, update request models | 1 day |
+| **Phase 3** | Global `AuthMiddleware` replaces per-route `Depends`; public routes whitelisted in middleware | 1 day |
 | **Phase 4** | Frontend — Signup/Login pages, Zustand auth store, Axios interceptors, route guards | 1–2 days |
 | **Phase 5** | Remove old SQLite code, update `.env.example`, update docs, testing | 1 day |
 | **Total** | | **5–6 days** |

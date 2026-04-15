@@ -1,36 +1,29 @@
-from fastapi import APIRouter, Depends, Query, Request
-from models.user import User
+from fastapi import APIRouter, Query, Request
 from schemas.skill import GenerateSyllabusRequest
-from dependencies.auth import get_current_user
 from controllers import syllabus as syllabus_controller
 from config import limiter
 
 router = APIRouter(tags=["syllabus"])
 
 @router.get("/syllabi")
-def list_syllabi(current_user: User = Depends(get_current_user)):
-    return syllabus_controller.list_syllabi(current_user)
+def list_syllabi(request: Request):
+    return syllabus_controller.list_syllabi(request.state.user)
 
 @router.get("/syllabi/search")
-def search_syllabi(
-    q: str = Query("", description="Keyword to search"),
-    current_user: User = Depends(get_current_user),
-):
-    return syllabus_controller.search(q, current_user)
+def search_syllabi(request: Request, q: str = Query("", description="Keyword to search")):
+    return syllabus_controller.search(q, request.state.user)
 
 @router.get("/syllabi/{skill_id}")
-def get_syllabus(skill_id: int, current_user: User = Depends(get_current_user)):
-    return syllabus_controller.get_syllabus(skill_id, current_user)
+def get_syllabus(skill_id: int, request: Request):
+    return syllabus_controller.get_syllabus(skill_id, request.state.user)
 
 @router.patch("/syllabi/{skill_id}/share")
-def toggle_share(skill_id: int, enable: bool, current_user: User = Depends(get_current_user)):
-    return syllabus_controller.toggle_share(skill_id, enable, current_user)
+def toggle_share(skill_id: int, enable: bool, request: Request):
+    return syllabus_controller.toggle_share(skill_id, enable, request.state.user)
 
 @router.post("/generate-syllabus")
-def generate_syllabus(
-    payload: GenerateSyllabusRequest, current_user: User = Depends(get_current_user)
-):
-    return syllabus_controller.generate_syllabus(payload, current_user)
+def generate_syllabus(payload: GenerateSyllabusRequest, request: Request):
+    return syllabus_controller.generate_syllabus(payload, request.state.user)
 
 @router.get("/public/syllabi/{skill_id}")
 @limiter.limit("10/minute")
