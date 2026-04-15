@@ -7,6 +7,7 @@ from services.daily_task import (
     get_chapter_content,
     get_tasks_for_generating_newsletter,
     add_content_to_db,
+    mark_task_completed,
 )
 from services.gemini import generate_newsletter_html
 
@@ -83,3 +84,11 @@ def get_chapter(task_id: int, current_user: User):
         raise HTTPException(status_code=404, detail=f"Chapter {task_id} not found")
     _check_task_ownership(chapter, current_user)
     return chapter
+
+def complete_chapter(task_id: int, current_user: User):
+    chapter = get_chapter_content(task_id)
+    if chapter is None:
+        raise HTTPException(status_code=404, detail=f"Chapter {task_id} not found")
+    _check_task_ownership(chapter, current_user)
+    mark_task_completed(task_id)
+    return {"status": "success"}

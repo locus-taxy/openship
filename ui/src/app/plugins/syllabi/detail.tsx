@@ -60,14 +60,16 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
     const [loading, setLoading] = useState(false)
     const [generating, setGenerating] = useState(false)
     const [sending, setSending] = useState(false)
-    const [sent, setSent] = useState(chapter.completed)
+    const [completed, setCompleted] = useState(chapter.completed)
+    const [emailSent, setEmailSent] = useState(false)
     const [hasContent, setHasContent] = useState(chapter.has_content)
     const [confirmOpen, setConfirmOpen] = useState(false)
     const proseRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         setHasContent(chapter.has_content)
-        setSent(chapter.completed)
+        setCompleted(chapter.completed)
+        setEmailSent(false)
         setContent(null)
         if (chapter.has_content) loadContent()
     }, [chapter.id])
@@ -175,7 +177,12 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
         setSending(true)
         const { success } = await postRequest("/py/send-email/chapter", { task_id: chapter.id })
         setSending(false)
-        if (success) setSent(true)
+        if (success) setEmailSent(true)
+    }
+
+    async function handleMarkComplete() {
+        const { success } = await postRequest(`/py/chapter/${chapter.id}/complete`, {})
+        if (success) setCompleted(true)
     }
 
     return (
@@ -248,21 +255,29 @@ function ChapterContentPanel({ chapter, onContentGenerated }: {
                                     dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }}
                                 />
 
-                                {/* Send email footer */}
+                                {/* Footer */}
                                 <div className="pt-4 border-t border-border/50 flex items-center justify-between gap-3">
-                                    {sent ? (
+                                    {completed ? (
                                         <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
-                                            <CheckCircle2 className="h-4 w-4" /> Email sent
+                                            <CheckCircle2 className="h-4 w-4" /> Completed
                                         </span>
                                     ) : (
                                         <p className="text-xs text-muted-foreground">Ready to send to your inbox.</p>
                                     )}
-                                    <Button size="sm" disabled={sending || sent} onClick={handleSendEmail} className={sent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
-                                        {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
-                                            : sent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Sent</>
-                                            : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
-                                        }
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button size="sm" variant="outline" disabled={completed} onClick={handleMarkComplete}>
+                                            {completed
+                                                ? <><CheckCircle2 className="h-4 w-4 mr-1.5 text-emerald-500" />Completed</>
+                                                : <><CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete</>
+                                            }
+                                        </Button>
+                                        <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
+                                            {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
+                                                : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Completed</>
+                                                : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
+                                            }
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
                         ) : null
@@ -382,7 +397,7 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
 
             {/* Legend */}
             <div className="flex items-center gap-3 px-4 py-2 border-b text-xs text-muted-foreground shrink-0">
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" />Sent</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" />Completed</span>
                 <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-indigo-400" />Generated</span>
                 <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground/30" />Pending</span>
             </div>
