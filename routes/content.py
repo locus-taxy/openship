@@ -15,3 +15,7 @@ def generate_chapter_content(payload: GenerateChapterContentRequest, request: Re
 @router.get("/chapter/{task_id}")
 def get_chapter(task_id: int, request: Request):
     return content_controller.get_chapter(task_id, request.state.user)
+
+@router.post("/chapter/{task_id}/complete")
+def complete_chapter(task_id: int, request: Request):
+    return content_controller.complete_chapter(task_id, request.state.user)

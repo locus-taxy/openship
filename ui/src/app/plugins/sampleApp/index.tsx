@@ -149,7 +149,7 @@ export default function HomePage() {
                     ) : (
                         <>
                             {inProgress.length > 0 && (
-                                <Button onClick={() => navigate(`/syllabi/${inProgress[0].skill_id}`)} className="gap-2">
+                                <Button onClick={() => navigate("/syllabi")} className="gap-2">
                                     <PlayCircle className="h-4 w-4" />
                                     Continue Learning
                                 </Button>
