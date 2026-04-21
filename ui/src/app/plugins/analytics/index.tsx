@@ -48,6 +48,7 @@ function RingProgress({ pct, size = 80, stroke = 7, color = "#6366f1", trackColo
 export default function AnalyticsPage() {
     const [syllabi, setSyllabi] = useState<Syllabus[]>([])
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<Error | null>(null)
     const { setPluginName } = useStore((state: any) => state)
     const fetchedRef = useRef(false)
     const navigate = useNavigate()
@@ -57,20 +58,25 @@ export default function AnalyticsPage() {
     useEffect(() => {
         if (fetchedRef.current) return
         fetchedRef.current = true
-        getRequest("/py/syllabi").then(({ success, data }) => {
-            if (success) setSyllabi(data)
-            setLoading(false)
-        })
+        getRequest("/py/syllabi")
+            .then(({ success, data }) => {
+                if (success) setSyllabi(data)
+                else setError(new Error("Failed to fetch syllabi"))
+            })
+            .catch(err => setError(err))
+            .finally(() => setLoading(false))
     }, [])
 
     const totalCourses = syllabi.length
     const inProgress = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "in-progress")
     const completedCourses = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "completed")
     const notStarted = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "not-started")
-    const totalDays = syllabi.reduce((sum, s) => sum + s.total_tasks, 0)
-    const totalDone = syllabi.reduce((sum, s) => sum + s.completed_tasks, 0)
+    const noSyllabus = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "no-syllabus")
+    const totalDays = syllabi.reduce((sum, s) => sum + s.days, 0)
+    const totalTasks = syllabi.reduce((sum, s) => sum + s.total_tasks, 0)
+    const totalTaskDone = syllabi.reduce((sum, s) => sum + s.completed_tasks, 0)
     const totalHours = syllabi.reduce((sum, s) => sum + s.hours * s.days, 0)
-    const overallPct = totalDays > 0 ? Math.round((totalDone / totalDays) * 100) : 0
+    const overallPct = totalTasks > 0 ? Math.round((totalTaskDone / totalTasks) * 100) : 0
 
     const sortedSyllabi = [...syllabi].sort((a, b) => {
         const order: Record<string, number> = { "in-progress": 0, "not-started": 1, "no-syllabus": 2, "completed": 3 }
@@ -95,6 +101,17 @@ export default function AnalyticsPage() {
                     <div className="space-y-3">
                         {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-2xl" />)}
                     </div>
+                </div>
+            </div>
+        )
+    }
+
+    if (error) {
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center p-6">
+                <div className="text-center max-w-sm">
+                    <p className="text-sm font-medium text-destructive">Failed to load analytics</p>
+                    <p className="text-xs text-muted-foreground mt-1">{error.message}</p>
                 </div>
             </div>
         )
@@ -148,7 +165,7 @@ export default function AnalyticsPage() {
                         </div>
                         <div className="text-center relative z-10">
                             <p className="text-white font-semibold text-sm">Overall Completion</p>
-                            <p className="text-indigo-200 text-xs mt-0.5">{totalDone} of {totalDays} days done</p>
+                            <p className="text-indigo-200 text-xs mt-0.5">{totalTaskDone} of {totalTasks} tasks done</p>
                         </div>
                     </div>
 
@@ -193,7 +210,7 @@ export default function AnalyticsPage() {
                                 <CalendarDays className="h-5 w-5 text-violet-500" />
                             </div>
                             <div>
-                                <p className="text-2xl font-black">{totalDays - totalDone}</p>
+                                <p className="text-2xl font-black">{totalDays - totalTaskDone}</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">Days Remaining</p>
                             </div>
                         </div>
@@ -216,8 +233,12 @@ export default function AnalyticsPage() {
                                 style={{ width: `${(inProgress.length / totalCourses) * 100}%` }} />
                         )}
                         {notStarted.length > 0 && (
-                            <div className="bg-muted-foreground/20 rounded-r-full transition-all duration-700"
+                            <div className="bg-muted-foreground/20 transition-all duration-700"
                                 style={{ width: `${(notStarted.length / totalCourses) * 100}%` }} />
+                        )}
+                        {noSyllabus.length > 0 && (
+                            <div className="bg-muted-foreground/10 rounded-r-full transition-all duration-700"
+                                style={{ width: `${(noSyllabus.length / totalCourses) * 100}%` }} />
                         )}
                     </div>
                     <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
@@ -237,6 +258,12 @@ export default function AnalyticsPage() {
                             <span className="flex items-center gap-1.5">
                                 <span className="h-2 w-2 rounded-full bg-muted-foreground/40 inline-block" />
                                 Not Started <span className="font-semibold text-foreground ml-0.5">{notStarted.length}</span>
+                            </span>
+                        )}
+                        {noSyllabus.length > 0 && (
+                            <span className="flex items-center gap-1.5">
+                                <span className="h-2 w-2 rounded-full bg-muted-foreground/20 inline-block" />
+                                No Syllabus <span className="font-semibold text-foreground ml-0.5">{noSyllabus.length}</span>
                             </span>
                         )}
                     </div>
