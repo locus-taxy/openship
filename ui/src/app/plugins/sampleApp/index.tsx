@@ -183,29 +183,6 @@ export default function HomePage() {
                 </div>
             ) : null}
 
-            {/* Continue Learning */}
-            {!loading && continueSyllabi.length > 0 && (
-                <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                        <h2 className="font-semibold text-base flex items-center gap-2">
-                            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                            Continue Learning
-                        </h2>
-                        <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => navigate("/syllabi")}>
-                            View all <ArrowRight className="h-3 w-3" />
-                        </Button>
-                    </div>
-                    <div className="space-y-2">
-                        {continueSyllabi.map((item) => (
-                            <ContinueCard
-                                key={item.skill_id}
-                                item={item}
-                                onStart={() => navigate(`/syllabi/${item.skill_id}`)}
-                            />
-                        ))}
-                    </div>
-                </div>
-            )}
 
             {/* Empty state */}
             {!loading && total === 0 && (

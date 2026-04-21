@@ -1,9 +1,5 @@
-// @ts-nocheck
-
-import { BrainCircuit, BookOpen, UserPlus, Sparkles } from "lucide-react";
-import { useEffect } from "react";
-import { useNavigate } from "react-router";
-import { NavMain } from "@/components/nav-main";
+import { BookOpen, UserPlus, Sparkles, BarChart2 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router";
 import { NavUser } from "@/components/nav-user";
 import {
     Sidebar,
@@ -11,68 +7,22 @@ import {
     SidebarFooter,
     SidebarHeader,
     SidebarRail,
+    SidebarGroup,
+    SidebarGroupLabel,
+    SidebarMenu,
+    SidebarMenuItem,
+    SidebarMenuButton,
 } from "@/components/ui/sidebar";
 
-// This is sample data.
-const data = {
-    user: {
-        name: "shadcn",
-        email: "m@example.com",
-        avatar: "/avatars/shadcn.jpg",
-    },
-    teams: [
-        {
-            name: "NAME",
-            logo: "",
-            plan: "",
-        },
-    ],
-    navMain: [
-        {
-            title: "Learning",
-            url: "#",
-            icon: BrainCircuit,
-            isActive: true,
-            items: [
-                {
-                    title: "Enroll",
-                    icon: UserPlus,
-                    url: "/enroll",
-                    isActive: false,
-                },
-                {
-                    title: "Syllabi",
-                    icon: BookOpen,
-                    url: "/syllabi",
-                    isActive: false,
-                },
-            ],
-        }
-    ],
-};
+const NAV_ITEMS = [
+    { title: "Analytics", icon: BarChart2, url: "/analytics" },
+    { title: "Enroll", icon: UserPlus, url: "/enroll" },
+    { title: "Syllabi", icon: BookOpen, url: "/syllabi" },
+]
 
 export function AppSidebar() {
     const navigate = useNavigate();
-    const url = window.location.href;
-    const currentPage = url.split("/").pop();
-
-    function setActiveMenuItem(menus: any) {
-        for (const menu of menus) {
-            menu.isActive = false;
-            for (const subMenu of menu.items) {
-                if (subMenu.url === "/" + currentPage) {
-                    subMenu.isActive = true;
-                    menu.isActive = true;
-                } else {
-                    subMenu.isActive = false;
-                }
-            }
-        }
-    }
-
-    useEffect(() => {
-        setActiveMenuItem(data.navMain);
-    }, [currentPage]);
+    const { pathname } = useLocation();
 
     return (
         <Sidebar>
@@ -90,7 +40,26 @@ export function AppSidebar() {
                 </button>
             </SidebarHeader>
             <SidebarContent>
-                <NavMain items={data.navMain} />
+                <SidebarGroup>
+                    <SidebarGroupLabel>Menu</SidebarGroupLabel>
+                    <SidebarMenu>
+                        {NAV_ITEMS.map(({ title, icon: Icon, url }) => {
+                            const isActive = pathname === url || pathname.startsWith(url + "/")
+                            return (
+                                <SidebarMenuItem key={title}>
+                                    <SidebarMenuButton
+                                        isActive={isActive}
+                                        onClick={() => navigate(url)}
+                                        tooltip={title}
+                                    >
+                                        <Icon />
+                                        <span>{title}</span>
+                                    </SidebarMenuButton>
+                                </SidebarMenuItem>
+                            )
+                        })}
+                    </SidebarMenu>
+                </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
                 <NavUser />

@@ -10,6 +10,7 @@ import PublicSyllabusPage from "@/app/plugins/syllabi/public";
 import GenerateContentPage from "@/app/plugins/generateContent";
 import GenerateSyllabusPage from "@/app/plugins/generateSyllabus";
 import EnrollPage from "@/app/plugins/enroll";
+import AnalyticsPage from "@/app/plugins/analytics";
 import LoginPage from "@/app/auth/login";
 import SignupPage from "@/app/auth/signup";
 
@@ -79,6 +80,10 @@ const router = createBrowserRouter([
             {
                 path: "syllabi/:skillId",
                 element: <SyllabusDetailPage />,
+            },
+            {
+                path: "analytics",
+                element: <AnalyticsPage />,
             },
         ],
     },
