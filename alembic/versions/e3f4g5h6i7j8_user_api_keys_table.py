@@ -42,7 +42,9 @@ def upgrade() -> None:
     )
     op.create_index("ix_user_api_keys_user_id", "user_api_keys", ["user_id"])
 
-    # Migrate existing per-provider key columns from users → user_api_keys
+    # Migrate existing per-provider key columns from users → user_api_keys.
+    # `col` is a column name from a hardcoded list — not user input — so
+    # f-string interpolation is safe here. `provider` is bound as a parameter.
     conn = op.get_bind()
     for provider, col in [
         ("gemini", "gemini_key"),
@@ -52,10 +54,11 @@ def upgrade() -> None:
     ]:
         conn.execute(
             text(
-                f"INSERT INTO user_api_keys (user_id, llm_provider, llm_model, api_key) "
-                f"SELECT id, '{provider}', llm_model, {col} "
+                "INSERT INTO user_api_keys (user_id, llm_provider, llm_model, api_key) "
+                f"SELECT id, :provider, llm_model, {col} "
                 f"FROM users WHERE {col} IS NOT NULL"
-            )
+            ),
+            {"provider": provider},
         )
 
     # Drop the now-redundant columns from users
@@ -72,6 +75,7 @@ def downgrade() -> None:
     op.add_column("users", sa.Column("mistral_key", sa.String(length=512), nullable=True))
     op.add_column("users", sa.Column("llm_model", sa.String(length=100), nullable=True))
 
+    # `col` is from a hardcoded list; `provider` is bound as a parameter.
     conn = op.get_bind()
     for provider, col in [
         ("gemini", "gemini_key"),
@@ -83,12 +87,13 @@ def downgrade() -> None:
             text(
                 f"UPDATE users SET {col} = ("
                 f"SELECT api_key FROM user_api_keys "
-                f"WHERE user_api_keys.user_id = users.id AND user_api_keys.llm_provider = '{provider}'"
+                f"WHERE user_api_keys.user_id = users.id AND user_api_keys.llm_provider = :provider"
                 f") WHERE EXISTS ("
                 f"SELECT 1 FROM user_api_keys "
-                f"WHERE user_api_keys.user_id = users.id AND user_api_keys.llm_provider = '{provider}'"
+                f"WHERE user_api_keys.user_id = users.id AND user_api_keys.llm_provider = :provider"
                 f")"
-            )
+            ),
+            {"provider": provider},
         )
 
     op.drop_index("ix_user_api_keys_user_id", "user_api_keys")
