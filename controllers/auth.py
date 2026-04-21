@@ -175,6 +175,8 @@ def save_settings(
 def list_models(current_user: User, provider: str):
     """Return available models for the given provider using the user's stored key."""
     provider_row = _resolve_provider(provider)
+    if not provider_row:
+        raise HTTPException(status_code=400, detail="Invalid or missing provider.")
     api_key = get_provider_key(current_user.id, provider_row.id)
     if not api_key:
         return {
@@ -187,6 +189,8 @@ def list_models(current_user: User, provider: str):
 
 def verify_custom_model(current_user: User, provider: str, model: str):
     provider_row = _resolve_provider(provider)
+    if not provider_row:
+        raise HTTPException(status_code=400, detail="Invalid or missing provider.")
     api_key = get_provider_key(current_user.id, provider_row.id)
     if not api_key:
         raise HTTPException(

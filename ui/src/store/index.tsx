@@ -7,6 +7,8 @@ const useStore = create((set) => ({
     setHideHeader: (hideHeader: boolean) => set({ hideHeader }),
     settingsOpen: false,
     setSettingsOpen: (settingsOpen: boolean) => set({ settingsOpen }),
+    pendingProvider: null as string | null,
+    setPendingProvider: (pendingProvider: string | null) => set({ pendingProvider }),
 }));
 
 export default useStore;

@@ -1,9 +1,13 @@
 from typing import Optional
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, DateTime, func
+from sqlalchemy import UniqueConstraint
 
 class UserApiKey(SQLModel, table=True):
     __tablename__ = "user_api_keys"
+    __table_args__ = (
+        UniqueConstraint("user_id", "llm_provider_id", name="uq_user_api_keys_user_provider"),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id", index=True)

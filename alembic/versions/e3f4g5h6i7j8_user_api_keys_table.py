@@ -81,9 +81,13 @@ def downgrade() -> None:
     ]:
         conn.execute(
             text(
-                f"UPDATE users SET {col} = uak.api_key "
-                f"FROM user_api_keys uak "
-                f"WHERE uak.user_id = users.id AND uak.llm_provider = '{provider}'"
+                f"UPDATE users SET {col} = ("
+                f"SELECT api_key FROM user_api_keys "
+                f"WHERE user_api_keys.user_id = users.id AND user_api_keys.llm_provider = '{provider}'"
+                f") WHERE EXISTS ("
+                f"SELECT 1 FROM user_api_keys "
+                f"WHERE user_api_keys.user_id = users.id AND user_api_keys.llm_provider = '{provider}'"
+                f")"
             )
         )
 

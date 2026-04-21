@@ -1,7 +1,7 @@
 """add_llm_provider_and_api_key_to_users
 
 Revision ID: c1e2f3a4b5d6
-Revises: b94d7cc53099
+Revises: a3f2c1d8e905
 Create Date: 2026-04-15 14:00:00.000000
 
 """

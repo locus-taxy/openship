@@ -1,27 +1,19 @@
 """
-Partial encryption for API keys.
+Full encryption for API keys using Fernet (AES-128-CBC).
 
-Strategy: store the first part of the key as plaintext, encrypt only the last
-5 characters with Fernet (AES-128). The stored value looks like:
+The entire API key is encrypted and stored as a Fernet token prefixed with "FULL:".
+The LLM_ENCRYPTION_KEY environment variable is required and never touches the database.
 
-    sk-abc123def456||ENC||<fernet_token_of_last_5_chars>
-
-An attacker who gets the database row sees most of the key but the last
-characters are an encrypted Fernet token — the raw string cannot be used as
-an API key. Decryption requires the LLM_ENCRYPTION_KEY from the server
-environment, which never touches the database.
-
-For very short keys (≤5 chars), the entire key is encrypted with a FULL: prefix.
-
-Legacy plaintext values (stored before this encryption was introduced) are
-returned as-is — the separator is not present so they pass through unchanged.
+Backward compatibility:
+- "FULL:<token>"        — fully encrypted (current format)
+- "prefix||ENC||<token>" — legacy partial encryption (decrypted correctly, re-saved as full on next write)
+- no separator          — legacy plaintext (returned as-is)
 """
 
 import os
 from typing import Optional
 from cryptography.fernet import Fernet
 
-_SUFFIX_LEN = 5
 _SEPARATOR = "||ENC||"
 _FULL_PREFIX = "FULL:"
 
@@ -40,22 +32,24 @@ def _get_fernet() -> Fernet:
     return _fernet
 
 def encrypt_api_key(raw: str) -> str:
-    """Encrypt the last 5 characters of the key; store the rest as plaintext."""
+    """Encrypt the full API key with Fernet. Stored as 'FULL:<fernet_token>'."""
     f = _get_fernet()
-    if len(raw) <= _SUFFIX_LEN:
-        return _FULL_PREFIX + f.encrypt(raw.encode()).decode()
-    prefix = raw[:-_SUFFIX_LEN]
-    encrypted_suffix = f.encrypt(raw[-_SUFFIX_LEN:].encode()).decode()
-    return prefix + _SEPARATOR + encrypted_suffix
+    return _FULL_PREFIX + f.encrypt(raw.encode()).decode()
 
 def decrypt_api_key(stored: str) -> str:
-    """Decrypt a key stored by encrypt_api_key. Returns plaintext legacy keys unchanged."""
+    """
+    Decrypt a stored API key. Handles all storage formats:
+    - FULL:<token>          current full-encryption format
+    - prefix||ENC||<token>  legacy partial encryption
+    - plaintext             legacy unencrypted
+    """
     f = _get_fernet()
     if stored.startswith(_FULL_PREFIX):
         return f.decrypt(stored[len(_FULL_PREFIX) :].encode()).decode()
-    if _SEPARATOR not in stored:
-        # Legacy plaintext key stored before encryption was introduced — return as-is
-        return stored
-    prefix, enc_suffix = stored.rsplit(_SEPARATOR, 1)
-    suffix = f.decrypt(enc_suffix.encode()).decode()
-    return prefix + suffix
+    if _SEPARATOR in stored:
+        # Legacy partial encryption — decrypt the suffix and reconstruct
+        prefix, enc_suffix = stored.rsplit(_SEPARATOR, 1)
+        suffix = f.decrypt(enc_suffix.encode()).decode()
+        return prefix + suffix
+    # Legacy plaintext — return as-is
+    return stored

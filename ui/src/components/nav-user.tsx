@@ -41,7 +41,7 @@ export function NavUser() {
     const { user, isAuthenticated, logout } = useAuthStore();
     const navigate = useNavigate();
     const { toast } = useToast();
-    const { settingsOpen, setSettingsOpen } = useStore((s: any) => s);
+    const { settingsOpen, setSettingsOpen, pendingProvider, setPendingProvider } = useStore((s: any) => s);
 
     const [settings, setSettings] = useState<SettingsData | null>(null);
     const [selectedProvider, setSelectedProvider] = useState("");
@@ -83,7 +83,12 @@ export function NavUser() {
 
     useEffect(() => {
         if (!settingsOpen) return;
-        loadSettings();
+        loadSettings().then(() => {
+            if (pendingProvider) {
+                setSelectedProvider(pendingProvider);
+                setPendingProvider(null);
+            }
+        });
         setApiKey("");
         setEditingKey(false);
         setShowKey(false);
@@ -165,16 +170,23 @@ export function NavUser() {
     async function handleRemoveKey() {
         if (!selectedProvider) return;
         setRemoving(true);
-        await putRequest("/py/auth/me/settings", {
-            llm_provider: selectedProvider,
-            api_key: "",
-            llm_model: selectedModel || null,
-        });
-        setRemoving(false);
-        setConfirmDelete(false);
-        setEditingKey(false);
-        await loadSettings();
-        toast({ title: "API key removed", description: `${providerLabel(selectedProvider)} key cleared.` });
+        try {
+            const { success } = await putRequest("/py/auth/me/settings", {
+                llm_provider: selectedProvider,
+                api_key: "",
+                llm_model: selectedModel || null,
+            });
+            if (success) {
+                setConfirmDelete(false);
+                setEditingKey(false);
+                await loadSettings();
+                toast({ title: "API key removed", description: `${providerLabel(selectedProvider)} key cleared.` });
+            } else {
+                toast({ title: "Failed to remove key", description: "Please try again.", variant: "destructive" });
+            }
+        } finally {
+            setRemoving(false);
+        }
     }
 
     const configuredProviders = Object.entries(settings?.provider_keys ?? {})
@@ -211,7 +223,7 @@ export function NavUser() {
             </SidebarMenu>
 
             <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-                <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden min-h-[640px]">
+                <DialogContent className="max-w-lg p-0 gap-0 overflow-visible">
 
                     {/* Header */}
                     <DialogHeader className="px-6 pt-6 pb-4 border-b bg-muted/30">

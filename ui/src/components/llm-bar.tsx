@@ -19,7 +19,7 @@ interface SettingsData {
 }
 
 export function LlmBar() {
-    const { setSettingsOpen } = useStore((s: any) => s);
+    const { setSettingsOpen, settingsOpen, setPendingProvider } = useStore((s: any) => s);
     const [data, setData] = useState<SettingsData | null>(null);
     const [liveModels, setLiveModels] = useState<string[]>([]);
     const [providerOpen, setProviderOpen] = useState(false);
@@ -46,6 +46,9 @@ export function LlmBar() {
 
     useEffect(() => { load(); }, []);
 
+    // Reload whenever the settings modal closes so the bar reflects saved changes
+    useEffect(() => { if (!settingsOpen) load(); }, [settingsOpen]);
+
     // Close dropdowns on outside click
     useEffect(() => {
         function handler(e: MouseEvent) {
@@ -62,6 +65,7 @@ export function LlmBar() {
         setProviderOpen(false);
         if (!data) return;
         if (!data.provider_keys[p]) {
+            setPendingProvider(p);
             setSettingsOpen(true);
             return;
         }
