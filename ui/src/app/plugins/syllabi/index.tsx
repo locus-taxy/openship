@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
 import { BookOpen, Clock, CalendarDays, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText, GraduationCap, CheckCircle2, CircleDot } from "lucide-react"
+import { LlmBar } from "@/components/llm-bar"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,7 +9,10 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { getRequest, postRequest } from "@/services"
+import { getRequest } from "@/services"
+import api from "@/services"
+import { useToast } from "@/hooks/use-toast"
+import { ToastAction } from "@/components/ui/toast"
 import useStore from "@/store"
 
 interface MatchingChapter {
@@ -36,6 +40,8 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     searchQuery: string
 }) {
     const [generating, setGenerating] = useState(false)
+    const { toast } = useToast()
+    const { setSettingsOpen } = useStore((s: any) => s)
     const chapters = item.matching_chapters ?? []
     const hasMatchingChapters = searchQuery.trim() !== "" && chapters.length > 0
 
@@ -49,11 +55,30 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     async function handleGenerate(e: React.MouseEvent) {
         e.stopPropagation()
         setGenerating(true)
-        const { success } = await postRequest("/py/generate-syllabus", {
-            skill: item.skill,
-        })
-        setGenerating(false)
-        if (success) onSyllabusGenerated(item.skill_id)
+        try {
+            await api.post("/py/generate-syllabus", { skill: item.skill })
+            onSyllabusGenerated(item.skill_id)
+        } catch (err: any) {
+            const status = err?.response?.status
+            const detail = err?.response?.data?.detail ?? ""
+            if (status === 400 && typeof detail === "string" && detail.includes("LLM provider")) {
+                toast({
+                    title: "LLM not configured",
+                    description: "Add your provider and API key in Settings.",
+                    action: (
+                        <ToastAction altText="Open Settings" onClick={() => setSettingsOpen(true)}>
+                            Open Settings
+                        </ToastAction>
+                    ),
+                })
+            } else if (status === 429) {
+                toast({ variant: "destructive", title: "Quota exceeded", description: detail || "You've hit your LLM provider's rate limit. Wait a moment and try again." })
+            } else {
+                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate syllabus." })
+            }
+        } finally {
+            setGenerating(false)
+        }
     }
 
     return (
@@ -343,6 +368,9 @@ export default function SyllabiPage() {
                     + New Enrollment
                 </Button>
             </div>
+
+            {/* LLM selector */}
+            <LlmBar />
 
             {/* Stats row */}
             {!loading && total > 0 && (

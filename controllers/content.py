@@ -9,7 +9,12 @@ from services.daily_task import (
     add_content_to_db,
     mark_task_completed,
 )
-from services.gemini import generate_newsletter_html
+from services.llm import (
+    generate_chapter_html,
+    get_user_api_key,
+    get_user_model,
+    get_user_provider_name,
+)
 
 def _check_skill_ownership(detail: dict, current_user: User):
     if detail.pop("_user_id") != str(current_user.id):
@@ -29,10 +34,13 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
     failed_tasks = []
     for task in tasks:
         try:
-            html = generate_newsletter_html(
+            html = generate_chapter_html(
                 task_description=task["task"],
                 task_title=task["topic"],
                 skill=task["skill"],
+                provider=get_user_provider_name(current_user),
+                api_key=get_user_api_key(current_user),
+                model=get_user_model(current_user),
             )
             if not html:
                 print(f"Failed to generate content for task {task['id']}")
@@ -61,10 +69,13 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         raise HTTPException(status_code=404, detail="Task not found")
     _check_task_ownership(chapter, current_user)
 
-    html = generate_newsletter_html(
+    html = generate_chapter_html(
         task_description=chapter["task"],
         task_title=chapter["topic"],
         skill=chapter["skill"],
+        provider=get_user_provider_name(current_user),
+        api_key=get_user_api_key(current_user),
+        model=get_user_model(current_user),
     )
     if not html:
         raise HTTPException(

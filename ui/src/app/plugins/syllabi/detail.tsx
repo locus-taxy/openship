@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { LlmBar } from "@/components/llm-bar"
 import { useParams, useNavigate } from "react-router"
 import {
     ArrowLeft, BookOpen, CheckCircle2, Circle, Clock,
@@ -10,6 +11,8 @@ import {
     Dialog, DialogContent, DialogDescription, DialogFooter,
     DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import { ToastAction } from "@/components/ui/toast"
+import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { getRequest, postRequest } from "@/services"
@@ -66,6 +69,8 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     const [hasContent, setHasContent] = useState(chapter.has_content)
     const [confirmOpen, setConfirmOpen] = useState(false)
     const proseRef = useRef<HTMLDivElement>(null)
+    const { toast } = useToast()
+    const { setSettingsOpen } = useStore((s: any) => s)
 
     useEffect(() => {
         setHasContent(chapter.has_content)
@@ -165,12 +170,31 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     async function handleGenerate() {
         setConfirmOpen(false)
         setGenerating(true)
-        const { success } = await postRequest("/py/generate-content/chapter", { task_id: chapter.id })
-        setGenerating(false)
-        if (success) {
+        try {
+            await api.post("/py/generate-content/chapter", { task_id: chapter.id })
             setHasContent(true)
             onContentGenerated(chapter.id)
             loadContent()
+        } catch (err: any) {
+            const status = err?.response?.status
+            const detail = err?.response?.data?.detail ?? ""
+            if (status === 400 && typeof detail === "string" && detail.includes("LLM provider")) {
+                toast({
+                    title: "LLM not configured",
+                    description: "Add your provider and API key in Settings.",
+                    action: (
+                        <ToastAction altText="Open Settings" onClick={() => setSettingsOpen(true)}>
+                            Open Settings
+                        </ToastAction>
+                    ),
+                })
+            } else if (status === 429) {
+                toast({ variant: "destructive", title: "Quota exceeded", description: detail || "You've hit your LLM provider's rate limit. Wait a moment and try again." })
+            } else {
+                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate content." })
+            }
+        } finally {
+            setGenerating(false)
         }
     }
 
@@ -355,6 +379,11 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
+            {/* LLM bar */}
+            <div className="px-4 pt-3 pb-0 shrink-0">
+                <LlmBar />
+            </div>
+
             {/* Progress */}
             <div className="px-4 py-3 border-b shrink-0 space-y-2">
                 <div className="flex justify-between text-xs text-muted-foreground">

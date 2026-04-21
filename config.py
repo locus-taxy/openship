@@ -7,7 +7,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 # Load `.env` from the project root (this file's directory), not the process cwd.
-# Otherwise `uvicorn` started from another folder won't see GEMINI_* / DATABASE_URL.
+# Otherwise `uvicorn` started from another folder won't see DATABASE_URL etc.
 _ROOT = Path(__file__).resolve().parent
 load_dotenv(_ROOT / ".env")
 
@@ -50,9 +50,6 @@ def _env_int(name: str, default: int) -> int:
         return int(token)
     except ValueError as exc:
         raise ValueError(f"Invalid integer for environment variable {name!r}: {raw!r}") from exc
-
-GEMINI_API_KEY = _strip_opt("GEMINI_API_KEY")
-GEMINI_API_URL = _strip_opt("GEMINI_API_URL")
 
 RUN_MIGRATIONS_ON_STARTUP = _env_bool("RUN_MIGRATIONS_ON_STARTUP", True)
 
@@ -97,6 +94,8 @@ if (
         'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
     )
 limiter = Limiter(key_func=get_remote_address)
+
+LLM_ENCRYPTION_KEY = _strip_opt("LLM_ENCRYPTION_KEY")
 
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "2"))

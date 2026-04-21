@@ -21,7 +21,7 @@ install: setup
 setup:
 	@if [ ! -f "$(ROOT)/.env" ]; then \
 		cp "$(ROOT)/.env.example" "$(ROOT)/.env"; \
-		echo "Created .env from .env.example — edit DATABASE_URL, GEMINI_*, etc."; \
+		echo "Created .env from .env.example — edit DATABASE_URL, JWT_SECRET_KEY, etc."; \
 	fi
 	$(PYTHON) -m venv $(VENV)
 	$(PIP) install --upgrade pip
