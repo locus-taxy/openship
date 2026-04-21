@@ -72,10 +72,10 @@ export default function AnalyticsPage() {
     const completedCourses = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "completed")
     const notStarted = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "not-started")
     const noSyllabus = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "no-syllabus")
-    const totalDays = syllabi.reduce((sum, s) => sum + s.days, 0)
     const totalTasks = syllabi.reduce((sum, s) => sum + s.total_tasks, 0)
     const totalTaskDone = syllabi.reduce((sum, s) => sum + s.completed_tasks, 0)
     const totalHours = syllabi.reduce((sum, s) => sum + s.hours * s.days, 0)
+    const remainingTasks = Math.max(0, totalTasks - totalTaskDone)
     const overallPct = totalTasks > 0 ? Math.round((totalTaskDone / totalTasks) * 100) : 0
 
     const sortedSyllabi = [...syllabi].sort((a, b) => {
@@ -210,8 +210,8 @@ export default function AnalyticsPage() {
                                 <CalendarDays className="h-5 w-5 text-violet-500" />
                             </div>
                             <div>
-                                <p className="text-2xl font-black">{totalDays - totalTaskDone}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">Days Remaining</p>
+                                <p className="text-2xl font-black">{remainingTasks}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">Tasks Remaining</p>
                             </div>
                         </div>
                     </div>
