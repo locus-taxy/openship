@@ -14,6 +14,7 @@ the database.
 
 Backward compatibility:
 - "prefix||ENC||<token>" — partial encryption (current format)
+- "FULL:<token>"         — old full encryption (decrypted correctly, re-saved as partial on next write)
 - no separator           — legacy plaintext (returned as-is)
 """
 
@@ -22,6 +23,7 @@ from typing import Optional
 from cryptography.fernet import Fernet
 
 _SEPARATOR = "||ENC||"
+_FULL_PREFIX = "FULL:"
 
 _fernet: Optional[Fernet] = None
 
@@ -54,6 +56,7 @@ def decrypt_api_key(stored: str) -> str:
     """
     Decrypt a stored API key. Handles all storage formats:
     - prefix||ENC||<token>  current partial-encryption format
+    - FULL:<token>          old full-encryption format (backward compat)
     - plaintext             legacy unencrypted (returned as-is)
     """
     f = _get_fernet()
@@ -61,5 +64,8 @@ def decrypt_api_key(stored: str) -> str:
         prefix, enc_suffix = stored.rsplit(_SEPARATOR, 1)
         suffix = f.decrypt(enc_suffix.encode()).decode()
         return prefix + suffix
+    if stored.startswith(_FULL_PREFIX):
+        # Old full-encryption format — decrypt the whole key
+        return f.decrypt(stored[len(_FULL_PREFIX) :].encode()).decode()
     # Legacy plaintext — return as-is
     return stored

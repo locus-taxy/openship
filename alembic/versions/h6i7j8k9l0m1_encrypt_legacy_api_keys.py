@@ -40,6 +40,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 _SEPARATOR = "||ENC||"
+_FULL_PREFIX = "FULL:"
 _BATCH_SIZE = 500
 
 def _get_fernet() -> Fernet:
@@ -60,11 +61,20 @@ def _partial_encrypt(plaintext: str, fernet: Fernet) -> str:
         prefix, suffix = plaintext[:-5], plaintext[-5:]
     return prefix + _SEPARATOR + fernet.encrypt(suffix.encode()).decode()
 
+def _to_plaintext(stored: str, fernet: Fernet) -> str:
+    """Recover the raw API key from any storage format."""
+    if stored.startswith(_FULL_PREFIX):
+        # Old full-encryption format — decrypt the whole value
+        return fernet.decrypt(stored[len(_FULL_PREFIX) :].encode()).decode()
+    # Already plaintext (no separator, no prefix)
+    return stored
+
 def upgrade() -> None:
     fernet = _get_fernet()
     conn = op.get_bind()
 
-    # Only target rows that have no ||ENC|| separator yet (plaintext).
+    # Target rows that are plaintext OR in the old FULL: full-encryption format.
+    # Rows already in partial-encryption format (||ENC||) are skipped.
     # Cursor-based pagination so UPDATEs don't cause rows to be skipped.
     last_id = 0
     while True:
@@ -81,7 +91,8 @@ def upgrade() -> None:
         if not rows:
             break
 
-        for row_id, plaintext in rows:
+        for row_id, stored in rows:
+            plaintext = _to_plaintext(stored, fernet)
             encrypted = _partial_encrypt(plaintext, fernet)
             conn.execute(
                 text("UPDATE user_api_keys SET api_key = :encrypted WHERE id = :id"),
