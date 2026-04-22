@@ -96,5 +96,24 @@ def downgrade() -> None:
             {"provider": provider},
         )
 
+    # Restore users.llm_model from user_api_keys for each user's active provider.
+    # At this point users.llm_provider (VARCHAR) has been restored by the f4g5h6i7j8k9 downgrade.
+    for provider, _ in [
+        ("gemini", "gemini_key"),
+        ("openai", "openai_key"),
+        ("anthropic", "anthropic_key"),
+        ("mistral", "mistral_key"),
+    ]:
+        conn.execute(
+            text(
+                "UPDATE users SET llm_model = ("
+                "SELECT llm_model FROM user_api_keys "
+                "WHERE user_api_keys.user_id = users.id "
+                "AND user_api_keys.llm_provider = :provider"
+                ") WHERE users.llm_provider = :provider"
+            ),
+            {"provider": provider},
+        )
+
     op.drop_index("ix_user_api_keys_user_id", "user_api_keys")
     op.drop_table("user_api_keys")
