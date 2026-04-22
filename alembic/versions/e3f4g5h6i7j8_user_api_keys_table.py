@@ -55,7 +55,9 @@ def upgrade() -> None:
         conn.execute(
             text(
                 "INSERT INTO user_api_keys (user_id, llm_provider, llm_model, api_key) "
-                f"SELECT id, :provider, llm_model, {col} "
+                f"SELECT id, :provider, "
+                f"CASE WHEN llm_provider = :provider THEN llm_model ELSE NULL END, "
+                f"{col} "
                 f"FROM users WHERE {col} IS NOT NULL"
             ),
             {"provider": provider},
