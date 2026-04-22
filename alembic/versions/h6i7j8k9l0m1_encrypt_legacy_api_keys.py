@@ -11,8 +11,7 @@ partial-encryption format (prefix||ENC||<fernet_token_of_last_5_chars>).
 
 Safety:
 - Checks LLM_ENCRYPTION_KEY before starting; aborts cleanly if missing.
-- Skips rows already in partial-encryption format (idempotent — checks for
-  the ||ENC|| separator).
+- Skips rows already in partial-encryption format (idempotent).
 - Cursor-based pagination (id > :last_id) avoids OFFSET skipping caused
   by updated rows dropping out of the WHERE filter mid-loop.
 - Processes rows in batches of 500 to bound transaction size.
@@ -40,7 +39,6 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 _SEPARATOR = "||ENC||"
-_FULL_PREFIX = "FULL:"
 _BATCH_SIZE = 500
 
 def _get_fernet() -> Fernet:
@@ -61,20 +59,11 @@ def _partial_encrypt(plaintext: str, fernet: Fernet) -> str:
         prefix, suffix = plaintext[:-5], plaintext[-5:]
     return prefix + _SEPARATOR + fernet.encrypt(suffix.encode()).decode()
 
-def _to_plaintext(stored: str, fernet: Fernet) -> str:
-    """Recover the raw API key from any storage format."""
-    if stored.startswith(_FULL_PREFIX):
-        # Old full-encryption format — decrypt the whole value
-        return fernet.decrypt(stored[len(_FULL_PREFIX) :].encode()).decode()
-    # Already plaintext (no separator, no prefix)
-    return stored
-
 def upgrade() -> None:
     fernet = _get_fernet()
     conn = op.get_bind()
 
-    # Target rows that are plaintext OR in the old FULL: full-encryption format.
-    # Rows already in partial-encryption format (||ENC||) are skipped.
+    # Only target plaintext rows (no ||ENC|| separator).
     # Cursor-based pagination so UPDATEs don't cause rows to be skipped.
     last_id = 0
     while True:
@@ -91,8 +80,7 @@ def upgrade() -> None:
         if not rows:
             break
 
-        for row_id, stored in rows:
-            plaintext = _to_plaintext(stored, fernet)
+        for row_id, plaintext in rows:
             encrypted = _partial_encrypt(plaintext, fernet)
             conn.execute(
                 text("UPDATE user_api_keys SET api_key = :encrypted WHERE id = :id"),
@@ -102,7 +90,6 @@ def upgrade() -> None:
         last_id = rows[-1][0]
 
 def downgrade() -> None:
-    # Intentional no-op: decrypt_api_key() in services/encryption.py handles
-    # both the ||ENC|| format and plaintext, so rolling back the schema does
-    # not require decrypting stored values.
+    # Intentional no-op: decrypt_api_key() handles both ||ENC|| and plaintext,
+    # so rolling back the schema does not require decrypting stored values.
     pass
