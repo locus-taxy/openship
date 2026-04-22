@@ -21,25 +21,25 @@ interface Syllabus {
 
 function getStatus(completed: number, total: number) {
     if (total === 0) return "no-syllabus"
-    const pct = (completed / total) * 100
-    if (pct === 100) return "completed"
-    if (pct > 0) return "in-progress"
+    const completionPercentage = (completed / total) * 100
+    if (completionPercentage === 100) return "completed"
+    if (completionPercentage > 0) return "in-progress"
     return "not-started"
 }
 
 function RingProgress({ pct, size = 80, stroke = 7, color = "#6366f1", trackColor = "rgba(99,102,241,0.12)" }: {
     pct: number; size?: number; stroke?: number; color?: string; trackColor?: string
 }) {
-    const r = (size - stroke * 2) / 2
-    const circ = 2 * Math.PI * r
-    const offset = circ - (pct / 100) * circ
+    const radius = (size - stroke * 2) / 2
+    const circumference = 2 * Math.PI * radius
+    const offset = circumference - (pct / 100) * circumference
     return (
         <svg width={size} height={size} className="-rotate-90">
-            <circle cx={size / 2} cy={size / 2} r={r} stroke={trackColor}
+            <circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor}
                 strokeWidth={stroke} fill="none" />
-            <circle cx={size / 2} cy={size / 2} r={r} stroke={color}
+            <circle cx={size / 2} cy={size / 2} r={radius} stroke={color}
                 strokeWidth={stroke} fill="none" strokeLinecap="round"
-                strokeDasharray={circ} strokeDashoffset={offset}
+                strokeDasharray={circumference} strokeDashoffset={offset}
                 style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1)" }} />
         </svg>
     )
