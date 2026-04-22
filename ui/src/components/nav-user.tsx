@@ -225,24 +225,24 @@ export function NavUser() {
             </SidebarMenu>
 
             <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-                <DialogContent className="w-[95vw] max-w-2xl h-[85vh] sm:h-[560px] p-0 gap-0 overflow-hidden flex flex-col">
+                <DialogContent className="w-[95vw] max-w-2xl h-[90vh] sm:h-[520px] p-0 gap-0 overflow-hidden flex flex-col">
                     <div className="flex flex-1 overflow-hidden">
 
                         {/* Left nav */}
-                        <div className="w-36 sm:w-52 shrink-0 border-r bg-muted/30 flex flex-col py-4 px-2 sm:px-3 gap-1">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">Settings</p>
+                        <div className="w-20 sm:w-44 shrink-0 border-r bg-muted/30 flex flex-col py-3 px-1.5 sm:px-3 gap-0.5">
+                            <p className="text-[10px] sm:text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5">Settings</p>
                             {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
                                 <button
                                     key={id}
                                     onClick={() => setActiveTab(id)}
                                     className={cn(
-                                        "flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors w-full text-left",
+                                        "flex flex-col sm:flex-row items-center sm:gap-2 px-1.5 sm:px-3 py-2 rounded-lg text-[10px] sm:text-sm font-medium transition-colors w-full text-center sm:text-left",
                                         activeTab === id
                                             ? "bg-background text-foreground shadow-sm"
                                             : "text-muted-foreground hover:text-foreground hover:bg-background/60"
                                     )}
                                 >
-                                    <Icon className="h-4 w-4 shrink-0" />
+                                    <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 mb-0.5 sm:mb-0" />
                                     {label}
                                 </button>
                             ))}
@@ -253,18 +253,18 @@ export function NavUser() {
 
                             {/* ── LLM tab ── */}
                             {activeTab === "llm" && (
-                                <div className="px-4 sm:px-8 py-5 sm:py-7 space-y-6">
+                                <div className="px-3 sm:px-8 py-4 sm:py-7 space-y-4 sm:space-y-6">
                                     <div>
-                                        <h2 className="text-base font-semibold">LLM Settings</h2>
-                                        <p className="text-sm text-muted-foreground mt-0.5">Each provider's key is saved separately.</p>
+                                        <h2 className="text-sm sm:text-base font-semibold">LLM Settings</h2>
+                                        <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Each provider's key is saved separately.</p>
                                     </div>
 
                                     {/* Configured provider pills */}
                                     {configuredProviders.length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5">
+                                        <div className="flex flex-wrap gap-1">
                                             {configuredProviders.map(p => (
-                                                <span key={p} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                                                    <CheckCircle2 className="h-3 w-3" />
+                                                <span key={p} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 px-2 py-0.5 text-[10px] sm:text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                                    <CheckCircle2 className="h-2.5 w-2.5" />
                                                     {providerLabel(p)}
                                                 </span>
                                             ))}
@@ -322,7 +322,7 @@ export function NavUser() {
                                                             disabled={loadingModels}
                                                             className="w-full flex items-center justify-between rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:border-ring/50 disabled:opacity-60"
                                                         >
-                                                            <span className="font-mono text-sm">{selectedModel || availableModels[0]}</span>
+                                                            <span className="font-mono text-xs sm:text-sm truncate">{selectedModel || availableModels[0]}</span>
                                                             {loadingModels
                                                                 ? <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
                                                                 : <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", modelOpen && "rotate-180")} />
@@ -408,28 +408,28 @@ export function NavUser() {
                                             <div className="space-y-2">
                                                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">API Key</p>
                                                 {currentProviderHasKey && !editingKey && (
-                                                    <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 px-4 py-3">
-                                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/50">
-                                                            <KeyRound className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                                                    <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 px-3 py-2.5">
+                                                        <div className="flex h-6 w-6 sm:h-8 sm:w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/50">
+                                                            <KeyRound className="h-3 w-3 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
                                                         </div>
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Key saved</p>
-                                                            <p className="text-xs text-muted-foreground font-mono mt-0.5">••••••••••••••••</p>
+                                                            <p className="text-xs sm:text-sm font-medium text-emerald-700 dark:text-emerald-400">Key saved</p>
+                                                            <p className="text-[10px] sm:text-xs text-muted-foreground font-mono">••••••••••••••</p>
                                                         </div>
-                                                        <button type="button" onClick={() => { setEditingKey(true); setApiKey(""); }} className="shrink-0 flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors">
-                                                            <Pencil className="h-3 w-3" /> Update
+                                                        <button type="button" onClick={() => { setEditingKey(true); setApiKey(""); }} className="shrink-0 flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-[10px] sm:text-xs font-medium text-foreground hover:bg-accent transition-colors">
+                                                            <Pencil className="h-2.5 w-2.5" /> Update
                                                         </button>
                                                         {!confirmDelete ? (
-                                                            <button type="button" onClick={() => setConfirmDelete(true)} className="shrink-0 flex items-center justify-center rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/5 transition-colors">
-                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                            <button type="button" onClick={() => setConfirmDelete(true)} className="shrink-0 flex items-center justify-center rounded-lg border border-border bg-background p-1 text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/5 transition-colors">
+                                                                <Trash2 className="h-3 w-3" />
                                                             </button>
                                                         ) : (
                                                             <div className="shrink-0 flex items-center gap-1">
-                                                                <button type="button" onClick={handleRemoveKey} disabled={removing} className="flex items-center gap-1 rounded-lg bg-destructive px-2.5 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors">
-                                                                    {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />} Delete
+                                                                <button type="button" onClick={handleRemoveKey} disabled={removing} className="flex items-center gap-1 rounded-lg bg-destructive px-2 py-1 text-[10px] sm:text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors">
+                                                                    {removing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Trash2 className="h-2.5 w-2.5" />} Del
                                                                 </button>
-                                                                <button type="button" onClick={() => setConfirmDelete(false)} className="rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:bg-accent transition-colors">
-                                                                    <X className="h-3 w-3" />
+                                                                <button type="button" onClick={() => setConfirmDelete(false)} className="rounded-lg border border-border bg-background p-1 text-muted-foreground hover:bg-accent transition-colors">
+                                                                    <X className="h-2.5 w-2.5" />
                                                                 </button>
                                                             </div>
                                                         )}
@@ -480,16 +480,16 @@ export function NavUser() {
 
                             {/* ── Account tab ── */}
                             {activeTab === "account" && (
-                                <div className="px-4 sm:px-8 py-5 sm:py-7 space-y-6">
+                                <div className="px-3 sm:px-8 py-4 sm:py-7 space-y-4 sm:space-y-6">
                                     <div>
-                                        <h2 className="text-base font-semibold">Account</h2>
-                                        <p className="text-sm text-muted-foreground mt-0.5">Manage your profile and preferences.</p>
+                                        <h2 className="text-sm sm:text-base font-semibold">Account</h2>
+                                        <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Manage your profile and preferences.</p>
                                     </div>
 
                                     {/* User info */}
-                                    <div className="flex items-center gap-4 rounded-xl border border-border bg-muted/30 px-5 py-4">
-                                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                            <UserCircle className="h-7 w-7" />
+                                    <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-3 sm:px-5 py-3 sm:py-4">
+                                        <div className="flex h-9 w-9 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                            <UserCircle className="h-5 w-5 sm:h-7 sm:w-7" />
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-semibold truncate">{user.name}</p>
@@ -498,7 +498,7 @@ export function NavUser() {
                                     </div>
 
                                     {/* Appearance */}
-                                    <div className="flex items-center justify-between rounded-xl border border-border bg-background px-5 py-3.5">
+                                    <div className="flex items-center justify-between rounded-xl border border-border bg-background px-3 sm:px-5 py-3 sm:py-3.5">
                                         <div>
                                             <p className="text-sm font-medium">Appearance</p>
                                             <p className="text-xs text-muted-foreground mt-0.5">Toggle light / dark mode</p>

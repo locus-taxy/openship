@@ -214,7 +214,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     }
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full overflow-hidden">
             {/* Header */}
             <div className="border-b px-4 sm:px-8 py-5 bg-background shrink-0">
                 <p className="text-xs text-muted-foreground mb-1">Day {chapter.day} · {chapter.hours}h</p>
@@ -222,8 +222,8 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
             </div>
 
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto">
-                <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 md:px-8 py-6 space-y-5">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
+                <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 md:px-8 py-6 space-y-5 min-w-0">
 
                     {/* Task */}
                     <div className="rounded-lg border bg-muted/30 px-4 py-3">
@@ -256,13 +256,13 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                 {/* Prose content */}
                                 <div
                                     ref={proseRef}
-                                    className="prose prose-base max-w-none
+                                    className="prose prose-sm sm:prose-base max-w-none break-words
                                         prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
-                                        prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
-                                        prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
-                                        prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2
-                                        prose-h4:text-sm prose-h4:mt-4 prose-h4:mb-1
-                                        prose-p:text-zinc-600 prose-p:leading-7
+                                        prose-h1:text-lg sm:prose-h1:text-2xl prose-h1:mt-6 sm:prose-h1:mt-8 prose-h1:mb-3 sm:prose-h1:mb-4
+                                        prose-h2:text-base sm:prose-h2:text-xl prose-h2:mt-5 sm:prose-h2:mt-6 prose-h2:mb-2 sm:prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
+                                        prose-h3:text-sm sm:prose-h3:text-base prose-h3:mt-4 sm:prose-h3:mt-5 prose-h3:mb-1.5 sm:prose-h3:mb-2
+                                        prose-h4:text-xs sm:prose-h4:text-sm prose-h4:mt-3 sm:prose-h4:mt-4 prose-h4:mb-1
+                                        prose-p:text-zinc-600 prose-p:leading-6 sm:prose-p:leading-7
                                         prose-strong:text-foreground prose-strong:font-semibold
                                         prose-em:text-zinc-600
                                         prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
@@ -270,21 +270,22 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                         prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
                                         [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
                                         prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                                        [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm
+                                        [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm [&_pre]:max-w-full [&_pre]:overflow-x-auto
                                         [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
                                         prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
                                         prose-hr:border-border prose-hr:my-6
-                                        prose-table:w-full prose-table:border-collapse prose-table:text-sm
+                                        prose-table:w-full prose-table:border-collapse prose-table:text-xs sm:prose-table:text-sm
                                         prose-thead:bg-muted/50
-                                        prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
-                                        prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
+                                        prose-th:border prose-th:border-border prose-th:px-2 sm:prose-th:px-4 prose-th:py-2 sm:prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
+                                        prose-td:border prose-td:border-border prose-td:px-2 sm:prose-td:px-4 prose-td:py-1.5 sm:prose-td:py-2 prose-td:text-zinc-600
                                         prose-tr:even:bg-muted/20
-                                        [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
+                                        [&_table]:rounded-lg [&_table]:border [&_table]:border-border
+                                        [&_:where(table)]:block [&_:where(table)]:overflow-x-auto"
                                     dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }}
                                 />
 
                                 {/* Footer */}
-                                <div className="pt-4 border-t border-border/50 flex items-center justify-between gap-3">
+                                <div className="pt-4 border-t border-border/50 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                                     {completed ? (
                                         <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
                                             <CheckCircle2 className="h-4 w-4" /> Completed
@@ -313,7 +314,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                             </div>
                         ) : null
                     ) : (
-                        <div className="flex flex-col items-center justify-center py-24 text-center rounded-lg border border-dashed">
+                        <div className="flex flex-col items-center justify-center py-12 sm:py-24 text-center rounded-lg border border-dashed">
                             <Sparkles className="h-10 w-10 text-muted-foreground mb-3" />
                             <h3 className="font-semibold">Content not generated yet</h3>
                             <p className="text-sm text-muted-foreground mt-1 mb-4">Generate the content for this chapter to read it here.</p>
@@ -520,6 +521,7 @@ export default function SyllabusDetailPage() {
     const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
     const [navCollapsed, setNavCollapsed] = useState(false)
     const [navWidth, setNavWidth] = useState(350)
+    const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
     const isResizing = useRef(false)
     const { setOpen } = useSidebar()
 
@@ -650,26 +652,49 @@ export default function SyllabusDetailPage() {
     return (
         <div className="flex overflow-hidden h-screen" style={{ height: "100dvh" }}>
 
-            {/* Left nav panel — hidden on mobile, collapsible on larger screens */}
+            {/* Mobile backdrop */}
+            {mobileSidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-40 sm:hidden"
+                    onClick={() => setMobileSidebarOpen(false)}
+                />
+            )}
+
+            {/* Left nav panel */}
             <aside
-                style={{ width: navCollapsed ? 0 : navWidth }}
-                className={`flex-shrink-0 flex-col h-full overflow-hidden hidden sm:flex ${navCollapsed ? "" : "border-r"}`}
+                style={{ width: navWidth }}
+                className={[
+                    "flex-col h-full overflow-hidden bg-background",
+                    // Mobile: fixed full-height overlay, display:none when closed so it doesn't affect flex layout
+                    mobileSidebarOpen
+                        ? "fixed left-0 top-0 bottom-0 z-50 flex w-[85vw] shadow-xl"
+                        : "hidden",
+                    // Desktop: override to inline sidebar
+                    navCollapsed
+                        ? "sm:hidden"
+                        : "sm:relative sm:flex sm:flex-shrink-0 sm:border-r",
+                ].join(" ")}
             >
-                <div style={{ width: navWidth }} className="relative flex flex-col h-full">
+                <div style={{ width: navWidth }} className="relative flex flex-col h-full w-full">
                     {/* Nav header */}
                     <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
                         <Button variant="ghost" size="sm" className="-ml-1 h-7 text-xs" onClick={() => navigate("/syllabi")}>
                             <ArrowLeft className="h-3.5 w-3.5 mr-1" /> All Courses
                         </Button>
                         <span className="text-sm font-semibold truncate text-foreground/80 flex-1">{detail.skill}</span>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setNavCollapsed(true)} title="Collapse sidebar">
+                        {/* Desktop: collapse button */}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 hidden sm:flex" onClick={() => setNavCollapsed(true)} title="Collapse sidebar">
+                            <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                        {/* Mobile: close button */}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 flex sm:hidden" onClick={() => setMobileSidebarOpen(false)} title="Close">
                             <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
                         </Button>
                     </div>
                     <ChapterNav
                         detail={detail}
                         activeChapterId={activeChapterId}
-                        onSelectChapter={(chapter) => setActiveChapterId(chapter.id)}
+                        onSelectChapter={(chapter) => { setActiveChapterId(chapter.id); setMobileSidebarOpen(false); }}
                         overallProgress={overallProgress}
                         completedCount={completedCount}
                         totalCount={allTasks.length}
@@ -690,9 +715,14 @@ export default function SyllabusDetailPage() {
             </aside>
 
             {/* Right content panel */}
-            <main className="flex-1 overflow-y-auto flex flex-col">
+            <main className="flex-1 w-0 min-w-0 flex flex-col overflow-hidden">
                 {/* Top bar */}
-                <div className="flex items-center gap-2 px-3 sm:px-4 py-3 border-b shrink-0 min-w-0">
+                <div className="flex items-center gap-2 px-3 sm:px-4 py-3 border-b shrink-0">
+                    {/* Mobile: open sidebar button */}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 flex sm:hidden shrink-0" onClick={() => setMobileSidebarOpen(true)} title="Open chapters">
+                        <PanelLeftOpen className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                    {/* Desktop: collapse/expand toggle */}
                     <Button variant="ghost" size="icon" className="h-7 w-7 hidden sm:flex shrink-0" onClick={() => setNavCollapsed((v) => !v)} title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
                         {navCollapsed ? <PanelLeftOpen className="h-4 w-4 text-muted-foreground" /> : <PanelLeftClose className="h-4 w-4 text-muted-foreground" />}
                     </Button>
@@ -719,7 +749,7 @@ export default function SyllabusDetailPage() {
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-hidden">
                     {activeChapter && (
                         <ChapterContentPanel
                             key={activeChapter.id}
