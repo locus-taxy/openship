@@ -18,7 +18,7 @@ interface SettingsData {
     provider_models: Record<string, string[]>;
 }
 
-export function LlmBar() {
+export function LlmBar({ fullWidth = false }: { fullWidth?: boolean }) {
     const { setSettingsOpen, settingsOpen, setPendingProvider } = useStore((s: any) => s);
     const [data, setData] = useState<SettingsData | null>(null);
     const [liveModels, setLiveModels] = useState<string[]>([]);
@@ -133,22 +133,25 @@ export function LlmBar() {
         : availableModels;
 
     return (
-        <div ref={ref} className="flex items-center gap-2 flex-wrap">
+        <div ref={ref} className={cn("flex items-center gap-2", fullWidth ? "w-full" : "flex-wrap")}>
             {/* Provider pill */}
-            <div className="relative">
+            <div className={cn("relative", fullWidth && "flex-1 min-w-0")}>
                 <button
                     type="button"
                     onClick={() => { setProviderOpen(o => !o); setModelOpen(false); }}
                     className={cn(
-                        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-accent",
+                        "flex items-center gap-1.5 border text-xs font-medium transition-colors hover:bg-accent",
+                        fullWidth
+                            ? "w-full justify-between rounded-lg px-3 py-1.5"
+                            : "rounded-full px-3 py-1",
                         hasProvider
                             ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400"
                             : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
                     )}
                 >
-                    {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className={cn("h-3 w-3", !hasProvider && "opacity-40")} />}
-                    {hasProvider ? providerLabel : "Set provider"}
-                    <ChevronDown className={cn("h-3 w-3 transition-transform", providerOpen && "rotate-180")} />
+                    {saving ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <CheckCircle2 className={cn("h-3 w-3 shrink-0", !hasProvider && "opacity-40")} />}
+                    <span className={cn(fullWidth && "truncate flex-1 text-left")}>{hasProvider ? providerLabel : "Set provider"}</span>
+                    <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", providerOpen && "rotate-180")} />
                 </button>
                 {providerOpen && (
                     <div className="absolute z-50 top-full mt-1 left-0 w-44 rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
@@ -175,17 +178,22 @@ export function LlmBar() {
 
             {/* Model pill — only when provider is configured */}
             {hasProvider && availableModels.length > 0 && (
-                <div className="relative">
+                <div className={cn("relative", fullWidth && "flex-1 min-w-0")}>
                     <button
                         type="button"
                         onClick={() => { setModelOpen(o => !o); setProviderOpen(false); setModelSearch(""); }}
-                        className="flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-mono font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                        className={cn(
+                            "flex items-center gap-1.5 border border-border bg-muted/50 text-xs font-mono font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors",
+                            fullWidth
+                                ? "w-full justify-between rounded-lg px-3 py-1.5"
+                                : "rounded-full px-3 py-1"
+                        )}
                     >
-                        {llm_model || availableModels[0]}
-                        <ChevronDown className={cn("h-3 w-3 transition-transform", modelOpen && "rotate-180")} />
+                        <span className={cn(fullWidth && "truncate")}>{llm_model || availableModels[0]}</span>
+                        <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", modelOpen && "rotate-180")} />
                     </button>
                     {modelOpen && (
-                        <div className="absolute z-50 top-full mt-1 left-0 w-64 rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
+                        <div className="absolute z-50 top-full mt-1 right-0 w-72 rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
                             {/* Search */}
                             <div className="p-2 border-b border-border">
                                 <input

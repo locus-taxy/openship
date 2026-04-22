@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
 import { BookOpen, Clock, CalendarDays, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText, GraduationCap, CheckCircle2, CircleDot } from "lucide-react"
+import {
+    Dialog, DialogContent, DialogDescription, DialogFooter,
+    DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
 import { LlmBar } from "@/components/llm-bar"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -40,6 +44,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     searchQuery: string
 }) {
     const [generating, setGenerating] = useState(false)
+    const [confirmOpen, setConfirmOpen] = useState(false)
     const { toast } = useToast()
     const { setSettingsOpen } = useStore((s: any) => s)
     const chapters = item.matching_chapters ?? []
@@ -52,8 +57,9 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     const isCompleted = progress === 100
     const isInProgress = progress > 0 && progress < 100
 
-    async function handleGenerate(e: React.MouseEvent) {
-        e.stopPropagation()
+    async function handleGenerate(e?: React.MouseEvent) {
+        e?.stopPropagation()
+        setConfirmOpen(false)
         setGenerating(true)
         try {
             await api.post("/py/generate-syllabus", { skill: item.skill })
@@ -161,7 +167,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
                             <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
                                 <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                 <div>
@@ -207,7 +213,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                                         title="Regenerate syllabus"
                                         aria-label="Regenerate syllabus"
                                         disabled={generating}
-                                        onClick={handleGenerate}
+                                        onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }}
                                         className="shrink-0"
                                     >
                                         {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
@@ -240,6 +246,25 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                     </div>
                 )}
             </CardContent>
+
+            {/* Regenerate confirmation dialog */}
+            <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Regenerate syllabus?</DialogTitle>
+                        <DialogDescription>
+                            This will replace the existing syllabus for <span className="font-medium text-foreground">{item.skill}</span>. All chapters and progress will be lost. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+                        <Button onClick={() => handleGenerate()}>
+                            <RotateCw className="h-4 w-4 mr-1.5" />
+                            Yes, Regenerate
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </Card>
     )
 }
@@ -357,7 +382,7 @@ export default function SyllabiPage() {
     const completed = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === s.total_tasks).length
 
     return (
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -365,7 +390,8 @@ export default function SyllabiPage() {
                     <p className="text-muted-foreground text-sm mt-0.5">All active learning plans</p>
                 </div>
                 <Button onClick={() => navigate("/enroll")}>
-                    + New Enrollment
+                    <span className="hidden sm:inline">+ New Enrollment</span>
+                    <span className="sm:hidden">+ Enroll</span>
                 </Button>
             </div>
 
@@ -374,7 +400,7 @@ export default function SyllabiPage() {
 
             {/* Stats row */}
             {!loading && total > 0 && (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <StatCard icon={GraduationCap} label="Total courses" value={total} color="bg-primary/10 text-primary" />
                     <StatCard icon={CircleDot} label="In progress" value={inProgress} color="bg-indigo-500/10 text-indigo-600" />
                     <StatCard icon={CheckCircle2} label="Completed" value={completed} color="bg-emerald-500/10 text-emerald-600" />

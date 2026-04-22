@@ -1,6 +1,7 @@
 import { BookOpen, UserPlus, Sparkles, BarChart2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { NavUser } from "@/components/nav-user";
+import { cn } from "@/lib/utils";
 import {
     Sidebar,
     SidebarContent,
@@ -9,9 +10,6 @@ import {
     SidebarRail,
     SidebarGroup,
     SidebarGroupLabel,
-    SidebarMenu,
-    SidebarMenuItem,
-    SidebarMenuButton,
 } from "@/components/ui/sidebar";
 
 const NAV_ITEMS = [
@@ -37,25 +35,33 @@ export function AppSidebar() {
                 </div>
             </SidebarHeader>
             <SidebarContent>
-                <SidebarGroup>
-                    <SidebarGroupLabel>Menu</SidebarGroupLabel>
-                    <SidebarMenu>
+                <SidebarGroup className="px-4 py-2">
+                    <SidebarGroupLabel className="px-1 mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
+                        Menu
+                    </SidebarGroupLabel>
+                    <div className="flex flex-col gap-1.5">
                         {NAV_ITEMS.map(({ title, icon: Icon, url }) => {
                             const isActive = pathname === url || pathname.startsWith(url + "/")
                             return (
-                                <SidebarMenuItem key={title}>
-                                    <SidebarMenuButton
-                                        isActive={isActive}
-                                        onClick={() => navigate(url)}
-                                        tooltip={title}
-                                    >
-                                        <Icon />
-                                        <span>{title}</span>
-                                    </SidebarMenuButton>
-                                </SidebarMenuItem>
+                                <button
+                                    key={title}
+                                    onClick={() => navigate(url)}
+                                    className={cn(
+                                        "group flex items-center gap-3 rounded-xl px-4 py-3.5 text-sm font-medium transition-all duration-150 w-full text-left",
+                                        isActive
+                                            ? "bg-primary/10 text-primary font-semibold"
+                                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                    )}
+                                >
+                                    <Icon className={cn(
+                                        "h-4 w-4 shrink-0 transition-colors",
+                                        isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                                    )} />
+                                    <span>{title}</span>
+                                </button>
                             )
                         })}
-                    </SidebarMenu>
+                    </div>
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>

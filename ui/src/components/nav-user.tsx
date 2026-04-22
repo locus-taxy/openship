@@ -6,12 +6,7 @@ import {
     LogOutIcon, UserCircle, Settings, Eye, EyeOff,
     KeyRound, CheckCircle2, Loader2, X, ChevronDown, Pencil, Trash2,
 } from "lucide-react";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -195,6 +190,13 @@ export function NavUser() {
 
     const showKeyInput = !currentProviderHasKey || editingKey;
 
+    const [activeTab, setActiveTab] = useState<"llm" | "account">("llm");
+
+    const NAV_ITEMS = [
+        { id: "llm" as const,     label: "LLM",     icon: Settings },
+        { id: "account" as const, label: "Account",  icon: UserCircle },
+    ];
+
     return (
         <>
             <SidebarMenu>
@@ -206,7 +208,7 @@ export function NavUser() {
                             <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                         </div>
                         <button
-                            onClick={() => setSettingsOpen(true)}
+                            onClick={() => { setActiveTab("llm"); setSettingsOpen(true); }}
                             title="Settings"
                             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                         >
@@ -223,300 +225,297 @@ export function NavUser() {
             </SidebarMenu>
 
             <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-                <DialogContent className="max-w-lg p-0 gap-0 overflow-visible">
+                <DialogContent className="w-[95vw] max-w-2xl h-[85vh] sm:h-[560px] p-0 gap-0 overflow-hidden flex flex-col">
+                    <div className="flex flex-1 overflow-hidden">
 
-                    {/* Header */}
-                    <DialogHeader className="px-6 pt-6 pb-4 border-b bg-muted/30">
-                        <DialogTitle className="text-base font-semibold flex items-center gap-2">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                                <Settings className="h-4 w-4" />
-                            </div>
-                            LLM Settings
-                        </DialogTitle>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            Each provider's key is saved separately — switching never erases another key.
-                        </p>
-                    </DialogHeader>
-
-                    <div className="px-8 py-7 space-y-6">
-
-                        {/* Saved keys summary pills */}
-                        {configuredProviders.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                                {configuredProviders.map(p => (
-                                    <span key={p} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                                        <CheckCircle2 className="h-3 w-3" />
-                                        {providerLabel(p)}
-                                    </span>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* Provider selector */}
-                        <div className="space-y-1.5">
-                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Provider</p>
-                            <div className="relative">
+                        {/* Left nav */}
+                        <div className="w-36 sm:w-52 shrink-0 border-r bg-muted/30 flex flex-col py-4 px-2 sm:px-3 gap-1">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">Settings</p>
+                            {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
                                 <button
-                                    type="button"
-                                    onClick={() => { setProviderOpen(o => !o); setModelOpen(false); }}
-                                    className="w-full flex items-center justify-between rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:border-ring/50"
+                                    key={id}
+                                    onClick={() => setActiveTab(id)}
+                                    className={cn(
+                                        "flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors w-full text-left",
+                                        activeTab === id
+                                            ? "bg-background text-foreground shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-background/60"
+                                    )}
                                 >
-                                    <span className={selectedProvider ? "text-foreground font-medium" : "text-muted-foreground"}>
-                                        {selectedProvider ? providerLabel(selectedProvider) : "Select a provider"}
-                                    </span>
-                                    <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", providerOpen && "rotate-180")} />
+                                    <Icon className="h-4 w-4 shrink-0" />
+                                    {label}
                                 </button>
-                                {providerOpen && (
-                                    <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
-                                        {(settings?.supported_providers ?? []).map(p => (
-                                            <button
-                                                key={p.value}
-                                                type="button"
-                                                onClick={() => { setSelectedProvider(p.value); setProviderOpen(false); }}
-                                                className={cn(
-                                                    "w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-accent transition-colors",
-                                                    selectedProvider === p.value && "bg-accent/50 font-medium"
-                                                )}
-                                            >
-                                                <span className="flex-1">{p.label}</span>
-                                                {settings?.provider_keys?.[p.value]
-                                                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                                                    : <KeyRound className="h-3.5 w-3.5 text-muted-foreground/40" />
-                                                }
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                            ))}
                         </div>
 
-                        {selectedProvider && (
-                            <>
-                                {/* Model selector */}
-                                {availableModels.length > 0 && (
+                        {/* Right content */}
+                        <div className="flex-1 overflow-y-auto">
+
+                            {/* ── LLM tab ── */}
+                            {activeTab === "llm" && (
+                                <div className="px-4 sm:px-8 py-5 sm:py-7 space-y-6">
+                                    <div>
+                                        <h2 className="text-base font-semibold">LLM Settings</h2>
+                                        <p className="text-sm text-muted-foreground mt-0.5">Each provider's key is saved separately.</p>
+                                    </div>
+
+                                    {/* Configured provider pills */}
+                                    {configuredProviders.length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {configuredProviders.map(p => (
+                                                <span key={p} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                                    <CheckCircle2 className="h-3 w-3" />
+                                                    {providerLabel(p)}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Provider selector */}
                                     <div className="space-y-1.5">
-                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Model</p>
+                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Provider</p>
                                         <div className="relative">
                                             <button
                                                 type="button"
-                                                onClick={() => { setModelOpen(o => !o); setProviderOpen(false); setModelSearch(""); }}
-                                                disabled={loadingModels}
-                                                className="w-full flex items-center justify-between rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:border-ring/50 disabled:opacity-60"
+                                                onClick={() => { setProviderOpen(o => !o); setModelOpen(false); }}
+                                                className="w-full flex items-center justify-between rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:border-ring/50"
                                             >
-                                                <span className="font-mono text-sm">{selectedModel || availableModels[0]}</span>
-                                                {loadingModels
-                                                    ? <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
-                                                    : <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", modelOpen && "rotate-180")} />
-                                                }
+                                                <span className={selectedProvider ? "text-foreground font-medium" : "text-muted-foreground"}>
+                                                    {selectedProvider ? providerLabel(selectedProvider) : "Select a provider"}
+                                                </span>
+                                                <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", providerOpen && "rotate-180")} />
                                             </button>
-                                            {modelOpen && (
+                                            {providerOpen && (
                                                 <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
-                                                    <div className="p-2 border-b border-border">
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Search models…"
-                                                            value={modelSearch}
-                                                            onChange={e => setModelSearch(e.target.value)}
-                                                            onClick={e => e.stopPropagation()}
-                                                            autoFocus
-                                                            className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                                        />
-                                                    </div>
-                                                    <div className="max-h-36 overflow-y-auto">
-                                                        {filteredModels.map(m => (
-                                                            <button
-                                                                key={m}
-                                                                type="button"
-                                                                onClick={() => { setSelectedModel(m); setModelOpen(false); setModelSearch(""); }}
-                                                                className={cn(
-                                                                    "w-full flex items-center gap-3 px-3 py-2.5 text-sm font-mono text-left hover:bg-accent transition-colors",
-                                                                    selectedModel === m && "bg-accent/50 font-medium"
-                                                                )}
-                                                            >
-                                                                <span className="flex-1">{m}</span>
-                                                                {selectedModel === m && <CheckCircle2 className="h-3.5 w-3.5 text-primary" />}
-                                                            </button>
-                                                        ))}
-                                                        {filteredModels.length === 0 && (
-                                                            <p className="px-3 py-4 text-sm text-muted-foreground text-center">No models match</p>
-                                                        )}
-                                                    </div>
-                                                    {/* Custom model — inside dropdown like the bar */}
-                                                    {currentProviderHasKey && (
-                                                        <div className="border-t border-border">
-                                                            {!showCustomModel ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => { setShowCustomModel(true); setVerifyResult(null); setCustomModelInput(""); }}
-                                                                    className="w-full px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent text-left transition-colors"
-                                                                >
-                                                                    Enter custom model ID →
-                                                                </button>
-                                                            ) : (
-                                                                <div className="p-3 space-y-2">
-                                                                    <div className="flex gap-2">
-                                                                        <input
-                                                                            type="text"
-                                                                            placeholder="e.g. claude-opus-4-5"
-                                                                            value={customModelInput}
-                                                                            onChange={e => { setCustomModelInput(e.target.value); setVerifyResult(null); }}
-                                                                            onKeyDown={e => { if (e.key === "Enter") handleVerifyAndUseModel(); }}
-                                                                            autoFocus
-                                                                            className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
-                                                                        />
-                                                                        <Button
-                                                                            type="button"
-                                                                            size="sm"
-                                                                            variant="outline"
-                                                                            disabled={verifying || !customModelInput.trim()}
-                                                                            onClick={handleVerifyAndUseModel}
-                                                                        >
-                                                                            {verifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Verify"}
-                                                                        </Button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => { setShowCustomModel(false); setCustomModelInput(""); setVerifyResult(null); }}
-                                                                            className="rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:bg-accent transition-colors"
-                                                                        >
-                                                                            <X className="h-3.5 w-3.5" />
-                                                                        </button>
-                                                                    </div>
-                                                                    {verifyResult && (
-                                                                        <p className={cn("text-xs flex items-center gap-1.5", verifyResult.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
-                                                                            {verifyResult.ok
-                                                                                ? <><CheckCircle2 className="h-3.5 w-3.5" /> Model verified and selected!</>
-                                                                                : <><X className="h-3.5 w-3.5" /> {verifyResult.reason}</>
-                                                                            }
-                                                                        </p>
-                                                                    )}
-                                                                </div>
+                                                    {(settings?.supported_providers ?? []).map(p => (
+                                                        <button
+                                                            key={p.value}
+                                                            type="button"
+                                                            onClick={() => { setSelectedProvider(p.value); setProviderOpen(false); }}
+                                                            className={cn(
+                                                                "w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-accent transition-colors",
+                                                                selectedProvider === p.value && "bg-accent/50 font-medium"
                                                             )}
-                                                        </div>
-                                                    )}
+                                                        >
+                                                            <span className="flex-1">{p.label}</span>
+                                                            {settings?.provider_keys?.[p.value]
+                                                                ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                                                : <KeyRound className="h-3.5 w-3.5 text-muted-foreground/40" />
+                                                            }
+                                                        </button>
+                                                    ))}
                                                 </div>
                                             )}
                                         </div>
                                     </div>
-                                )}
 
-                                {/* ── API Key section ── */}
-                                <div className="space-y-2">
-                                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">API Key</p>
-
-                                    {/* Key already saved — show status card with edit/delete */}
-                                    {currentProviderHasKey && !editingKey && (
-                                        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 px-4 py-3">
-                                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/50">
-                                                <KeyRound className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Key saved</p>
-                                                <p className="text-xs text-muted-foreground font-mono mt-0.5">••••••••••••••••</p>
-                                            </div>
-                                            {/* Edit button */}
-                                            <button
-                                                type="button"
-                                                onClick={() => { setEditingKey(true); setApiKey(""); }}
-                                                title="Update key"
-                                                className="shrink-0 flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
-                                            >
-                                                <Pencil className="h-3 w-3" />
-                                                Update
-                                            </button>
-                                            {/* Delete button */}
-                                            {!confirmDelete ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setConfirmDelete(true)}
-                                                    title="Remove key"
-                                                    className="shrink-0 flex items-center justify-center rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/5 transition-colors"
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </button>
-                                            ) : (
-                                                <div className="shrink-0 flex items-center gap-1">
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleRemoveKey}
-                                                        disabled={removing}
-                                                        className="flex items-center gap-1 rounded-lg bg-destructive px-2.5 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
-                                                    >
-                                                        {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                                                        Delete
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setConfirmDelete(false)}
-                                                        className="rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:bg-accent transition-colors"
-                                                    >
-                                                        <X className="h-3 w-3" />
-                                                    </button>
+                                    {selectedProvider && (
+                                        <>
+                                            {/* Model selector */}
+                                            {availableModels.length > 0 && (
+                                                <div className="space-y-1.5">
+                                                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Model</p>
+                                                    <div className="relative">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setModelOpen(o => !o); setProviderOpen(false); setModelSearch(""); }}
+                                                            disabled={loadingModels}
+                                                            className="w-full flex items-center justify-between rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:border-ring/50 disabled:opacity-60"
+                                                        >
+                                                            <span className="font-mono text-sm">{selectedModel || availableModels[0]}</span>
+                                                            {loadingModels
+                                                                ? <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+                                                                : <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", modelOpen && "rotate-180")} />
+                                                            }
+                                                        </button>
+                                                        {modelOpen && (
+                                                            <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
+                                                                <div className="p-2 border-b border-border">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Search models…"
+                                                                        value={modelSearch}
+                                                                        onChange={e => setModelSearch(e.target.value)}
+                                                                        onClick={e => e.stopPropagation()}
+                                                                        autoFocus
+                                                                        className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                                                    />
+                                                                </div>
+                                                                <div className="max-h-24 overflow-y-auto">
+                                                                    {filteredModels.map(m => (
+                                                                        <button
+                                                                            key={m}
+                                                                            type="button"
+                                                                            onClick={() => { setSelectedModel(m); setModelOpen(false); setModelSearch(""); }}
+                                                                            className={cn(
+                                                                                "w-full flex items-center gap-3 px-3 py-2.5 text-sm font-mono text-left hover:bg-accent transition-colors",
+                                                                                selectedModel === m && "bg-accent/50 font-medium"
+                                                                            )}
+                                                                        >
+                                                                            <span className="flex-1">{m}</span>
+                                                                            {selectedModel === m && <CheckCircle2 className="h-3.5 w-3.5 text-primary" />}
+                                                                        </button>
+                                                                    ))}
+                                                                    {filteredModels.length === 0 && (
+                                                                        <p className="px-3 py-4 text-sm text-muted-foreground text-center">No models match</p>
+                                                                    )}
+                                                                </div>
+                                                                {currentProviderHasKey && (
+                                                                    <div className="border-t border-border">
+                                                                        {!showCustomModel ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => { setShowCustomModel(true); setVerifyResult(null); setCustomModelInput(""); }}
+                                                                                className="w-full px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent text-left transition-colors"
+                                                                            >
+                                                                                Enter custom model ID →
+                                                                            </button>
+                                                                        ) : (
+                                                                            <div className="p-3 space-y-2">
+                                                                                <div className="flex gap-2">
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        placeholder="e.g. claude-opus-4-5"
+                                                                                        value={customModelInput}
+                                                                                        onChange={e => { setCustomModelInput(e.target.value); setVerifyResult(null); }}
+                                                                                        onKeyDown={e => { if (e.key === "Enter") handleVerifyAndUseModel(); }}
+                                                                                        autoFocus
+                                                                                        className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                                                                                    />
+                                                                                    <Button type="button" size="sm" variant="outline" disabled={verifying || !customModelInput.trim()} onClick={handleVerifyAndUseModel}>
+                                                                                        {verifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Verify"}
+                                                                                    </Button>
+                                                                                    <button type="button" onClick={() => { setShowCustomModel(false); setCustomModelInput(""); setVerifyResult(null); }} className="rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:bg-accent transition-colors">
+                                                                                        <X className="h-3.5 w-3.5" />
+                                                                                    </button>
+                                                                                </div>
+                                                                                {verifyResult && (
+                                                                                    <p className={cn("text-xs flex items-center gap-1.5", verifyResult.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
+                                                                                        {verifyResult.ok ? <><CheckCircle2 className="h-3.5 w-3.5" /> Model verified!</> : <><X className="h-3.5 w-3.5" /> {verifyResult.reason}</>}
+                                                                                    </p>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             )}
-                                        </div>
-                                    )}
 
-                                    {/* Input field — shown when no key, or editing */}
-                                    {showKeyInput && (
-                                        <div className="space-y-2">
-                                            {editingKey && (
-                                                <div className="flex items-center justify-between">
-                                                    <p className="text-xs text-muted-foreground">Paste your new key below</p>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => { setEditingKey(false); setApiKey(""); }}
-                                                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
-                                                    >
-                                                        <X className="h-3 w-3" /> Cancel
-                                                    </button>
-                                                </div>
-                                            )}
-                                            <div className="relative">
-                                                <Input
-                                                    type={showKey ? "text" : "password"}
-                                                    placeholder="Paste your API key here…"
-                                                    value={apiKey}
-                                                    onChange={(e) => setApiKey(e.target.value)}
-                                                    className="pr-10 font-mono text-sm"
-                                                    autoFocus={editingKey}
-                                                    onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") { setEditingKey(false); setApiKey(""); } }}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowKey(v => !v)}
-                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                                                >
-                                                    {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                                </button>
+                                            {/* API Key */}
+                                            <div className="space-y-2">
+                                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">API Key</p>
+                                                {currentProviderHasKey && !editingKey && (
+                                                    <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 px-4 py-3">
+                                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/50">
+                                                            <KeyRound className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Key saved</p>
+                                                            <p className="text-xs text-muted-foreground font-mono mt-0.5">••••••••••••••••</p>
+                                                        </div>
+                                                        <button type="button" onClick={() => { setEditingKey(true); setApiKey(""); }} className="shrink-0 flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors">
+                                                            <Pencil className="h-3 w-3" /> Update
+                                                        </button>
+                                                        {!confirmDelete ? (
+                                                            <button type="button" onClick={() => setConfirmDelete(true)} className="shrink-0 flex items-center justify-center rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/5 transition-colors">
+                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        ) : (
+                                                            <div className="shrink-0 flex items-center gap-1">
+                                                                <button type="button" onClick={handleRemoveKey} disabled={removing} className="flex items-center gap-1 rounded-lg bg-destructive px-2.5 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors">
+                                                                    {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />} Delete
+                                                                </button>
+                                                                <button type="button" onClick={() => setConfirmDelete(false)} className="rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:bg-accent transition-colors">
+                                                                    <X className="h-3 w-3" />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {showKeyInput && (
+                                                    <div className="space-y-2">
+                                                        {editingKey && (
+                                                            <div className="flex items-center justify-between">
+                                                                <p className="text-xs text-muted-foreground">Paste your new key below</p>
+                                                                <button type="button" onClick={() => { setEditingKey(false); setApiKey(""); }} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+                                                                    <X className="h-3 w-3" /> Cancel
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        <div className="relative">
+                                                            <Input
+                                                                type={showKey ? "text" : "password"}
+                                                                placeholder="Paste your API key here…"
+                                                                value={apiKey}
+                                                                onChange={(e) => setApiKey(e.target.value)}
+                                                                className="pr-10 font-mono text-sm"
+                                                                autoFocus={editingKey}
+                                                                onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") { setEditingKey(false); setApiKey(""); } }}
+                                                            />
+                                                            <button type="button" onClick={() => setShowKey(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                                                                {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                            </button>
+                                                        </div>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Get your key from{" "}
+                                                            <a href={PROVIDER_DOCS[selectedProvider] ?? "#"} target="_blank" rel="noreferrer" className="text-primary underline-offset-4 hover:underline font-medium">
+                                                                {providerLabel(selectedProvider)} →
+                                                            </a>
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
-                                            <p className="text-xs text-muted-foreground">
-                                                Get your key from{" "}
-                                                <a href={PROVIDER_DOCS[selectedProvider] ?? "#"} target="_blank" rel="noreferrer"
-                                                    className="text-primary underline-offset-4 hover:underline font-medium">
-                                                    {providerLabel(selectedProvider)} →
-                                                </a>
-                                            </p>
-                                        </div>
+
+                                            {/* Save */}
+                                            <Button onClick={handleSave} disabled={saving || (!currentProviderHasKey && !apiKey.trim()) || (editingKey && !apiKey.trim())} className="w-full">
+                                                {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : editingKey ? "Update Key" : currentProviderHasKey ? "Save Model" : "Save Key & Model"}
+                                            </Button>
+                                        </>
                                     )}
                                 </div>
+                            )}
 
-                                {/* Save button */}
-                                <Button
-                                    onClick={handleSave}
-                                    disabled={saving || (!currentProviderHasKey && !apiKey.trim()) || (editingKey && !apiKey.trim())}
-                                    className="w-full"
-                                >
-                                    {saving
-                                        ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</>
-                                        : editingKey
-                                        ? "Update Key"
-                                        : currentProviderHasKey
-                                        ? "Save Model"
-                                        : "Save Key & Model"
-                                    }
-                                </Button>
-                            </>
-                        )}
+                            {/* ── Account tab ── */}
+                            {activeTab === "account" && (
+                                <div className="px-4 sm:px-8 py-5 sm:py-7 space-y-6">
+                                    <div>
+                                        <h2 className="text-base font-semibold">Account</h2>
+                                        <p className="text-sm text-muted-foreground mt-0.5">Manage your profile and preferences.</p>
+                                    </div>
+
+                                    {/* User info */}
+                                    <div className="flex items-center gap-4 rounded-xl border border-border bg-muted/30 px-5 py-4">
+                                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                            <UserCircle className="h-7 w-7" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-semibold truncate">{user.name}</p>
+                                            <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Appearance */}
+                                    <div className="flex items-center justify-between rounded-xl border border-border bg-background px-5 py-3.5">
+                                        <div>
+                                            <p className="text-sm font-medium">Appearance</p>
+                                            <p className="text-xs text-muted-foreground mt-0.5">Toggle light / dark mode</p>
+                                        </div>
+                                        <ThemeToggle />
+                                    </div>
+
+                                    {/* Logout */}
+                                    <div className="pt-2 border-t border-border">
+                                        <Button variant="outline" className="w-full text-destructive hover:text-destructive hover:bg-destructive/5 hover:border-destructive/40" onClick={handleLogout}>
+                                            <LogOutIcon className="h-4 w-4 mr-2" /> Log out
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
                     </div>
                 </DialogContent>
             </Dialog>

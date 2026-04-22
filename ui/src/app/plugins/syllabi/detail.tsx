@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { LlmBar } from "@/components/llm-bar"
 import { useParams, useNavigate } from "react-router"
 import {
-    ArrowLeft, BookOpen, CheckCircle2, Circle, Clock,
+    ArrowLeft, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send,
     Globe, Copy, Check, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react"
@@ -63,9 +63,9 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     const [content, setContent] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [generating, setGenerating] = useState(false)
-    const [sending, setSending] = useState(false)
+    // const [sending, setSending] = useState(false)
     const [completed, setCompleted] = useState(chapter.completed)
-    const [emailSent, setEmailSent] = useState(false)
+    // const [emailSent, setEmailSent] = useState(false)
     const [hasContent, setHasContent] = useState(chapter.has_content)
     const [confirmOpen, setConfirmOpen] = useState(false)
     const proseRef = useRef<HTMLDivElement>(null)
@@ -75,7 +75,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     useEffect(() => {
         setHasContent(chapter.has_content)
         setCompleted(chapter.completed)
-        setEmailSent(false)
+        // setEmailSent(false)
         setContent(null)
         if (chapter.has_content) loadContent()
     }, [chapter.id])
@@ -198,12 +198,12 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
         }
     }
 
-    async function handleSendEmail() {
-        setSending(true)
-        const { success } = await postRequest("/py/send-email/chapter", { task_id: chapter.id })
-        setSending(false)
-        if (success) setEmailSent(true)
-    }
+    // async function handleSendEmail() {
+    //     setSending(true)
+    //     const { success } = await postRequest("/py/send-email/chapter", { task_id: chapter.id })
+    //     setSending(false)
+    //     if (success) setEmailSent(true)
+    // }
 
     async function handleMarkComplete() {
         const { success } = await postRequest(`/py/chapter/${chapter.id}/complete`, {})
@@ -216,14 +216,14 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     return (
         <div className="flex flex-col h-full">
             {/* Header */}
-            <div className="border-b px-8 py-5 bg-background shrink-0">
+            <div className="border-b px-4 sm:px-8 py-5 bg-background shrink-0">
                 <p className="text-xs text-muted-foreground mb-1">Day {chapter.day} · {chapter.hours}h</p>
-                <h2 className="text-2xl font-bold tracking-tight">{chapter.topic}</h2>
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight">{chapter.topic}</h2>
             </div>
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto">
-                <div className="mx-auto w-full max-w-3xl px-8 py-6 space-y-5">
+                <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 md:px-8 py-6 space-y-5">
 
                     {/* Task */}
                     <div className="rounded-lg border bg-muted/30 px-4 py-3">
@@ -290,7 +290,8 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                             <CheckCircle2 className="h-4 w-4" /> Completed
                                         </span>
                                     ) : (
-                                        <p className="text-xs text-muted-foreground">Ready to send to your inbox.</p>
+                                        // <p className="text-xs text-muted-foreground">Ready to send to your inbox.</p>
+                                        <span />
                                     )}
                                     <div className="flex items-center gap-2">
                                         <Button size="sm" variant="outline" disabled={completed} onClick={handleMarkComplete}>
@@ -299,12 +300,14 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                                 : <><CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete</>
                                             }
                                         </Button>
+                                        {/* Send Email — not yet implemented in backend
                                         <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
                                             {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
                                                 : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Email Sent</>
                                                 : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
                                             }
                                         </Button>
+                                        */}
                                     </div>
                                 </div>
                             </div>
@@ -379,11 +382,6 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
-            {/* LLM bar */}
-            <div className="px-4 pt-3 pb-0 shrink-0">
-                <LlmBar />
-            </div>
-
             {/* Progress */}
             <div className="px-4 py-3 border-b shrink-0 space-y-2">
                 <div className="flex justify-between text-xs text-muted-foreground">
@@ -392,6 +390,11 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
                 </div>
                 <Progress value={overallProgress} className="h-1.5" />
                 <p className="text-xs font-semibold text-primary text-right">{overallProgress}%</p>
+            </div>
+
+            {/* LLM bar */}
+            <div className="px-4 py-3 border-b shrink-0">
+                <LlmBar fullWidth />
             </div>
 
             {/* Share controls */}
@@ -482,8 +485,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
 
 function DetailSkeleton() {
     return (
-        <div className="flex overflow-hidden" style={{ height: "100vh" }}>
-            <aside className="w-72 border-r flex flex-col shrink-0">
+        <div className="flex overflow-hidden h-screen" style={{ height: "100dvh" }}>
+            <aside className="w-72 border-r flex-col shrink-0 hidden sm:flex">
                 <div className="px-4 py-3 border-b space-y-2">
                     <Skeleton className="h-3 w-full" />
                     <Skeleton className="h-1.5 w-full rounded-full" />
@@ -516,7 +519,25 @@ export default function SyllabusDetailPage() {
     const [copyFailed, setCopyFailed] = useState(false)
     const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
     const [navCollapsed, setNavCollapsed] = useState(false)
+    const [navWidth, setNavWidth] = useState(350)
+    const isResizing = useRef(false)
     const { setOpen } = useSidebar()
+
+    function handleResizeStart(e: React.MouseEvent) {
+        e.preventDefault()
+        isResizing.current = true
+        function onMove(ev: MouseEvent) {
+            if (!isResizing.current) return
+            setNavWidth(Math.max(300, Math.min(520, ev.clientX)))
+        }
+        function onUp() {
+            isResizing.current = false
+            document.removeEventListener("mousemove", onMove)
+            document.removeEventListener("mouseup", onUp)
+        }
+        document.addEventListener("mousemove", onMove)
+        document.addEventListener("mouseup", onUp)
+    }
 
     // Collapse app sidebar + hide header on enter, restore on leave
     useEffect(() => {
@@ -627,11 +648,14 @@ export default function SyllabusDetailPage() {
     )
 
     return (
-        <div className="flex overflow-hidden" style={{ height: "100vh" }}>
+        <div className="flex overflow-hidden h-screen" style={{ height: "100dvh" }}>
 
-            {/* Left nav panel */}
-            <aside className={`flex-shrink-0 border-r flex flex-col h-full overflow-hidden transition-all duration-300 ease-in-out ${navCollapsed ? "w-0 border-r-0" : "w-72"}`}>
-                <div className="w-72 flex flex-col h-full">
+            {/* Left nav panel — hidden on mobile, collapsible on larger screens */}
+            <aside
+                style={{ width: navCollapsed ? 0 : navWidth }}
+                className={`flex-shrink-0 flex-col h-full overflow-hidden hidden sm:flex ${navCollapsed ? "" : "border-r"}`}
+            >
+                <div style={{ width: navWidth }} className="relative flex flex-col h-full">
                     {/* Nav header */}
                     <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
                         <Button variant="ghost" size="sm" className="-ml-1 h-7 text-xs" onClick={() => navigate("/syllabi")}>
@@ -657,26 +681,31 @@ export default function SyllabusDetailPage() {
                         onToggleShare={handleToggleShare}
                         onCopyLink={handleCopyLink}
                     />
+                    {/* Resize handle */}
+                    <div
+                        className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 z-10"
+                        onMouseDown={handleResizeStart}
+                    />
                 </div>
             </aside>
 
             {/* Right content panel */}
             <main className="flex-1 overflow-y-auto flex flex-col">
                 {/* Top bar */}
-                <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setNavCollapsed((v) => !v)} title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+                <div className="flex items-center gap-2 px-3 sm:px-4 py-3 border-b shrink-0 min-w-0">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 hidden sm:flex shrink-0" onClick={() => setNavCollapsed((v) => !v)} title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
                         {navCollapsed ? <PanelLeftOpen className="h-4 w-4 text-muted-foreground" /> : <PanelLeftClose className="h-4 w-4 text-muted-foreground" />}
                     </Button>
                     {navCollapsed && (
                         <>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => navigate("/syllabi")}>
-                                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> All Courses
+                            <Button variant="ghost" size="sm" className="h-7 text-xs shrink-0" onClick={() => navigate("/syllabi")}>
+                                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> <span className="hidden sm:inline">All Courses</span>
                             </Button>
-                            <span className="text-sm font-semibold text-foreground/80">{detail.skill}</span>
+                            <span className="text-sm font-semibold text-foreground/80 truncate">{detail.skill}</span>
                             {activeChapter && (
                                 <>
-                                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <span className="text-sm text-muted-foreground truncate">
+                                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
+                                    <span className="text-sm text-muted-foreground truncate hidden sm:block">
                                         <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
                                     </span>
                                 </>
