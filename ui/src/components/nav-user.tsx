@@ -193,8 +193,8 @@ export function NavUser() {
     const [activeTab, setActiveTab] = useState<"llm" | "account">("llm");
 
     const NAV_ITEMS = [
-        { id: "llm" as const,     label: "LLM",     icon: Settings },
-        { id: "account" as const, label: "Account",  icon: UserCircle },
+        { id: "llm" as const,     label: "Model Management", icon: Settings },
+        { id: "account" as const, label: "Account",           icon: UserCircle },
     ];
 
     return (
@@ -506,12 +506,6 @@ export function NavUser() {
                                         <ThemeToggle />
                                     </div>
 
-                                    {/* Logout */}
-                                    <div className="pt-2 border-t border-border">
-                                        <Button variant="outline" className="w-full text-destructive hover:text-destructive hover:bg-destructive/5 hover:border-destructive/40" onClick={handleLogout}>
-                                            <LogOutIcon className="h-4 w-4 mr-2" /> Log out
-                                        </Button>
-                                    </div>
                                 </div>
                             )}
 

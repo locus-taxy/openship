@@ -285,22 +285,17 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                 />
 
                                 {/* Footer */}
-                                <div className="pt-4 border-t border-border/50 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-                                    {completed ? (
-                                        <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
-                                            <CheckCircle2 className="h-4 w-4" /> Completed
-                                        </span>
-                                    ) : (
-                                        // <p className="text-xs text-muted-foreground">Ready to send to your inbox.</p>
-                                        <span />
-                                    )}
+                                <div className="pt-4 border-t border-border/50 flex flex-wrap items-center justify-end gap-2 sm:gap-3">
                                     <div className="flex items-center gap-2">
-                                        <Button size="sm" variant="outline" disabled={completed} onClick={handleMarkComplete}>
-                                            {completed
-                                                ? <><CheckCircle2 className="h-4 w-4 mr-1.5 text-emerald-500" />Completed</>
-                                                : <><CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete</>
-                                            }
-                                        </Button>
+                                        {completed ? (
+                                            <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
+                                                <CheckCircle2 className="h-4 w-4" /> Completed
+                                            </span>
+                                        ) : (
+                                            <Button size="sm" variant="outline" onClick={handleMarkComplete}>
+                                                <CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete
+                                            </Button>
+                                        )}
                                         {/* Send Email — not yet implemented in backend
                                         <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
                                             {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
@@ -394,7 +389,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
             </div>
 
             {/* LLM bar */}
-            <div className="px-4 py-3 border-b shrink-0">
+            <div className="px-4 py-3 border-b shrink-0 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Choose a model</p>
                 <LlmBar fullWidth />
             </div>
 
