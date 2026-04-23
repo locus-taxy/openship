@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import { LlmBar } from "@/components/llm-bar"
-import { useParams, useNavigate } from "react-router"
+import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
-    ArrowLeft, CheckCircle2,
+    ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send,
     Globe, Copy, Check, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react"
@@ -55,10 +55,12 @@ interface SyllabusDetail {
 
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
-function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
+function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
     chapter: Chapter
     onContentGenerated: (taskId: number) => void
     onMarkComplete: (taskId: number) => void
+    onGoToNext: () => void
+    hasNext: boolean
 }) {
     const [content, setContent] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
@@ -285,26 +287,29 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                 />
 
                                 {/* Footer */}
-                                <div className="pt-4 border-t border-border/50 flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-                                    <div className="flex items-center gap-2">
-                                        {completed ? (
-                                            <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
-                                                <CheckCircle2 className="h-4 w-4" /> Completed
-                                            </span>
-                                        ) : (
-                                            <Button size="sm" variant="outline" onClick={handleMarkComplete}>
-                                                <CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete
-                                            </Button>
-                                        )}
-                                        {/* Send Email — not yet implemented in backend
-                                        <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
-                                            {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
-                                                : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Email Sent</>
-                                                : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
-                                            }
+                                <div className="pt-4 border-t border-border/50 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                                    {completed ? (
+                                        <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
+                                            <CheckCircle2 className="h-4 w-4" /> Completed
+                                        </span>
+                                    ) : (
+                                        <Button size="sm" variant="outline" onClick={handleMarkComplete}>
+                                            <CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete
                                         </Button>
-                                        */}
-                                    </div>
+                                    )}
+                                    {completed && hasNext && (
+                                        <Button size="sm" onClick={onGoToNext}>
+                                            Next Chapter <ArrowRight className="h-4 w-4 ml-1.5" />
+                                        </Button>
+                                    )}
+                                    {/* Send Email — not yet implemented in backend
+                                    <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
+                                        {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
+                                            : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Email Sent</>
+                                            : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
+                                        }
+                                    </Button>
+                                    */}
                                 </div>
                             </div>
                         ) : null
@@ -507,6 +512,7 @@ function DetailSkeleton() {
 export default function SyllabusDetailPage() {
     const { skillId } = useParams<{ skillId: string }>()
     const navigate = useNavigate()
+    const [searchParams, setSearchParams] = useSearchParams()
     const [detail, setDetail] = useState<SyllabusDetail | null>(null)
     const [loading, setLoading] = useState(true)
     const { setPluginName, setHideHeader } = useStore((state: any) => state)
@@ -568,14 +574,23 @@ export default function SyllabusDetailPage() {
     const completedCount = allTasks.filter((t) => t.completed).length
     const overallProgress = allTasks.length > 0 ? Math.round((completedCount / allTasks.length) * 100) : 0
 
-    // Auto-select first chapter once detail loads
+    // Restore chapter from URL param, fallback to first chapter
     useEffect(() => {
-        if (allTasks.length > 0 && activeChapterId === null) {
-            setActiveChapterId(allTasks[0].id)
-        }
+        if (allTasks.length === 0) return
+        const paramId = Number(searchParams.get("chapter"))
+        const found = paramId && allTasks.find(t => t.id === paramId)
+        setActiveChapterId(found ? paramId : allTasks[0].id)
     }, [detail])
 
     const activeChapter = activeChapterId ? allTasks.find((t) => t.id === activeChapterId) ?? null : null
+    const activeIndex = activeChapterId ? allTasks.findIndex((t) => t.id === activeChapterId) : -1
+    const nextChapter = activeIndex >= 0 && activeIndex < allTasks.length - 1 ? allTasks[activeIndex + 1] : null
+
+    function goToNextChapter() {
+        if (!nextChapter) return
+        setActiveChapterId(nextChapter.id)
+        setSearchParams({ chapter: String(nextChapter.id) })
+    }
 
     function handleContentGenerated(taskId: number) {
         setDetail((prev) => {
@@ -690,7 +705,7 @@ export default function SyllabusDetailPage() {
                     <ChapterNav
                         detail={detail}
                         activeChapterId={activeChapterId}
-                        onSelectChapter={(chapter) => { setActiveChapterId(chapter.id); setMobileSidebarOpen(false); }}
+                        onSelectChapter={(chapter) => { setActiveChapterId(chapter.id); setSearchParams({ chapter: String(chapter.id) }); setMobileSidebarOpen(false); }}
                         overallProgress={overallProgress}
                         completedCount={completedCount}
                         totalCount={allTasks.length}
@@ -752,6 +767,8 @@ export default function SyllabusDetailPage() {
                             chapter={activeChapter}
                             onContentGenerated={handleContentGenerated}
                             onMarkComplete={handleChapterCompleted}
+                            onGoToNext={goToNextChapter}
+                            hasNext={!!nextChapter}
                         />
                     )}
                 </div>
