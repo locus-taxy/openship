@@ -1,15 +1,15 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import Layout from "../app/dashboard";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Home } from "lucide-react";
-import SampleApp from "@/app/plugins/sampleApp";
 import SyllabiPage from "@/app/plugins/syllabi";
 import SyllabusDetailPage from "@/app/plugins/syllabi/detail";
 import PublicSyllabusPage from "@/app/plugins/syllabi/public";
 import GenerateContentPage from "@/app/plugins/generateContent";
 import GenerateSyllabusPage from "@/app/plugins/generateSyllabus";
 import EnrollPage from "@/app/plugins/enroll";
+import AnalyticsPage from "@/app/plugins/analytics";
 import LoginPage from "@/app/auth/login";
 import SignupPage from "@/app/auth/signup";
 
@@ -57,8 +57,8 @@ const router = createBrowserRouter([
         errorElement: <GlobalErrorBoundary />,
         children: [
             {
-                path: "",
-                element: <SampleApp />,
+                index: true,
+                element: <Navigate to="/analytics" replace />,
             },
             {
                 path: "syllabi",
@@ -79,6 +79,10 @@ const router = createBrowserRouter([
             {
                 path: "syllabi/:skillId",
                 element: <SyllabusDetailPage />,
+            },
+            {
+                path: "analytics",
+                element: <AnalyticsPage />,
             },
         ],
     },

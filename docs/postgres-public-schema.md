@@ -7,10 +7,10 @@ On **PostgreSQL 15+**, the `public` schema no longer allows every user to create
 connect in **pgAdmin** (or `psql`) as a **superuser** (often `postgres`), select database **`openship`**, and run:
 
 ```sql
-GRANT USAGE, CREATE ON SCHEMA public TO kshitij;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO kshitij;
+GRANT USAGE, CREATE ON SCHEMA public TO your_db_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO your_db_user;
 ```
 
-Replace `kshitij` with your app DB user if different.
+Replace `your_db_user` with your actual database user.
 
 Then restart the API so startup migrations (or `alembic upgrade head`) can create `alembic_version`, `skills`, and `daily_tasks`.
