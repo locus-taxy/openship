@@ -39,7 +39,7 @@ const useAuthStore = create<AuthState>((set, get) => ({
 
     login: async (email, password) => {
         const res = await axios.post("/py/auth/login", { email, password });
-        set({ user: res.data.user, isAuthenticated: true });
+        set({ user: res.data.user, isAuthenticated: true, initialized: true });
     },
 
     logout: (reason?) => {

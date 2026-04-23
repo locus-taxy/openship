@@ -1,9 +1,8 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import Layout from "../app/dashboard";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Home } from "lucide-react";
-import SampleApp from "@/app/plugins/sampleApp";
 import SyllabiPage from "@/app/plugins/syllabi";
 import SyllabusDetailPage from "@/app/plugins/syllabi/detail";
 import PublicSyllabusPage from "@/app/plugins/syllabi/public";
@@ -58,8 +57,8 @@ const router = createBrowserRouter([
         errorElement: <GlobalErrorBoundary />,
         children: [
             {
-                path: "",
-                element: <SampleApp />,
+                index: true,
+                element: <Navigate to="/analytics" replace />,
             },
             {
                 path: "syllabi",

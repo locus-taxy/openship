@@ -2,12 +2,25 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import {
     BookOpen, Clock,
-    Flame, Award, ChevronRight, Zap, BarChart2, CalendarDays
+    Flame, Award, ChevronRight, Zap, BarChart2, CalendarDays, Sparkles, PlayCircle, TrendingUp
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getRequest } from "@/services"
 import useStore from "@/store"
+import useAuthStore from "@/store/authStore"
+
+function getGreeting() {
+    const h = new Date().getHours()
+    if (h < 12) return "Good morning"
+    if (h < 17) return "Good afternoon"
+    return "Good evening"
+}
+
+function getFirstName(name: string) {
+    return name?.split(" ")[0] ?? name
+}
 
 interface Syllabus {
     skill_id: number
@@ -50,6 +63,7 @@ export default function AnalyticsPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<Error | null>(null)
     const { setPluginName } = useStore((state: any) => state)
+    const { user } = useAuthStore()
     const fetchedRef = useRef(false)
     const navigate = useNavigate()
 
@@ -143,10 +157,37 @@ export default function AnalyticsPage() {
         <div className="min-h-screen bg-background">
             <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
 
-                {/* ── Header ─────────────────────────────────────────────── */}
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
-                    <p className="text-muted-foreground mt-1">Your learning progress at a glance</p>
+                {/* ── Greeting hero ──────────────────────────────────────── */}
+                <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-primary/5 via-background to-indigo-500/5 p-6 md:p-8">
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1.5">
+                            <p className="text-sm text-muted-foreground font-medium">{getGreeting()}</p>
+                            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+                                {user?.name ? getFirstName(user.name) : "Welcome"} 👋
+                            </h1>
+                            <p className="text-muted-foreground text-sm md:text-base max-w-md">
+                                {inProgress.length > 0
+                                    ? `You have ${inProgress.length} course${inProgress.length > 1 ? "s" : ""} in progress. Keep the momentum going!`
+                                    : "Great work — keep learning and building new skills every day."
+                                }
+                            </p>
+                        </div>
+                        <div className="hidden md:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                            <Zap className="h-7 w-7" />
+                        </div>
+                    </div>
+                    <div className="mt-5 flex flex-wrap gap-2">
+                        {inProgress.length > 0 && (
+                            <Button onClick={() => navigate("/syllabi")} className="gap-2">
+                                <PlayCircle className="h-4 w-4" />
+                                Continue Learning
+                            </Button>
+                        )}
+                        <Button variant="outline" onClick={() => navigate("/enroll")} className="gap-2">
+                            <Sparkles className="h-4 w-4" />
+                            New Course
+                        </Button>
+                    </div>
                 </div>
 
                 {/* ── Hero row: big ring + 4 mini stats ──────────────────── */}
