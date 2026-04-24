@@ -83,28 +83,30 @@ else
 fi
 
 # ── Step 2: Database setup ──────────────────────────────────────────────────
-echo ""
 DB_HOST="localhost"
 DB_PORT="5432"
+DB_USER="$(whoami)"
+DB_PASS=""
 
-echo ""
-echo -e "${BOLD} Database setup${RESET}"
-echo -ne " Enter Database name: "
-read -r DB_NAME
-DB_NAME="${DB_NAME:-openship}"
-
-echo -ne " Enter Database user: "
-read -r DB_USER
-DB_USER="${DB_USER:-$(whoami)}"
-
-echo -ne " Enter Database password (leave blank for none): "
-read -rs DB_PASS
-echo ""
-
-# Create database if it doesn't exist
-if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -lqt 2>/dev/null | cut -d'|' -f1 | grep -qw "$DB_NAME"; then
-    success "Database '$DB_NAME' already exists."
+# Check if 'openship' already exists — skip all prompts if it does
+if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -lqt 2>/dev/null | cut -d'|' -f1 | grep -qw "openship"; then
+    DB_NAME="openship"
+    success "Database 'openship' already exists — skipping database setup."
 else
+    echo ""
+    echo -e "${BOLD} Database setup${RESET}"
+    echo -ne " Enter Database name: "
+    read -r DB_NAME
+    DB_NAME="${DB_NAME:-openship}"
+
+    echo -ne " Enter Database user: "
+    read -r input_user
+    DB_USER="${input_user:-$(whoami)}"
+
+    echo -ne " Enter Database password (leave blank for none): "
+    read -rs DB_PASS
+    echo ""
+
     info "Creating database '$DB_NAME'..."
     createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME" \
         && success "Database '$DB_NAME' created." \
