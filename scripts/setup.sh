@@ -86,12 +86,12 @@ fi
 DB_HOST="localhost"
 DB_PORT="5432"
 DB_USER="$(whoami)"
-DB_PASS=""
 
-# Check if 'openship' already exists — skip all prompts if it does
+# If 'openship' already exists, skip all prompts — user must set DATABASE_URL in .env manually
 if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -lqt 2>/dev/null | cut -d'|' -f1 | grep -qw "openship"; then
-    DB_NAME="openship"
+    DATABASE_URL=""
     success "Database 'openship' already exists — skipping database setup."
+    warn "DATABASE_URL left blank in .env — fill it in manually before starting the app."
 else
     echo ""
     echo -e "${BOLD} Database setup${RESET}"
@@ -111,12 +111,12 @@ else
     createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME" \
         && success "Database '$DB_NAME' created." \
         || error "Failed to create database. Check your PostgreSQL connection."
-fi
 
-if [ -n "$DB_PASS" ]; then
-    DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-else
-    DATABASE_URL="postgresql+psycopg2://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+    if [ -n "$DB_PASS" ]; then
+        DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+    else
+        DATABASE_URL="postgresql+psycopg2://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+    fi
 fi
 
 # ── Step 3: Secrets ─────────────────────────────────────────────────────────
