@@ -24,7 +24,7 @@ interface AuthState {
 }
 
 /** Short timeout so login/signup are not blocked when the API is down or still starting. */
-const AUTH_PROBE_TIMEOUT_MS = 2000;
+const AUTH_PROBE_TIMEOUT_MS = 5000;
 
 const useAuthStore = create<AuthState>((set, get) => ({
     user: null,
@@ -39,7 +39,7 @@ const useAuthStore = create<AuthState>((set, get) => ({
 
     login: async (email, password) => {
         const res = await axios.post("/py/auth/login", { email, password });
-        set({ user: res.data.user, isAuthenticated: true, initialized: true });
+        set({ user: res.data.user, isAuthenticated: true });
     },
 
     logout: (reason?) => {
