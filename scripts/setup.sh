@@ -68,7 +68,7 @@ if ! command -v psql >/dev/null 2>&1; then
         if [ "$lower_ans" != "n" ]; then
             brew install postgresql@14
             brew services start postgresql@14
-            export PATH="/opt/homebrew/opt/postgresql@14/bin:$PATH"
+            export PATH="$(brew --prefix postgresql@14)/bin:$PATH"
             success "PostgreSQL installed and started."
         else
             error "PostgreSQL is required. Install it manually and re-run setup."
@@ -111,6 +111,10 @@ else
     read -rs DB_PASS
     echo ""
 
+    if [ -n "$DB_PASS" ]; then
+        export PGPASSWORD="$DB_PASS"
+    fi
+
     info "Creating database '$DB_NAME'..."
     if createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME"; then
         success "Database '$DB_NAME' created."
@@ -119,15 +123,16 @@ else
     fi
 
     if [ -n "$DB_PASS" ]; then
-        DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+        ENCODED_PASS=$("$PYTHON_BIN" -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().rstrip('\n'), safe=''))" <<< "$DB_PASS")
+        DATABASE_URL="postgresql+psycopg2://${DB_USER}:${ENCODED_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
     else
         DATABASE_URL="postgresql+psycopg2://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
     fi
 fi
 
 # ── Steps 3 & 4: Secrets + .env ─────────────────────────────────────────────
-if [ "$DB_EXISTS" = true ]; then
-    info "Step 3/6 — Skipping secrets & .env (database already exists, keeping existing .env)"
+if [ "$DB_EXISTS" = true ] && [ -f "$ROOT/.env" ]; then
+    info "Step 3/6 — Skipping secrets & .env (database and .env already exist)"
 else
     echo ""
     info "Step 3/6 — Generating secrets"
@@ -170,6 +175,7 @@ SMTP_USE_SSL=false
 SMTP_TIMEOUT_SECONDS=20
 EOF
 
+    chmod 600 "$ROOT/.env"
     success ".env written."
 fi
 

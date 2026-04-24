@@ -24,7 +24,7 @@ setup:
 
 dev: # macOS only — uses osascript to open Terminal windows; on Linux use make run-api and make run-ui in separate shells
 	@echo "Opening API terminal..."
-	@osascript -e 'tell application "Terminal" to do script "echo \"=== Openship API ===\"; cd $(ROOT) && $(VENV)/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005"'
+	@osascript -e 'tell application "Terminal" to do script "echo \"=== Openship API ===\"; cd \"$(ROOT)\" && $(VENV)/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005"'
 	@echo "Waiting for API on :3005..."
 	@i=0; while [ $$i -lt 120 ]; do \
 		if curl -sf "http://127.0.0.1:3005/openapi.json" >/dev/null 2>&1; then \
@@ -35,7 +35,7 @@ dev: # macOS only — uses osascript to open Terminal windows; on Linux use make
 	done
 	@curl -sf "http://127.0.0.1:3005/openapi.json" >/dev/null || { echo "API did not become ready on :3005"; exit 1; }
 	@echo "Opening UI terminal..."
-	@osascript -e 'tell application "Terminal" to do script "echo \"=== Openship UI ===\"; cd $(ROOT)/ui && npm run dev"'
+	@osascript -e 'tell application "Terminal" to do script "echo \"=== Openship UI ===\"; cd \"$(ROOT)/ui\" && npm run dev"'
 	@echo "Done — API on :3005, UI on :5173. Close the Terminal windows to stop."
 
 run-api:
