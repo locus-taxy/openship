@@ -9,7 +9,7 @@ ROOT := $(abspath .)
 help:
 	@echo "Openship Makefile"
 	@echo "  make setup       Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env"
-	@echo "  make dev         Start API first (migrations run), wait until :3005 is up, then Vite UI"
+	@echo "  make dev         Start API and UI in separate Terminal windows"
 	@echo "  make run-api     FastAPI only (reload)"
 	@echo "  make run-ui      Vite dev server only"
 	@echo "  make format      Run Black + single-blank-line pass via pre-commit (may run twice)"
@@ -19,37 +19,24 @@ help:
 install: setup
 
 setup:
-	@if [ ! -f "$(ROOT)/.env" ]; then \
-		cp "$(ROOT)/.env.example" "$(ROOT)/.env"; \
-		echo "Created .env from .env.example — edit DATABASE_URL, JWT_SECRET_KEY, etc."; \
-	fi
-	$(PYTHON) -m venv $(VENV)
-	$(PIP) install --upgrade pip
-	$(PIP) install -r "$(ROOT)/requirements.txt" -r "$(ROOT)/requirements-dev.txt"
-	cd "$(ROOT)/ui" && npm install
-	@if [ -d "$(ROOT)/.git" ]; then \
-		cd "$(ROOT)" && npm install; \
-		echo "Husky: git hooks path configured by npm prepare (run from a git clone)."; \
-	else \
-		echo "Skipping root npm install (no .git). Clone the repo for Husky pre-commit hooks."; \
-	fi
-	@echo ""
-	@echo "Setup complete. Next: edit .env if needed, then: make dev"
+	@chmod +x "$(ROOT)/scripts/setup.sh"
+	@bash "$(ROOT)/scripts/setup.sh"
 
-dev:
-	@echo "Starting API, then UI (waits until API is up so migrations + auth run against a live server)..."
-	@bash -c 'set -e; cd "$(ROOT)"; "$(VENV)/bin/uvicorn" main:app --reload --host 0.0.0.0 --port 3005 & \
-		API_PID=$$!; \
-		trap "kill $$API_PID 2>/dev/null" EXIT INT TERM; \
-		i=0; \
-		while [ $$i -lt 60 ]; do \
-			if curl -sf "http://127.0.0.1:3005/openapi.json" >/dev/null 2>&1; then break; fi; \
-			if ! kill -0 $$API_PID 2>/dev/null; then echo "API process exited early; check errors above."; exit 1; fi; \
-			sleep 0.25; \
-			i=$$((i + 1)); \
-		done; \
-		curl -sf "http://127.0.0.1:3005/openapi.json" >/dev/null || { echo "API did not become ready on :3005"; exit 1; }; \
-		cd "$(ROOT)/ui" && npm run dev'
+dev: # macOS only — uses osascript to open Terminal windows; on Linux use make run-api and make run-ui in separate shells
+	@echo "Opening API terminal..."
+	@osascript -e 'tell application "Terminal" to do script "echo \"=== Openship API ===\"; cd \"$(ROOT)\" && $(VENV)/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005"'
+	@echo "Waiting for API on :3005..."
+	@i=0; while [ $$i -lt 120 ]; do \
+		if curl -sf "http://127.0.0.1:3005/openapi.json" >/dev/null 2>&1; then \
+			echo "API is ready."; break; \
+		fi; \
+		sleep 0.5; \
+		i=$$((i + 1)); \
+	done
+	@curl -sf "http://127.0.0.1:3005/openapi.json" >/dev/null || { echo "API did not become ready on :3005"; exit 1; }
+	@echo "Opening UI terminal..."
+	@osascript -e 'tell application "Terminal" to do script "echo \"=== Openship UI ===\"; cd \"$(ROOT)/ui\" && npm run dev"'
+	@echo "Done — API on :3005, UI on :5173. Close the Terminal windows to stop."
 
 run-api:
 	cd "$(ROOT)" && $(VENV)/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005

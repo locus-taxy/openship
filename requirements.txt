@@ -12,12 +12,11 @@ Jinja2
 sentry-sdk
 jwcrypto
 python-multipart>=0.0.9,<0.1.0
-passlib[bcrypt]==1.7.4
-bcrypt>=3.2.2,<5
+bcrypt>=4.0.0,<6.0.0
 PyJWT==2.12.1
 slowapi==0.1.9
-bleach==6.2.0
+bleach>=6.3.0,<7.0.0
 instructor[anthropic,google-genai]
 openai
-mistralai
+mistralai>=1.0.0,<2.0.0
 cryptography
