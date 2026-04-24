@@ -87,11 +87,13 @@ DB_HOST="localhost"
 DB_PORT="5432"
 DB_USER="$(whoami)"
 
-# If 'openship' already exists, skip all prompts — user must set DATABASE_URL in .env manually
+DB_EXISTS=false
+
+# If 'openship' already exists, skip all prompts and leave .env untouched
 if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -lqt 2>/dev/null | cut -d'|' -f1 | grep -qw "openship"; then
-    DATABASE_URL=""
+    DB_NAME="openship"
+    DB_EXISTS=true
     success "Database 'openship' already exists — skipping database setup."
-    warn "DATABASE_URL left blank in .env — fill it in manually before starting the app."
 else
     echo ""
     echo -e "${BOLD} Database setup${RESET}"
@@ -119,14 +121,17 @@ else
     fi
 fi
 
-# ── Step 3: Secrets ─────────────────────────────────────────────────────────
-echo ""
-info "Step 3/6 — Generating secrets"
+# ── Steps 3 & 4: Secrets + .env ─────────────────────────────────────────────
+if [ "$DB_EXISTS" = true ]; then
+    info "Step 3/6 — Skipping secrets & .env (database already exists, keeping existing .env)"
+else
+    echo ""
+    info "Step 3/6 — Generating secrets"
 
-JWT_SECRET=$("$PYTHON_BIN" -c "import secrets; print(secrets.token_hex(32))")
-success "JWT secret key auto-generated."
+    JWT_SECRET=$("$PYTHON_BIN" -c "import secrets; print(secrets.token_hex(32))")
+    success "JWT secret key auto-generated."
 
-LLM_ENCRYPTION_KEY=$("$PYTHON_BIN" -c "
+    LLM_ENCRYPTION_KEY=$("$PYTHON_BIN" -c "
 try:
     from cryptography.fernet import Fernet
     print(Fernet.generate_key().decode())
@@ -134,13 +139,12 @@ except ImportError:
     import secrets, base64
     print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
 ")
-success "LLM encryption key auto-generated."
+    success "LLM encryption key auto-generated."
 
-# ── Step 4: Write .env ──────────────────────────────────────────────────────
-echo ""
-info "Step 4/6 — Writing .env"
+    echo ""
+    info "Step 4/6 — Writing .env"
 
-cat > "$ROOT/.env" <<EOF
+    cat > "$ROOT/.env" <<EOF
 DATABASE_URL=${DATABASE_URL}
 
 LLM_ENCRYPTION_KEY=${LLM_ENCRYPTION_KEY}
@@ -162,7 +166,8 @@ SMTP_USE_SSL=false
 SMTP_TIMEOUT_SECONDS=20
 EOF
 
-success ".env written."
+    success ".env written."
+fi
 
 # ── Step 5: Install deps + run migrations ───────────────────────────────────
 echo ""
