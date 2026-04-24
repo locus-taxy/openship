@@ -41,7 +41,8 @@ if [ -z "$PYTHON_BIN" ]; then
     if command -v brew >/dev/null 2>&1; then
         echo -ne "${BOLD}Install Python 3.14 via Homebrew?${RESET} [Y/n]: "
         read -r ans
-        if [ "${ans,,}" != "n" ]; then
+        lower_ans=$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')
+        if [ "$lower_ans" != "n" ]; then
             brew install python@3.14
             PYTHON_BIN="$(brew --prefix)/bin/python3.14"
             success "Python 3.14 installed."
@@ -63,7 +64,8 @@ if ! command -v psql >/dev/null 2>&1; then
     if command -v brew >/dev/null 2>&1; then
         echo -ne "${BOLD}Install PostgreSQL 14 via Homebrew?${RESET} [Y/n]: "
         read -r ans
-        if [ "${ans,,}" != "n" ]; then
+        lower_ans=$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')
+        if [ "$lower_ans" != "n" ]; then
             brew install postgresql@14
             brew services start postgresql@14
             export PATH="/opt/homebrew/opt/postgresql@14/bin:$PATH"
@@ -110,9 +112,11 @@ else
     echo ""
 
     info "Creating database '$DB_NAME'..."
-    createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME" \
-        && success "Database '$DB_NAME' created." \
-        || error "Failed to create database. Check your PostgreSQL connection."
+    if createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME"; then
+        success "Database '$DB_NAME' created."
+    else
+        error "Failed to create database. Check your PostgreSQL connection."
+    fi
 
     if [ -n "$DB_PASS" ]; then
         DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
@@ -195,11 +199,24 @@ CURRENT_REV=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
 if [ -n "$CURRENT_REV" ]; then
     cd "$ROOT"
     if ! "$VENV/bin/alembic" history 2>/dev/null | grep -q "$CURRENT_REV"; then
-        warn "DB revision '$CURRENT_REV' not found in migration chain. Resyncing..."
         HEAD_REV=$("$VENV/bin/alembic" heads 2>/dev/null | awk '{print $1}')
-        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-            -c "UPDATE alembic_version SET version_num = '$HEAD_REV';" >/dev/null
-        success "Resynced to revision '$HEAD_REV'."
+        # Validate HEAD_REV is a safe hex identifier before using in SQL
+        if ! printf '%s' "$HEAD_REV" | grep -qE '^[a-f0-9]{1,64}$'; then
+            error "Unexpected alembic revision format '$HEAD_REV' — aborting resync."
+        fi
+        warn "DB revision '$CURRENT_REV' not found in migration chain."
+        warn "This will overwrite alembic_version from '$CURRENT_REV' to '$HEAD_REV'."
+        warn "Only proceed if you are sure the DB schema matches the current codebase."
+        echo -ne "${BOLD}Resync alembic_version to '$HEAD_REV'?${RESET} [y/N]: "
+        read -r resync_ans
+        lower_resync=$(printf '%s' "$resync_ans" | tr '[:upper:]' '[:lower:]')
+        if [ "$lower_resync" = "y" ]; then
+            psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+                -c "UPDATE alembic_version SET version_num = '${HEAD_REV}';" >/dev/null
+            success "Resynced to revision '$HEAD_REV'."
+        else
+            error "Aborting — resolve the migration mismatch manually and re-run."
+        fi
     fi
 fi
 

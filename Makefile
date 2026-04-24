@@ -22,7 +22,7 @@ setup:
 	@chmod +x "$(ROOT)/scripts/setup.sh"
 	@bash "$(ROOT)/scripts/setup.sh"
 
-dev:
+dev: # macOS only — uses osascript to open Terminal windows; on Linux use make run-api and make run-ui in separate shells
 	@echo "Opening API terminal..."
 	@osascript -e 'tell application "Terminal" to do script "echo \"=== Openship API ===\"; cd $(ROOT) && $(VENV)/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005"'
 	@echo "Waiting for API on :3005..."
