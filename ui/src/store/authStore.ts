@@ -23,8 +23,8 @@ interface AuthState {
     clearSessionExpired: () => void;
 }
 
-/** Short timeout so login/signup are not blocked for ~30s when the API is down or still starting. */
-const AUTH_PROBE_TIMEOUT_MS = 5000;
+/** Short timeout so login/signup are not blocked when the API is down or still starting. */
+const AUTH_PROBE_TIMEOUT_MS = 2000;
 
 const useAuthStore = create<AuthState>((set, get) => ({
     user: null,

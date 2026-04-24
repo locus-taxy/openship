@@ -9,7 +9,7 @@ import useAuthStore from "@/store/authStore";
 
 export default function LoginPage() {
     const navigate = useNavigate();
-    const { login, isAuthenticated, initialized, initAuth, sessionExpired, clearSessionExpired } = useAuthStore();
+    const { login, isAuthenticated, initAuth, sessionExpired, clearSessionExpired } = useAuthStore();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
@@ -21,10 +21,10 @@ export default function LoginPage() {
     }, []);
 
     useEffect(() => {
-        if (initialized && isAuthenticated) {
+        if (isAuthenticated) {
             navigate("/", { replace: true });
         }
-    }, [initialized, isAuthenticated, navigate]);
+    }, [isAuthenticated, navigate]);
 
     useEffect(() => {
         if (sessionExpired) {
@@ -56,14 +56,6 @@ export default function LoginPage() {
         } finally {
             setLoading(false);
         }
-    }
-
-    if (!initialized) {
-        return (
-            <div className="flex min-h-screen items-center justify-center bg-zinc-800">
-                <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
-            </div>
-        );
     }
 
     if (isAuthenticated) return null;
