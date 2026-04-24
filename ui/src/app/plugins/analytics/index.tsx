@@ -100,14 +100,14 @@ export default function AnalyticsPage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-background">
-                <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+                <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-8 space-y-5 sm:space-y-8">
                     <div className="space-y-2">
                         <Skeleton className="h-8 w-48" />
                         <Skeleton className="h-4 w-64" />
                     </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <Skeleton className="h-56 rounded-3xl lg:col-span-1" />
-                        <div className="lg:col-span-2 grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
+                        <Skeleton className="h-48 rounded-3xl" />
+                        <div className="sm:col-span-2 grid grid-cols-2 gap-3 sm:gap-4">
                             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
                         </div>
                     </div>
@@ -155,14 +155,14 @@ export default function AnalyticsPage() {
 
     return (
         <div className="min-h-screen bg-background">
-            <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-8 space-y-5 sm:space-y-8">
 
                 {/* ── Greeting hero ──────────────────────────────────────── */}
-                <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-primary/5 via-background to-indigo-500/5 p-6 md:p-8">
+                <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-primary/5 via-background to-indigo-500/5 p-4 sm:p-6 md:p-8">
                     <div className="flex items-start justify-between gap-4">
                         <div className="space-y-1.5">
                             <p className="text-sm text-muted-foreground font-medium">{getGreeting()}</p>
-                            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+                            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">
                                 {user?.name ? getFirstName(user.name) : "Welcome"} 👋
                             </h1>
                             <p className="text-muted-foreground text-sm md:text-base max-w-md">
@@ -191,10 +191,10 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* ── Hero row: big ring + 4 mini stats ──────────────────── */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
 
                     {/* Big ring card */}
-                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 to-violet-600 p-6 flex flex-col items-center justify-center gap-3 shadow-xl shadow-indigo-500/20 min-h-[200px]">
+                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 to-violet-600 p-6 flex flex-col items-center justify-center gap-3 shadow-xl shadow-indigo-500/20 min-h-[180px] sm:min-h-[200px]">
                         {/* subtle grid pattern */}
                         <div className="absolute inset-0 opacity-10"
                             style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "20px 20px" }} />
@@ -211,48 +211,48 @@ export default function AnalyticsPage() {
                     </div>
 
                     {/* 4 mini stat cards */}
-                    <div className="lg:col-span-2 grid grid-cols-2 gap-4">
+                    <div className="sm:col-span-2 grid grid-cols-2 gap-3 sm:gap-4">
                         {/* In Progress */}
-                        <div className="rounded-2xl border border-border/60 bg-card p-5 flex items-center gap-4">
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10">
-                                <Flame className="h-5 w-5 text-amber-500" />
+                        <div className="rounded-2xl border border-border/60 bg-card p-3 sm:p-5 flex items-center gap-3 sm:gap-4">
+                            <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10">
+                                <Flame className="h-4 w-4 sm:h-5 sm:w-5 text-amber-500" />
                             </div>
                             <div>
-                                <p className="text-2xl font-black">{inProgress.length}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">In Progress</p>
+                                <p className="text-xl sm:text-2xl font-black">{inProgress.length}</p>
+                                <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">In Progress</p>
                             </div>
                         </div>
 
                         {/* Completed */}
-                        <div className="rounded-2xl border border-border/60 bg-card p-5 flex items-center gap-4">
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10">
-                                <Award className="h-5 w-5 text-emerald-500" />
+                        <div className="rounded-2xl border border-border/60 bg-card p-3 sm:p-5 flex items-center gap-3 sm:gap-4">
+                            <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10">
+                                <Award className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-500" />
                             </div>
                             <div>
-                                <p className="text-2xl font-black">{completedCourses.length}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">Completed</p>
+                                <p className="text-xl sm:text-2xl font-black">{completedCourses.length}</p>
+                                <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">Completed</p>
                             </div>
                         </div>
 
                         {/* Hours planned */}
-                        <div className="rounded-2xl border border-border/60 bg-card p-5 flex items-center gap-4">
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10">
-                                <Clock className="h-5 w-5 text-blue-500" />
+                        <div className="rounded-2xl border border-border/60 bg-card p-3 sm:p-5 flex items-center gap-3 sm:gap-4">
+                            <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10">
+                                <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
                             </div>
                             <div>
-                                <p className="text-2xl font-black">{totalHours}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">Hours Planned</p>
+                                <p className="text-xl sm:text-2xl font-black">{totalHours}</p>
+                                <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">Hours Planned</p>
                             </div>
                         </div>
 
                         {/* Days remaining */}
-                        <div className="rounded-2xl border border-border/60 bg-card p-5 flex items-center gap-4">
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10">
-                                <CalendarDays className="h-5 w-5 text-violet-500" />
+                        <div className="rounded-2xl border border-border/60 bg-card p-3 sm:p-5 flex items-center gap-3 sm:gap-4">
+                            <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10">
+                                <CalendarDays className="h-4 w-4 sm:h-5 sm:w-5 text-violet-500" />
                             </div>
                             <div>
-                                <p className="text-2xl font-black">{remainingTasks}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">Tasks Remaining</p>
+                                <p className="text-xl sm:text-2xl font-black">{remainingTasks}</p>
+                                <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">Tasks Remaining</p>
                             </div>
                         </div>
                     </div>

@@ -18,3 +18,5 @@ class User(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now()),
     )
+    # FK to llm_providers.id — tracks which provider the user currently has active
+    llm_provider_id: Optional[int] = Field(default=None, foreign_key="llm_providers.id")

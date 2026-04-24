@@ -12,7 +12,12 @@ from services.skill import (
     get_public_syllabus_detail,
     toggle_skill_share,
 )
-from services.gemini import generate_syllabus_json
+from services.llm import (
+    generate_syllabus_json,
+    get_user_api_key,
+    get_user_model,
+    get_user_provider_name,
+)
 from services.daily_task import store_syllabus_tasks
 
 logger = logging.getLogger(__name__)
@@ -57,28 +62,33 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     if skill_id is None:
         raise HTTPException(status_code=404, detail="Skill ID not found")
 
-    syllabus_data = generate_syllabus_json(payload.skill, skill["days"], skill["hours"])
+    syllabus_data = generate_syllabus_json(
+        payload.skill,
+        skill["days"],
+        skill["hours"],
+        provider=get_user_provider_name(current_user),
+        api_key=get_user_api_key(current_user),
+        model=get_user_model(current_user),
+    )
     if syllabus_data is None:
         raise HTTPException(
             status_code=500,
-            detail="Failed to generate syllabus (Gemini returned no data). "
-            "Confirm .env is beside config.py and restart the API; check uvicorn logs.",
+            detail="Failed to generate syllabus. Check server logs for details.",
         )
     if not isinstance(syllabus_data, (list, tuple)):
         logger.warning(
-            "Unexpected syllabus JSON type from Gemini: %s (expected a list of months).",
+            "Unexpected syllabus type from LLM: %s (expected a list of months).",
             type(syllabus_data).__name__,
         )
         raise HTTPException(
             status_code=500,
-            detail="Gemini returned syllabus data in an unexpected format (expected a JSON array). "
-            "Check uvicorn logs or try again.",
+            detail="LLM returned syllabus data in an unexpected format. Try again.",
         )
     syllabus_data = list(syllabus_data)
     if len(syllabus_data) == 0:
         raise HTTPException(
             status_code=500,
-            detail="Gemini returned an empty syllabus. Try again or shorten the plan (days).",
+            detail="LLM returned an empty syllabus. Try again or shorten the plan (days).",
         )
 
     if not store_syllabus_tasks(

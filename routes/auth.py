@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Cookie, Request, Response
-from schemas.auth import SignupRequest, LoginRequest
+from schemas.auth import SignupRequest, LoginRequest, SaveSettingsRequest
 from controllers import auth as auth_controller
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -24,3 +24,21 @@ def logout(response: Response):
 @router.get("/me")
 def me(request: Request):
     return auth_controller.get_me(request.state.user)
+
+@router.get("/me/settings")
+def get_settings(request: Request):
+    return auth_controller.get_settings(request.state.user)
+
+@router.put("/me/settings")
+def save_settings(payload: SaveSettingsRequest, request: Request):
+    return auth_controller.save_settings(
+        request.state.user, payload.llm_provider, payload.api_key, payload.llm_model
+    )
+
+@router.get("/me/models")
+def list_models(provider: str, request: Request):
+    return auth_controller.list_models(request.state.user, provider)
+
+@router.post("/me/models/verify")
+def verify_model(provider: str, model: str, request: Request):
+    return auth_controller.verify_custom_model(request.state.user, provider, model)

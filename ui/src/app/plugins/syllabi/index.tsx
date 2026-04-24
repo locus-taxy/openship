@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
 import { BookOpen, Clock, CalendarDays, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText, GraduationCap, CheckCircle2, CircleDot } from "lucide-react"
+import {
+    Dialog, DialogContent, DialogDescription, DialogFooter,
+    DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
+import { LlmBar } from "@/components/llm-bar"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,7 +13,10 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { getRequest, postRequest } from "@/services"
+import { getRequest } from "@/services"
+import api from "@/services"
+import { useToast } from "@/hooks/use-toast"
+import { ToastAction } from "@/components/ui/toast"
 import useStore from "@/store"
 
 interface MatchingChapter {
@@ -36,6 +44,9 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     searchQuery: string
 }) {
     const [generating, setGenerating] = useState(false)
+    const [confirmOpen, setConfirmOpen] = useState(false)
+    const { toast } = useToast()
+    const { setSettingsOpen } = useStore((s: any) => s)
     const chapters = item.matching_chapters ?? []
     const hasMatchingChapters = searchQuery.trim() !== "" && chapters.length > 0
 
@@ -46,14 +57,34 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
     const isCompleted = progress === 100
     const isInProgress = progress > 0 && progress < 100
 
-    async function handleGenerate(e: React.MouseEvent) {
-        e.stopPropagation()
+    async function handleGenerate(e?: React.MouseEvent) {
+        e?.stopPropagation()
+        setConfirmOpen(false)
         setGenerating(true)
-        const { success } = await postRequest("/py/generate-syllabus", {
-            skill: item.skill,
-        })
-        setGenerating(false)
-        if (success) onSyllabusGenerated(item.skill_id)
+        try {
+            await api.post("/py/generate-syllabus", { skill: item.skill })
+            onSyllabusGenerated(item.skill_id)
+        } catch (err: any) {
+            const status = err?.response?.status
+            const detail = err?.response?.data?.detail ?? ""
+            if (status === 400 && typeof detail === "string" && detail.includes("LLM provider")) {
+                toast({
+                    title: "LLM not configured",
+                    description: "Add your provider and API key in Settings.",
+                    action: (
+                        <ToastAction altText="Open Settings" onClick={() => setSettingsOpen(true)}>
+                            Open Settings
+                        </ToastAction>
+                    ),
+                })
+            } else if (status === 429) {
+                toast({ variant: "destructive", title: "Quota exceeded", description: detail || "You've hit your LLM provider's rate limit. Wait a moment and try again." })
+            } else {
+                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate syllabus." })
+            }
+        } finally {
+            setGenerating(false)
+        }
     }
 
     return (
@@ -70,26 +101,26 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                     : "bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500"
             )} />
 
-            <CardHeader className="pb-3 pt-5">
-                <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-3 min-w-0">
+            <CardHeader className="pb-2 pt-4 px-3 sm:px-6 sm:pb-3 sm:pt-5">
+                <div className="flex items-start justify-between gap-1.5 sm:gap-2">
+                    <div className="flex items-start gap-2 sm:gap-3 min-w-0">
                         <div className={cn(
-                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                            "flex h-7 w-7 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-lg",
                             isCompleted
                                 ? "bg-emerald-500/10 text-emerald-600"
                                 : isInProgress
                                 ? "bg-indigo-500/10 text-indigo-600"
                                 : "bg-primary/10 text-primary"
                         )}>
-                            <BookOpen className="h-4.5 w-4.5" />
+                            <BookOpen className="h-3.5 w-3.5 sm:h-4.5 sm:w-4.5" />
                         </div>
-                        <h3 className="text-base font-semibold leading-snug line-clamp-2 pt-0.5">{item.skill}</h3>
+                        <h3 className="text-sm sm:text-base font-semibold leading-snug line-clamp-2 pt-0.5">{item.skill}</h3>
                     </div>
                     {hasSyllabus && (
                         <Badge
                             variant="outline"
                             className={cn(
-                                "shrink-0 text-xs font-medium",
+                                "shrink-0 text-[10px] sm:text-xs font-medium px-1.5 sm:px-2",
                                 isCompleted
                                     ? "bg-emerald-500/10 text-emerald-600 border-emerald-200"
                                     : isInProgress
@@ -97,13 +128,14 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                                     : "text-muted-foreground"
                             )}
                         >
-                            {isCompleted ? "Completed" : isInProgress ? "In Progress" : "Not Started"}
+                            <span className="hidden sm:inline">{isCompleted ? "Completed" : isInProgress ? "In Progress" : "Not Started"}</span>
+                            <span className="sm:hidden">{isCompleted ? "✓" : isInProgress ? "…" : "—"}</span>
                         </Badge>
                     )}
                 </div>
             </CardHeader>
 
-            <CardContent className="flex-1 flex flex-col pt-0">
+            <CardContent className="flex-1 flex flex-col pt-0 px-3 sm:px-6">
                 {hasSyllabus || hasMatchingChapters ? (
                     <div className="space-y-4 flex-1 flex flex-col">
                         {hasSyllabus && (
@@ -136,19 +168,19 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-2">
-                            <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
-                                <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                            <div className="flex items-center gap-1.5 sm:gap-2 rounded-lg bg-muted/50 px-2 sm:px-3 py-1.5 sm:py-2">
+                                <CalendarDays className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-muted-foreground shrink-0" />
                                 <div>
-                                    <p className="text-xs text-muted-foreground">Duration</p>
-                                    <p className="text-sm font-semibold">{item.days} days</p>
+                                    <p className="text-[10px] sm:text-xs text-muted-foreground">Duration</p>
+                                    <p className="text-xs sm:text-sm font-semibold">{item.days}d</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
-                                <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <div className="flex items-center gap-1.5 sm:gap-2 rounded-lg bg-muted/50 px-2 sm:px-3 py-1.5 sm:py-2">
+                                <Clock className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-muted-foreground shrink-0" />
                                 <div>
-                                    <p className="text-xs text-muted-foreground">Daily</p>
-                                    <p className="text-sm font-semibold">{item.hours} hr{item.hours !== 1 ? "s" : ""}</p>
+                                    <p className="text-[10px] sm:text-xs text-muted-foreground">Daily</p>
+                                    <p className="text-xs sm:text-sm font-semibold">{item.hours}h</p>
                                 </div>
                             </div>
                         </div>
@@ -182,7 +214,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                                         title="Regenerate syllabus"
                                         aria-label="Regenerate syllabus"
                                         disabled={generating}
-                                        onClick={handleGenerate}
+                                        onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }}
                                         className="shrink-0"
                                     >
                                         {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
@@ -215,6 +247,25 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                     </div>
                 )}
             </CardContent>
+
+            {/* Regenerate confirmation dialog */}
+            <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Regenerate syllabus?</DialogTitle>
+                        <DialogDescription>
+                            This will replace the existing syllabus for <span className="font-medium text-foreground">{item.skill}</span>. All chapters and progress will be lost. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+                        <Button onClick={() => handleGenerate()}>
+                            <RotateCw className="h-4 w-4 mr-1.5" />
+                            Yes, Regenerate
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </Card>
     )
 }
@@ -332,7 +383,7 @@ export default function SyllabiPage() {
     const completed = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === s.total_tasks).length
 
     return (
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -340,13 +391,17 @@ export default function SyllabiPage() {
                     <p className="text-muted-foreground text-sm mt-0.5">All active learning plans</p>
                 </div>
                 <Button onClick={() => navigate("/enroll")}>
-                    + New Enrollment
+                    <span className="hidden sm:inline">+ New Enrollment</span>
+                    <span className="sm:hidden">+ Enroll</span>
                 </Button>
             </div>
 
+            {/* LLM selector */}
+            <LlmBar />
+
             {/* Stats row */}
             {!loading && total > 0 && (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <StatCard icon={GraduationCap} label="Total courses" value={total} color="bg-primary/10 text-primary" />
                     <StatCard icon={CircleDot} label="In progress" value={inProgress} color="bg-indigo-500/10 text-indigo-600" />
                     <StatCard icon={CheckCircle2} label="Completed" value={completed} color="bg-emerald-500/10 text-emerald-600" />
@@ -372,7 +427,7 @@ export default function SyllabiPage() {
 
             {/* Content */}
             {loading ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
                     {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
                 </div>
             ) : syllabi.length === 0 ? (
@@ -393,7 +448,7 @@ export default function SyllabiPage() {
                     <p className="text-muted-foreground text-sm mt-1">No courses or chapters match "{search}"</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
                     {displayList.map((item) => (
                         <SyllabusCard
                             key={item.skill_id}

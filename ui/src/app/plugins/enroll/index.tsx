@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { UserPlus, ChevronDown, Loader2, Search, PenLine, BookOpen, Clock, CalendarDays } from "lucide-react";
+import { UserPlus, ChevronDown, Loader2, Search, PenLine, Clock, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -23,8 +23,6 @@ const DAY_OPTIONS = [
     { value: 30, label: "30 days" },
     { value: 60, label: "60 days" },
     { value: 90, label: "90 days" },
-    { value: 120, label: "4 months" },
-    { value: 180, label: "6 months" },
 ];
 
 const HOUR_OPTIONS = [
@@ -118,14 +116,11 @@ export default function EnrollPage() {
     }
 
     return (
-        <div className="p-6 md:p-10">
+        <div className="p-4 sm:p-6 md:p-10">
             <div className="max-w-xl mx-auto space-y-8">
 
                 {/* Hero header */}
                 <div className="space-y-1">
-                    <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-primary/10 text-primary mb-3">
-                        <BookOpen className="h-5 w-5" />
-                    </div>
                     <h1 className="text-2xl font-bold tracking-tight">Start Learning</h1>
                     <p className="text-muted-foreground text-sm">
                         Choose a subject and we'll build a personalised syllabus for you.
@@ -255,7 +250,7 @@ export default function EnrollPage() {
                                                         )}
                                                     >
                                                         <PenLine className="h-3.5 w-3.5 shrink-0" />
-                                                        Other — type your own
+                                                        Other
                                                     </li>
                                                 )}
                                             </ul>
@@ -327,7 +322,7 @@ export default function EnrollPage() {
                                     <Clock className="h-4 w-4 text-muted-foreground" />
                                     <Label className="text-sm font-medium">Daily commitment</Label>
                                 </div>
-                                <div className="grid grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                     {HOUR_OPTIONS.map((h) => (
                                         <button
                                             key={h.value}

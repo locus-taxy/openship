@@ -1,21 +1,8 @@
 "use client";
 
-import { ChevronRight, type LucideIcon } from "lucide-react";
-import {
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-    SidebarGroup,
-    SidebarGroupLabel,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem,
-    SidebarMenuSub,
-    SidebarMenuSubButton,
-    SidebarMenuSubItem,
-} from "@/components/ui/sidebar";
+import { type LucideIcon } from "lucide-react";
+import { SidebarGroup, SidebarGroupLabel } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 
 export function NavMain({
     items,
@@ -25,55 +12,35 @@ export function NavMain({
         url: string;
         icon?: LucideIcon;
         isActive?: boolean;
-        items?: {
-            title: string;
-            icon?: LucideIcon;
-            url: string;
-            isActive?: boolean;
-        }[];
     }[];
 }) {
-
-    const menuItemStyles = "flex items-center gap-3 rounded-lg px-3 py-1 transition-colors hover:bg-accent";
-    const activeMenuItemStyles = "bg-accent font-bold";
-
     return (
-        <SidebarGroup>
-            <SidebarGroupLabel>Menu</SidebarGroupLabel>
-            <SidebarMenu>
+        <SidebarGroup className="px-4 py-2">
+            <SidebarGroupLabel className="px-1 mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Menu
+            </SidebarGroupLabel>
+            <div className="flex flex-col gap-1.5">
                 {items.map((item) => (
-                    <Collapsible
+                    <a
                         key={item.title}
-                        asChild
-                        defaultOpen={item.isActive}
-                        className="group/collapsible"
+                        href={item.url}
+                        className={cn(
+                            "group flex items-center gap-3 rounded-xl px-4 py-3.5 text-sm font-medium transition-all duration-150",
+                            item.isActive
+                                ? "bg-primary/10 text-primary font-semibold"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
                     >
-                        <SidebarMenuItem>
-                            <CollapsibleTrigger asChild>
-                                <SidebarMenuButton tooltip={item.title}>
-                                    {item.icon && <item.icon />}
-                                    <span>{item.title}</span>
-                                    <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                                </SidebarMenuButton>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                                <SidebarMenuSub>
-                                    {item.items?.map((subItem) => (
-                                        <SidebarMenuSubItem key={subItem.title} className={`${menuItemStyles} ${subItem.isActive ? activeMenuItemStyles : ''}`}>
-                                            <SidebarMenuSubButton asChild>
-                                                <a href={subItem.url}>
-                                                    { subItem.icon && <subItem.icon /> }
-                                                    <span className={`${subItem.isActive ? "text-xs" : ''}`}>{subItem.title}</span>
-                                                </a>
-                                            </SidebarMenuSubButton>
-                                        </SidebarMenuSubItem>
-                                    ))}
-                                </SidebarMenuSub>
-                            </CollapsibleContent>
-                        </SidebarMenuItem>
-                    </Collapsible>
+                        {item.icon && (
+                            <item.icon className={cn(
+                                "h-4 w-4 shrink-0 transition-colors",
+                                item.isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                            )} />
+                        )}
+                        <span>{item.title}</span>
+                    </a>
                 ))}
-            </SidebarMenu>
+            </div>
         </SidebarGroup>
     );
 }

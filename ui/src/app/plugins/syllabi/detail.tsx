@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { useParams, useNavigate } from "react-router"
+import { LlmBar } from "@/components/llm-bar"
+import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
-    ArrowLeft, BookOpen, CheckCircle2, Circle, Clock,
+    ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send,
     Globe, Copy, Check, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react"
@@ -10,6 +11,8 @@ import {
     Dialog, DialogContent, DialogDescription, DialogFooter,
     DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import { ToastAction } from "@/components/ui/toast"
+import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { getRequest, postRequest } from "@/services"
@@ -52,25 +55,29 @@ interface SyllabusDetail {
 
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
-function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
+function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
     chapter: Chapter
     onContentGenerated: (taskId: number) => void
     onMarkComplete: (taskId: number) => void
+    onGoToNext: () => void
+    hasNext: boolean
 }) {
     const [content, setContent] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [generating, setGenerating] = useState(false)
-    const [sending, setSending] = useState(false)
+    // const [sending, setSending] = useState(false)
     const [completed, setCompleted] = useState(chapter.completed)
-    const [emailSent, setEmailSent] = useState(false)
+    // const [emailSent, setEmailSent] = useState(false)
     const [hasContent, setHasContent] = useState(chapter.has_content)
     const [confirmOpen, setConfirmOpen] = useState(false)
     const proseRef = useRef<HTMLDivElement>(null)
+    const { toast } = useToast()
+    const { setSettingsOpen } = useStore((s: any) => s)
 
     useEffect(() => {
         setHasContent(chapter.has_content)
         setCompleted(chapter.completed)
-        setEmailSent(false)
+        // setEmailSent(false)
         setContent(null)
         if (chapter.has_content) loadContent()
     }, [chapter.id])
@@ -165,21 +172,40 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     async function handleGenerate() {
         setConfirmOpen(false)
         setGenerating(true)
-        const { success } = await postRequest("/py/generate-content/chapter", { task_id: chapter.id })
-        setGenerating(false)
-        if (success) {
+        try {
+            await api.post("/py/generate-content/chapter", { task_id: chapter.id })
             setHasContent(true)
             onContentGenerated(chapter.id)
             loadContent()
+        } catch (err: any) {
+            const status = err?.response?.status
+            const detail = err?.response?.data?.detail ?? ""
+            if (status === 400 && typeof detail === "string" && detail.includes("LLM provider")) {
+                toast({
+                    title: "LLM not configured",
+                    description: "Add your provider and API key in Settings.",
+                    action: (
+                        <ToastAction altText="Open Settings" onClick={() => setSettingsOpen(true)}>
+                            Open Settings
+                        </ToastAction>
+                    ),
+                })
+            } else if (status === 429) {
+                toast({ variant: "destructive", title: "Quota exceeded", description: detail || "You've hit your LLM provider's rate limit. Wait a moment and try again." })
+            } else {
+                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate content." })
+            }
+        } finally {
+            setGenerating(false)
         }
     }
 
-    async function handleSendEmail() {
-        setSending(true)
-        const { success } = await postRequest("/py/send-email/chapter", { task_id: chapter.id })
-        setSending(false)
-        if (success) setEmailSent(true)
-    }
+    // async function handleSendEmail() {
+    //     setSending(true)
+    //     const { success } = await postRequest("/py/send-email/chapter", { task_id: chapter.id })
+    //     setSending(false)
+    //     if (success) setEmailSent(true)
+    // }
 
     async function handleMarkComplete() {
         const { success } = await postRequest(`/py/chapter/${chapter.id}/complete`, {})
@@ -190,16 +216,16 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
     }
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full overflow-hidden">
             {/* Header */}
-            <div className="border-b px-8 py-5 bg-background shrink-0">
+            <div className="border-b px-4 sm:px-8 py-5 bg-background shrink-0">
                 <p className="text-xs text-muted-foreground mb-1">Day {chapter.day} · {chapter.hours}h</p>
-                <h2 className="text-2xl font-bold tracking-tight">{chapter.topic}</h2>
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight">{chapter.topic}</h2>
             </div>
 
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto">
-                <div className="mx-auto w-full max-w-3xl px-8 py-6 space-y-5">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
+                <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 md:px-8 py-6 space-y-5 min-w-0">
 
                     {/* Task */}
                     <div className="rounded-lg border bg-muted/30 px-4 py-3">
@@ -232,13 +258,13 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                 {/* Prose content */}
                                 <div
                                     ref={proseRef}
-                                    className="prose prose-base max-w-none
+                                    className="prose prose-sm sm:prose-base max-w-none break-words
                                         prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
-                                        prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
-                                        prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
-                                        prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2
-                                        prose-h4:text-sm prose-h4:mt-4 prose-h4:mb-1
-                                        prose-p:text-zinc-600 prose-p:leading-7
+                                        prose-h1:text-lg sm:prose-h1:text-2xl prose-h1:mt-6 sm:prose-h1:mt-8 prose-h1:mb-3 sm:prose-h1:mb-4
+                                        prose-h2:text-base sm:prose-h2:text-xl prose-h2:mt-5 sm:prose-h2:mt-6 prose-h2:mb-2 sm:prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
+                                        prose-h3:text-sm sm:prose-h3:text-base prose-h3:mt-4 sm:prose-h3:mt-5 prose-h3:mb-1.5 sm:prose-h3:mb-2
+                                        prose-h4:text-xs sm:prose-h4:text-sm prose-h4:mt-3 sm:prose-h4:mt-4 prose-h4:mb-1
+                                        prose-p:text-zinc-600 prose-p:leading-6 sm:prose-p:leading-7
                                         prose-strong:text-foreground prose-strong:font-semibold
                                         prose-em:text-zinc-600
                                         prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
@@ -246,47 +272,49 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete }: {
                                         prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
                                         [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
                                         prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                                        [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm
+                                        [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm [&_pre]:max-w-full [&_pre]:overflow-x-auto
                                         [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
                                         prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
                                         prose-hr:border-border prose-hr:my-6
-                                        prose-table:w-full prose-table:border-collapse prose-table:text-sm
+                                        prose-table:w-full prose-table:border-collapse prose-table:text-xs sm:prose-table:text-sm
                                         prose-thead:bg-muted/50
-                                        prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
-                                        prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
+                                        prose-th:border prose-th:border-border prose-th:px-2 sm:prose-th:px-4 prose-th:py-2 sm:prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
+                                        prose-td:border prose-td:border-border prose-td:px-2 sm:prose-td:px-4 prose-td:py-1.5 sm:prose-td:py-2 prose-td:text-zinc-600
                                         prose-tr:even:bg-muted/20
-                                        [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
+                                        [&_table]:rounded-lg [&_table]:border [&_table]:border-border
+                                        [&_:where(table)]:block [&_:where(table)]:overflow-x-auto"
                                     dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }}
                                 />
 
                                 {/* Footer */}
-                                <div className="pt-4 border-t border-border/50 flex items-center justify-between gap-3">
+                                <div className="pt-4 border-t border-border/50 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                                     {completed ? (
                                         <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
                                             <CheckCircle2 className="h-4 w-4" /> Completed
                                         </span>
                                     ) : (
-                                        <p className="text-xs text-muted-foreground">Ready to send to your inbox.</p>
+                                        <Button size="sm" variant="outline" onClick={handleMarkComplete}>
+                                            <CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete
+                                        </Button>
                                     )}
-                                    <div className="flex items-center gap-2">
-                                        <Button size="sm" variant="outline" disabled={completed} onClick={handleMarkComplete}>
-                                            {completed
-                                                ? <><CheckCircle2 className="h-4 w-4 mr-1.5 text-emerald-500" />Completed</>
-                                                : <><CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete</>
-                                            }
+                                    {completed && hasNext && (
+                                        <Button size="sm" onClick={onGoToNext}>
+                                            Next Chapter <ArrowRight className="h-4 w-4 ml-1.5" />
                                         </Button>
-                                        <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
-                                            {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
-                                                : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Email Sent</>
-                                                : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
-                                            }
-                                        </Button>
-                                    </div>
+                                    )}
+                                    {/* Send Email — not yet implemented in backend
+                                    <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
+                                        {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
+                                            : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Email Sent</>
+                                            : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
+                                        }
+                                    </Button>
+                                    */}
                                 </div>
                             </div>
                         ) : null
                     ) : (
-                        <div className="flex flex-col items-center justify-center py-24 text-center rounded-lg border border-dashed">
+                        <div className="flex flex-col items-center justify-center py-12 sm:py-24 text-center rounded-lg border border-dashed">
                             <Sparkles className="h-10 w-10 text-muted-foreground mb-3" />
                             <h3 className="font-semibold">Content not generated yet</h3>
                             <p className="text-sm text-muted-foreground mt-1 mb-4">Generate the content for this chapter to read it here.</p>
@@ -363,6 +391,12 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
                 </div>
                 <Progress value={overallProgress} className="h-1.5" />
                 <p className="text-xs font-semibold text-primary text-right">{overallProgress}%</p>
+            </div>
+
+            {/* LLM bar */}
+            <div className="px-4 py-3 border-b shrink-0 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Choose a model</p>
+                <LlmBar fullWidth />
             </div>
 
             {/* Share controls */}
@@ -453,8 +487,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
 
 function DetailSkeleton() {
     return (
-        <div className="flex overflow-hidden" style={{ height: "100vh" }}>
-            <aside className="w-72 border-r flex flex-col shrink-0">
+        <div className="flex overflow-hidden h-screen" style={{ height: "100dvh" }}>
+            <aside className="w-72 border-r flex-col shrink-0 hidden sm:flex">
                 <div className="px-4 py-3 border-b space-y-2">
                     <Skeleton className="h-3 w-full" />
                     <Skeleton className="h-1.5 w-full rounded-full" />
@@ -478,6 +512,7 @@ function DetailSkeleton() {
 export default function SyllabusDetailPage() {
     const { skillId } = useParams<{ skillId: string }>()
     const navigate = useNavigate()
+    const [searchParams, setSearchParams] = useSearchParams()
     const [detail, setDetail] = useState<SyllabusDetail | null>(null)
     const [loading, setLoading] = useState(true)
     const { setPluginName, setHideHeader } = useStore((state: any) => state)
@@ -487,7 +522,26 @@ export default function SyllabusDetailPage() {
     const [copyFailed, setCopyFailed] = useState(false)
     const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
     const [navCollapsed, setNavCollapsed] = useState(false)
+    const [navWidth, setNavWidth] = useState(350)
+    const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+    const isResizing = useRef(false)
     const { setOpen } = useSidebar()
+
+    function handleResizeStart(e: React.MouseEvent) {
+        e.preventDefault()
+        isResizing.current = true
+        function onMove(ev: MouseEvent) {
+            if (!isResizing.current) return
+            setNavWidth(Math.max(300, Math.min(520, ev.clientX)))
+        }
+        function onUp() {
+            isResizing.current = false
+            document.removeEventListener("mousemove", onMove)
+            document.removeEventListener("mouseup", onUp)
+        }
+        document.addEventListener("mousemove", onMove)
+        document.addEventListener("mouseup", onUp)
+    }
 
     // Collapse app sidebar + hide header on enter, restore on leave
     useEffect(() => {
@@ -520,14 +574,23 @@ export default function SyllabusDetailPage() {
     const completedCount = allTasks.filter((t) => t.completed).length
     const overallProgress = allTasks.length > 0 ? Math.round((completedCount / allTasks.length) * 100) : 0
 
-    // Auto-select first chapter once detail loads
+    // Restore chapter from URL param, fallback to first chapter
     useEffect(() => {
-        if (allTasks.length > 0 && activeChapterId === null) {
-            setActiveChapterId(allTasks[0].id)
-        }
+        if (allTasks.length === 0) return
+        const paramId = Number(searchParams.get("chapter"))
+        const found = paramId && allTasks.find(t => t.id === paramId)
+        setActiveChapterId(found ? paramId : allTasks[0].id)
     }, [detail])
 
     const activeChapter = activeChapterId ? allTasks.find((t) => t.id === activeChapterId) ?? null : null
+    const activeIndex = activeChapterId ? allTasks.findIndex((t) => t.id === activeChapterId) : -1
+    const nextChapter = activeIndex >= 0 && activeIndex < allTasks.length - 1 ? allTasks[activeIndex + 1] : null
+
+    function goToNextChapter() {
+        if (!nextChapter) return
+        setActiveChapterId(nextChapter.id)
+        setSearchParams({ chapter: String(nextChapter.id) })
+    }
 
     function handleContentGenerated(taskId: number) {
         setDetail((prev) => {
@@ -598,25 +661,51 @@ export default function SyllabusDetailPage() {
     )
 
     return (
-        <div className="flex overflow-hidden" style={{ height: "100vh" }}>
+        <div className="flex overflow-hidden h-screen" style={{ height: "100dvh" }}>
+
+            {/* Mobile backdrop */}
+            {mobileSidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-40 sm:hidden"
+                    onClick={() => setMobileSidebarOpen(false)}
+                />
+            )}
 
             {/* Left nav panel */}
-            <aside className={`flex-shrink-0 border-r flex flex-col h-full overflow-hidden transition-all duration-300 ease-in-out ${navCollapsed ? "w-0 border-r-0" : "w-72"}`}>
-                <div className="w-72 flex flex-col h-full">
+            <aside
+                style={{ width: navWidth }}
+                className={[
+                    "flex-col h-full overflow-hidden bg-background",
+                    // Mobile: fixed full-height overlay, display:none when closed so it doesn't affect flex layout
+                    mobileSidebarOpen
+                        ? "fixed left-0 top-0 bottom-0 z-50 flex w-[85vw] shadow-xl"
+                        : "hidden",
+                    // Desktop: override to inline sidebar
+                    navCollapsed
+                        ? "sm:hidden"
+                        : "sm:relative sm:flex sm:flex-shrink-0 sm:border-r",
+                ].join(" ")}
+            >
+                <div style={{ width: navWidth }} className="relative flex flex-col h-full w-full">
                     {/* Nav header */}
                     <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
                         <Button variant="ghost" size="sm" className="-ml-1 h-7 text-xs" onClick={() => navigate("/syllabi")}>
                             <ArrowLeft className="h-3.5 w-3.5 mr-1" /> All Courses
                         </Button>
                         <span className="text-sm font-semibold truncate text-foreground/80 flex-1">{detail.skill}</span>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setNavCollapsed(true)} title="Collapse sidebar">
+                        {/* Desktop: collapse button */}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 hidden sm:flex" onClick={() => setNavCollapsed(true)} title="Collapse sidebar">
+                            <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                        {/* Mobile: close button */}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 flex sm:hidden" onClick={() => setMobileSidebarOpen(false)} title="Close">
                             <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
                         </Button>
                     </div>
                     <ChapterNav
                         detail={detail}
                         activeChapterId={activeChapterId}
-                        onSelectChapter={(chapter) => setActiveChapterId(chapter.id)}
+                        onSelectChapter={(chapter) => { setActiveChapterId(chapter.id); setSearchParams({ chapter: String(chapter.id) }); setMobileSidebarOpen(false); }}
                         overallProgress={overallProgress}
                         completedCount={completedCount}
                         totalCount={allTasks.length}
@@ -628,26 +717,36 @@ export default function SyllabusDetailPage() {
                         onToggleShare={handleToggleShare}
                         onCopyLink={handleCopyLink}
                     />
+                    {/* Resize handle */}
+                    <div
+                        className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 z-10"
+                        onMouseDown={handleResizeStart}
+                    />
                 </div>
             </aside>
 
             {/* Right content panel */}
-            <main className="flex-1 overflow-y-auto flex flex-col">
+            <main className="flex-1 w-0 min-w-0 flex flex-col overflow-hidden">
                 {/* Top bar */}
-                <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setNavCollapsed((v) => !v)} title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+                <div className="flex items-center gap-2 px-3 sm:px-4 py-3 border-b shrink-0">
+                    {/* Mobile: open sidebar button */}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 flex sm:hidden shrink-0" onClick={() => setMobileSidebarOpen(true)} title="Open chapters">
+                        <PanelLeftOpen className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                    {/* Desktop: collapse/expand toggle */}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 hidden sm:flex shrink-0" onClick={() => setNavCollapsed((v) => !v)} title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
                         {navCollapsed ? <PanelLeftOpen className="h-4 w-4 text-muted-foreground" /> : <PanelLeftClose className="h-4 w-4 text-muted-foreground" />}
                     </Button>
                     {navCollapsed && (
                         <>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => navigate("/syllabi")}>
-                                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> All Courses
+                            <Button variant="ghost" size="sm" className="h-7 text-xs shrink-0" onClick={() => navigate("/syllabi")}>
+                                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> <span className="hidden sm:inline">All Courses</span>
                             </Button>
-                            <span className="text-sm font-semibold text-foreground/80">{detail.skill}</span>
+                            <span className="text-sm font-semibold text-foreground/80 truncate">{detail.skill}</span>
                             {activeChapter && (
                                 <>
-                                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <span className="text-sm text-muted-foreground truncate">
+                                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
+                                    <span className="text-sm text-muted-foreground truncate hidden sm:block">
                                         <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
                                     </span>
                                 </>
@@ -661,13 +760,15 @@ export default function SyllabusDetailPage() {
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-hidden">
                     {activeChapter && (
                         <ChapterContentPanel
                             key={activeChapter.id}
                             chapter={activeChapter}
                             onContentGenerated={handleContentGenerated}
                             onMarkComplete={handleChapterCompleted}
+                            onGoToNext={goToNextChapter}
+                            hasNext={!!nextChapter}
                         />
                     )}
                 </div>

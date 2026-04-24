@@ -27,8 +27,9 @@ This does the following automatically:
 After `make setup`, open `.env` and set at least:
 
 - `DATABASE_URL` — PostgreSQL (or your chosen database) connection string
-- `GEMINI_API_KEY` — Google Gemini
 - `JWT_SECRET_KEY` — at least 32 chars (required for auth startup)
+
+> **LLM provider:** API keys are no longer stored in `.env`. Each user configures their own LLM provider (Gemini, OpenAI, Anthropic, or Mistral) and API key via the Settings panel in the UI after logging in.
 
 For manual chapter email send, configure your company-managed SMTP relay in `.env`:
 
@@ -107,5 +108,5 @@ make format-check
 - **Port in use** — Change the Uvicorn port in `Makefile` (`run-api`) or the Vite config in `ui/` if 3005 / 5173 conflict with other apps.
 - **`permission denied for schema public` (Alembic)** — PostgreSQL 15+ limits `public`; grant `USAGE, CREATE` to your app user. See [postgres-public-schema.md](./postgres-public-schema.md).
 - **`email-validator is not installed` / `ImportError` on auth routes** — Run `pip install -r requirements.txt` (includes `email-validator` for Pydantic `EmailStr`).
-- **Gemini `HTTP 503` / “overloaded” / `UNAVAILABLE` in logs** — Usually temporary capacity on Google’s side (not your app key in the URL). The API client retries with backoff; wait and retry, try off-peak, or set `GEMINI_API_URL` to another model (see comment in `.env.example`). Check [Gemini API troubleshooting](https://ai.google.dev/gemini-api/docs/troubleshooting) and Cloud status if it persists.
+- **”LLM provider and API key not set”** — Log in, click the ⚙ gear icon in the sidebar, choose your provider (Gemini, OpenAI, Anthropic, or Mistral) and paste your API key.
 - **Manual chapter email returns 503** — Ensure `SMTP_HOST` and `SMTP_FROM_EMAIL` are set; if auth is required, provide both `SMTP_USER` and `SMTP_PASSWORD`.
