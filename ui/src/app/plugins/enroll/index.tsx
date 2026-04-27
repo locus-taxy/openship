@@ -106,6 +106,10 @@ export default function EnrollPage() {
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
+        if (hasApiKey !== true) {
+            setError("Please configure an LLM provider API key in Settings before enrolling.");
+            return;
+        }
         if (!subject) {
             setError("Please select a subject.");
             return;
@@ -384,7 +388,7 @@ export default function EnrollPage() {
                         {/* Footer */}
                         <div className="border-t border-border px-6 py-4 bg-muted/30 rounded-b-2xl space-y-3">
                             {error && <p className="text-sm text-destructive">{error}</p>}
-                            <Button type="submit" className="w-full h-10 rounded-xl" disabled={loading || hasApiKey === false}>
+                            <Button type="submit" className="w-full h-10 rounded-xl" disabled={loading || hasApiKey !== true}>
                                 {loading ? (
                                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Enrolling…</>
                                 ) : (
