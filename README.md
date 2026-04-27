@@ -12,8 +12,11 @@ Openship is an AI-powered personalized learning platform. Pick a skill and your 
 
 ## Demo
 
-<!-- Add demo video here -->
-https://github.com/user-attachments/assets/your-demo-video-id
+
+
+https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
+
+
 
 ---
 
