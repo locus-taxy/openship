@@ -121,7 +121,7 @@ Copy `.env.example` to `.env` and set at minimum:
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime (default: `2`) |
 | `JWT_REFRESH_TOKEN_EXPIRE_HOURS` | No | Refresh token lifetime (default: `7`) |
 
-> **LLM API keys** are not stored in `.env`. Users add their own API key per provider through the Settings panel in the UI after logging in. Keys are encrypted at rest using `LLM_ENCRYPTION_KEY`.
+> **LLM API keys** are not stored in `.env`. Users add their own API key per provider through the Settings panel in the UI after logging in. Keys are partially encrypted at rest: the key prefix is stored in plaintext while only the last 5 characters are encrypted using `LLM_ENCRYPTION_KEY` (Fernet/AES-128-CBC). A database leak alone is not sufficient to reconstruct a key — the server-side `LLM_ENCRYPTION_KEY` is also required.
 
 ---
 
