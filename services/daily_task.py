@@ -137,13 +137,17 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
 
 def mark_task_completed(task_id: int) -> bool:
     try:
+        from datetime import datetime, timezone
+
         with Session(engine) as session:
             task = session.get(DailyTask, task_id)
             if task is None:
                 return False
-            task.completed = True
-            session.add(task)
-            session.commit()
+            if not task.completed:  # idempotent — stamp only once
+                task.completed = True
+                task.completed_at = datetime.now(timezone.utc)
+                session.add(task)
+                session.commit()
             return True
     except Exception as e:
         print(f"Error marking task completed: {e}")

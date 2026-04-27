@@ -62,6 +62,7 @@ export default function AnalyticsPage() {
     const [syllabi, setSyllabi] = useState<Syllabus[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<Error | null>(null)
+    const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0 })
     const { setPluginName } = useStore((state: any) => state)
     const { user } = useAuthStore()
     const fetchedRef = useRef(false)
@@ -79,6 +80,9 @@ export default function AnalyticsPage() {
             })
             .catch(err => setError(err))
             .finally(() => setLoading(false))
+        getRequest("/py/streak").then(({ success, data }) => {
+            if (success) setStreak(data)
+        })
     }, [])
 
     const totalCourses = syllabi.length
@@ -215,7 +219,7 @@ export default function AnalyticsPage() {
                         {/* In Progress */}
                         <div className="rounded-2xl border border-border/60 bg-card p-3 sm:p-5 flex items-center gap-3 sm:gap-4">
                             <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10">
-                                <Flame className="h-4 w-4 sm:h-5 sm:w-5 text-amber-500" />
+                                <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-amber-500" />
                             </div>
                             <div>
                                 <p className="text-xl sm:text-2xl font-black">{inProgress.length}</p>
@@ -253,6 +257,28 @@ export default function AnalyticsPage() {
                             <div>
                                 <p className="text-xl sm:text-2xl font-black">{remainingTasks}</p>
                                 <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">Tasks Remaining</p>
+                            </div>
+                        </div>
+
+                        {/* Current streak */}
+                        <div className="rounded-2xl border border-border/60 bg-card p-5 flex items-center gap-4">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10">
+                                <Flame className="h-5 w-5 text-amber-500" />
+                            </div>
+                            <div>
+                                <p className="text-2xl font-black">{streak.current_streak}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">Current Streak</p>
+                            </div>
+                        </div>
+
+                        {/* Longest streak */}
+                        <div className="rounded-2xl border border-border/60 bg-card p-5 flex items-center gap-4">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10">
+                                <Zap className="h-5 w-5 text-violet-500" />
+                            </div>
+                            <div>
+                                <p className="text-2xl font-black">{streak.longest_streak}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">Longest Streak</p>
                             </div>
                         </div>
                     </div>

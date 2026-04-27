@@ -22,6 +22,10 @@ class DailyTask(SQLModel, table=True):
     newsletter: Optional[str] = None
     completed: bool = Field(default=False)
     stop_sending: bool = Field(default=False)
+    completed_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime, nullable=True),
+    )
     created_at: Optional[datetime] = Field(
         default=None,
         sa_column=Column(DateTime, server_default=func.now()),

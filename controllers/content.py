@@ -1,5 +1,7 @@
 import time
+from datetime import date
 from fastapi import HTTPException
+from pydantic import BaseModel
 from models.user import User
 from schemas.skill import GenerateContentRequest, GenerateChapterContentRequest
 from services.skill import get_syllabus_detail
@@ -15,6 +17,10 @@ from services.llm import (
     get_user_model,
     get_user_provider_name,
 )
+from services.streak import record_activity, get_user_streak
+
+class CompleteChapterBody(BaseModel):
+    local_date: date
 
 def _check_skill_ownership(detail: dict, current_user: User):
     if detail.pop("_user_id") != str(current_user.id):
@@ -96,7 +102,7 @@ def get_chapter(task_id: int, current_user: User):
     _check_task_ownership(chapter, current_user)
     return chapter
 
-def complete_chapter(task_id: int, current_user: User):
+def complete_chapter(task_id: int, current_user: User, local_date: date):
     chapter = get_chapter_content(task_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"Chapter {task_id} not found")
@@ -104,4 +110,8 @@ def complete_chapter(task_id: int, current_user: User):
     if not mark_task_completed(task_id):
         print(f"Failed to mark task {task_id} as completed in DB")
         raise HTTPException(status_code=500, detail="Failed to mark chapter as completed")
+    record_activity(str(current_user.id), local_date)
     return {"status": "success"}
+
+def get_streak(current_user: User):
+    return get_user_streak(str(current_user.id))

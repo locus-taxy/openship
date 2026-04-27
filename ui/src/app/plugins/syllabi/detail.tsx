@@ -208,7 +208,9 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
     // }
 
     async function handleMarkComplete() {
-        const { success } = await postRequest(`/py/chapter/${chapter.id}/complete`, {})
+        const { success } = await postRequest(`/py/chapter/${chapter.id}/complete`, {
+            local_date: new Date().toLocaleDateString("en-CA"),
+        })
         if (success) {
             setCompleted(true)
             onMarkComplete(chapter.id)
