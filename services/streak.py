@@ -6,17 +6,16 @@ from database import engine
 from models.streak import UserStreak
 
 def _get_or_create_streak(session: Session, user_id: str) -> UserStreak:
-    streak = session.exec(select(UserStreak).where(UserStreak.user_id == user_id)).first()
+    locked = select(UserStreak).where(UserStreak.user_id == user_id).with_for_update()
+    streak = session.exec(locked).first()
     if streak:
         return streak
     try:
-        streak = UserStreak(user_id=user_id)
-        session.add(streak)
+        session.add(UserStreak(user_id=user_id))
         session.flush()
-        return streak
     except IntegrityError:
         session.rollback()
-        return session.exec(select(UserStreak).where(UserStreak.user_id == user_id)).first()
+    return session.exec(locked).first()
 
 def record_activity(user_id: str, activity_date: date) -> UserStreak:
     with Session(engine) as session:
