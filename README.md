@@ -154,7 +154,7 @@ Interactive docs (Swagger UI) are available at `http://localhost:3005/docs` when
 
 ## Project Structure
 
-```
+```text
 openship/
 ├── controllers/          # Request handling logic (auth, syllabus, content)
 ├── services/             # Business logic (LLM routing, encryption, JWT)
