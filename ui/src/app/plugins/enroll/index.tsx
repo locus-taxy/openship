@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { UserPlus, ChevronDown, Loader2, Search, PenLine, Clock, CalendarDays } from "lucide-react";
+import { UserPlus, ChevronDown, Loader2, Search, PenLine, Clock, CalendarDays, KeyRound, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { postRequest } from "@/services";
+import { postRequest, getRequest } from "@/services";
 import useStore from "@/store";
 
 const SUBJECTS = [
@@ -47,7 +47,8 @@ export default function EnrollPage() {
     const [hours, setHours] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
-    const { setPluginName } = useStore((state: any) => state);
+    const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+    const { setPluginName, setSettingsOpen, settingsOpen } = useStore((state: any) => state);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     const finalSubject = isOther ? customSubject.trim() : subject;
@@ -61,6 +62,20 @@ export default function EnrollPage() {
     useEffect(() => {
         setPluginName("Enroll");
     }, [setPluginName]);
+
+    useEffect(() => {
+        if (settingsOpen) return; // only re-check when dialog closes (or on first load)
+        async function checkApiKey() {
+            const { success, data } = await getRequest("/py/auth/me/settings");
+            if (success) {
+                const anyKey = Object.values(data.provider_keys as Record<string, boolean>).some(Boolean);
+                setHasApiKey(anyKey);
+            } else {
+                setHasApiKey(false);
+            }
+        }
+        checkApiKey();
+    }, [settingsOpen]);
 
     useEffect(() => {
         function handleClickOutside(e: MouseEvent) {
@@ -126,6 +141,28 @@ export default function EnrollPage() {
                         Choose a subject and we'll build a personalised syllabus for you.
                     </p>
                 </div>
+
+                {/* No API key banner */}
+                {hasApiKey === false && (
+                    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-3.5">
+                        <KeyRound className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">API key required</p>
+                            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                                You need to configure an LLM provider before enrolling. Add your API key in Settings.
+                            </p>
+                        </div>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-900/30 h-8 text-xs"
+                            onClick={() => setSettingsOpen(true)}
+                        >
+                            <Settings className="h-3.5 w-3.5 mr-1.5" />
+                            Open Settings
+                        </Button>
+                    </div>
+                )}
 
                 {/* Form card */}
                 <div className="rounded-2xl border border-border bg-card shadow-sm">
@@ -347,7 +384,7 @@ export default function EnrollPage() {
                         {/* Footer */}
                         <div className="border-t border-border px-6 py-4 bg-muted/30 rounded-b-2xl space-y-3">
                             {error && <p className="text-sm text-destructive">{error}</p>}
-                            <Button type="submit" className="w-full h-10 rounded-xl" disabled={loading}>
+                            <Button type="submit" className="w-full h-10 rounded-xl" disabled={loading || hasApiKey === false}>
                                 {loading ? (
                                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Enrolling…</>
                                 ) : (
