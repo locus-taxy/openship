@@ -11,4 +11,6 @@ class UserStreak(SQLModel, table=True):
     current_streak: int = Field(default=0)
     longest_streak: int = Field(default=0)
     last_activity_date: Optional[date] = Field(default=None, sa_column=Column(Date, nullable=True))
-    updated_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))
+    updated_at: Optional[datetime] = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )

@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column("current_streak", sa.Integer(), server_default="0", nullable=False),
         sa.Column("longest_streak", sa.Integer(), server_default="0", nullable=False),
         sa.Column("last_activity_date", sa.Date(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index("ix_user_streaks_user_id", "user_streaks", ["user_id"], unique=True)
 
