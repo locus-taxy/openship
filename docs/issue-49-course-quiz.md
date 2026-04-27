@@ -48,7 +48,7 @@ One row per skill. Created lazily when the quiz is first generated.
 | `skill_id` | Integer FK → skills.id CASCADE | UNIQUE (one quiz per course) |
 | `difficulty` | VARCHAR(20) | copied from skill at generation time |
 | `pass_score` | Integer | percentage required to pass (60/70/80) |
-| `status` | VARCHAR(20) | `pending` · `available` · `passed` · `failed` |
+| `status` | VARCHAR(20) | `available` · `passed` |
 | `created_at` | DateTime | |
 | `updated_at` | DateTime | |
 
@@ -60,7 +60,7 @@ class Quiz(SQLModel, table=True):
     skill_id: int = Field(foreign_key="skills.id", unique=True, index=True)
     difficulty: str = Field(default="beginner")
     pass_score: int  # 60 / 70 / 80
-    status: str = Field(default="pending")  # pending | available | passed | failed
+    status: str = Field(default="available")  # available | passed
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 ```
@@ -190,6 +190,7 @@ class SubscribeRequest(BaseModel):
 ### `POST /quiz/{skill_id}/generate` — response
 
 ```python
+# schemas/quiz.py
 class QuizGenerateResponse(BaseModel):
     quiz_id: int
     status: str          # "available"
@@ -205,7 +206,7 @@ class QuizGenerateResponse(BaseModel):
 # added to the returned dict
 "quiz_difficulty": skill_row.quiz_difficulty,
 "quiz_status": quiz_row.status if quiz_row else "not_generated",
-# "not_generated" | "available" | "passed" | "failed"
+# "not_generated" | "available" | "passed"
 ```
 
 ### `GET /syllabi` (modified response)
@@ -237,9 +238,27 @@ function getStatus(completed: number, total: number, quizStatus: string) {
 }
 ```
 
+### `GET /quiz/{skill_id}/attempts` — response
+
+```python
+# schemas/quiz.py
+class QuizAttemptOut(BaseModel):
+    attempt_id: int
+    score: int
+    passed: bool
+    created_at: str
+
+class QuizAttemptsResponse(BaseModel):
+    quiz_id: int
+    skill_id: int
+    pass_score: int
+    attempts: List[QuizAttemptOut]
+```
+
 ### `GET /quiz/{skill_id}` — response
 
 ```python
+# schemas/quiz.py
 class QuizQuestionOut(BaseModel):
     id: int
     position: int
@@ -264,6 +283,7 @@ class QuizOut(BaseModel):
 ### `POST /quiz/{skill_id}/submit` — request + response
 
 ```python
+# schemas/quiz.py
 class QuizSubmitRequest(BaseModel):
     answers: Dict[int, str]   # { question_id: "A" | "B" | "C" | "D" }
 
@@ -398,6 +418,12 @@ def submit_quiz(skill_id: int, payload: QuizSubmitRequest, current_user: User) -
     # 4. Score answers
     # 5. services.quiz.record_attempt()
     # 6. Return full per-question breakdown with correct answers + explanations
+
+def get_attempts(skill_id: int, current_user: User) -> QuizAttemptsResponse:
+    # 1. Verify ownership
+    # 2. Fetch quiz (404 if not generated yet)
+    # 3. Fetch all quiz_attempts for this quiz ordered by created_at desc
+    # 4. Return QuizAttemptsResponse
 ```
 
 ---
@@ -516,8 +542,9 @@ import QuizPage from "@/app/plugins/syllabi/quiz";
 ### 5. Nav / progress — course status
 
 `GET /syllabi/{skill_id}` response should include `quiz_status` so the sidebar can show:
-- Chapters complete, quiz pending → "Take Quiz" CTA
-- Quiz passed → progress 100%
+- `quiz_status === "not_generated"` and all chapters done → "Take Quiz" CTA
+- `quiz_status === "available"` → quiz generated, not yet passed → show "Take Quiz" / "Retry"
+- `quiz_status === "passed"` → progress 100%
 
 ---
 
@@ -577,6 +604,7 @@ or `PUBLIC_PREFIXES` — which is already the case (no action needed).
 ### New files
 | File | Purpose |
 |------|---------|
+| `schemas/quiz.py` | All quiz request/response schemas |
 | `models/quiz.py` | Quiz table |
 | `models/quiz_question.py` | QuizQuestion table |
 | `models/quiz_attempt.py` | QuizAttempt table |
