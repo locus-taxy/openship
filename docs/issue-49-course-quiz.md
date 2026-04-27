@@ -375,7 +375,8 @@ def all_chapters_complete(skill_id: int) -> bool
 
 ```python
 def generate_quiz(skill_id: int, current_user: User) -> QuizGenerateResponse:
-    # 1. Verify skill ownership (403 if not owner)
+    # 1. Verify skill ownership: skill_row.user_id == str(current_user.id)
+    #    (skills.user_id is stored as str — matches pattern in content_controller)
     # 2. Check all chapters complete — raise HTTP 400 if not
     # 3. Check quiz doesn't already exist — raise HTTP 409 if it does
     # 4. Fetch topics from daily_tasks
@@ -424,11 +425,19 @@ def get_attempts(skill_id: int, request: Request):
     return quiz_controller.get_attempts(skill_id, request.state.user)
 ```
 
-Register in `main.py`:
+Register in `routes/__init__.py` (not directly in `main.py` — routers are registered
+via `register_routers(app)` in `routes/__init__.py`):
+
 ```python
+# routes/__init__.py
 from routes.quiz import router as quiz_router
-app.include_router(quiz_router, prefix="/py")
+
+def register_routers(app: FastAPI):
+    ...
+    app.include_router(quiz_router)   # add alongside existing routers
 ```
+
+`main.py` itself needs no changes.
 
 ---
 
@@ -490,9 +499,18 @@ After submission, each question shows:
 
 ### 4. Route registration in React Router
 
+Routes live in `ui/src/routes/index.tsx` (not `App.tsx` — `App.tsx` just renders
+`<RouterProvider>`). Add the quiz route as a nested child under the layout:
+
 ```tsx
-// In App.tsx or routes config
-<Route path="/syllabi/:skillId/quiz" element={<QuizPage />} />
+// ui/src/routes/index.tsx
+import QuizPage from "@/app/plugins/syllabi/quiz";
+
+// inside the Layout children array:
+{
+    path: "syllabi/:skillId/quiz",
+    element: <QuizPage />,
+},
 ```
 
 ### 5. Nav / progress — course status
@@ -579,11 +597,11 @@ or `PUBLIC_PREFIXES` — which is already the case (no action needed).
 | `services/skill.py` | `create_skill()` accepts `quiz_difficulty`; `get_syllabus_detail()` and `get_all_syllabi()` LEFT JOIN quizzes, return `quiz_status` / `quiz_difficulty` |
 | `services/llm.py` | Add `GeneratedQuestion`, `GeneratedQuiz`, `generate_quiz()` |
 | `controllers/subscription.py` | Pass `quiz_difficulty` through to `create_skill()` |
-| `main.py` | Register quiz router |
+| `routes/__init__.py` | Register quiz router in `register_routers()` |
 | `ui/src/app/plugins/enroll/index.tsx` | Add difficulty picker |
 | `ui/src/app/plugins/syllabi/detail.tsx` | Add "Take Quiz" CTA, update progress logic |
 | `ui/src/app/plugins/analytics/index.tsx` | Update `getStatus()` to require `quiz_status === "passed"` for "completed" |
-| `ui/src/App.tsx` | Add `/syllabi/:skillId/quiz` route |
+| `ui/src/routes/index.tsx` | Add `syllabi/:skillId/quiz` route under layout children |
 
 ---
 
