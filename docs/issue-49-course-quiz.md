@@ -163,6 +163,8 @@ class QuizAttempt(SQLModel, table=True):
 | Method | Path | Change |
 |--------|------|--------|
 | `POST` | `/subscribe` | Accept `quiz_difficulty` field (default `"beginner"`) |
+| `GET` | `/syllabi/{skill_id}` | Response includes `quiz_status` and `quiz_difficulty` |
+| `GET` | `/syllabi` | Response includes `quiz_status` per course (for analytics + syllabi list) |
 | `POST` | `/chapter/{task_id}/complete` | No change in logic — chapter-level completion is unchanged |
 
 ---
@@ -172,18 +174,18 @@ class QuizAttempt(SQLModel, table=True):
 ### `POST /subscribe` (modified)
 
 ```python
+# schemas/skill.py
+from typing import Literal
+
 class SubscribeRequest(BaseModel):
     skill: str
     days: int = Field(90, gt=0)
     hours: int = Field(1, gt=0)
-    quiz_difficulty: str = Field("beginner")  # NEW
-
-    @validator("quiz_difficulty")
-    def validate_difficulty(cls, v):
-        if v not in ("beginner", "intermediate", "advanced"):
-            raise ValueError("must be beginner, intermediate, or advanced")
-        return v
+    quiz_difficulty: Literal["beginner", "intermediate", "advanced"] = "beginner"  # NEW
 ```
+
+> Uses `Literal` type (Pydantic v2 style, already used in the codebase) instead of
+> a `@validator` — FastAPI will auto-validate and return 422 on invalid values.
 
 ### `POST /quiz/{skill_id}/generate` — response
 
@@ -193,6 +195,46 @@ class QuizGenerateResponse(BaseModel):
     status: str          # "available"
     question_count: int
     pass_score: int
+```
+
+### `GET /syllabi/{skill_id}` (modified response)
+
+`services/skill.py::get_syllabus_detail()` needs a LEFT JOIN on `quizzes` to add:
+
+```python
+# added to the returned dict
+"quiz_difficulty": skill_row.quiz_difficulty,
+"quiz_status": quiz_row.status if quiz_row else "not_generated",
+# "not_generated" | "available" | "passed" | "failed"
+```
+
+### `GET /syllabi` (modified response)
+
+`services/skill.py::get_all_syllabi()` needs a LEFT JOIN on `quizzes` to add per course:
+
+```python
+"quiz_status": quiz_row.status if quiz_row else "not_generated",
+```
+
+Analytics `getStatus()` in `ui/src/app/plugins/analytics/index.tsx` currently treats
+`completed_tasks / total_tasks === 100%` as "completed". This must be updated:
+
+```typescript
+// BEFORE
+function getStatus(completed: number, total: number) {
+    const pct = (completed / total) * 100
+    if (pct === 100) return "completed"
+    ...
+}
+
+// AFTER — quiz_status must also be "passed" for a course to show as complete
+function getStatus(completed: number, total: number, quizStatus: string) {
+    if (total === 0) return "no-syllabus"
+    const pct = (completed / total) * 100
+    if (pct === 100 && quizStatus === "passed") return "completed"
+    if (pct > 0 || quizStatus !== "not_generated") return "in-progress"
+    return "not-started"
+}
 ```
 
 ### `GET /quiz/{skill_id}` — response
@@ -531,12 +573,16 @@ or `PUBLIC_PREFIXES` — which is already the case (no action needed).
 ### Modified files
 | File | Change |
 |------|--------|
-| `models/__init__.py` | Export new models |
-| `schemas/skill.py` | Add `quiz_difficulty` to `SubscribeRequest` |
+| `models/skill.py` | Add `quiz_difficulty` field |
+| `models/__init__.py` | Export `Quiz`, `QuizQuestion`, `QuizAttempt` |
+| `schemas/skill.py` | Add `quiz_difficulty: Literal[...]` to `SubscribeRequest` |
+| `services/skill.py` | `create_skill()` accepts `quiz_difficulty`; `get_syllabus_detail()` and `get_all_syllabi()` LEFT JOIN quizzes, return `quiz_status` / `quiz_difficulty` |
 | `services/llm.py` | Add `GeneratedQuestion`, `GeneratedQuiz`, `generate_quiz()` |
+| `controllers/subscription.py` | Pass `quiz_difficulty` through to `create_skill()` |
 | `main.py` | Register quiz router |
 | `ui/src/app/plugins/enroll/index.tsx` | Add difficulty picker |
 | `ui/src/app/plugins/syllabi/detail.tsx` | Add "Take Quiz" CTA, update progress logic |
+| `ui/src/app/plugins/analytics/index.tsx` | Update `getStatus()` to require `quiz_status === "passed"` for "completed" |
 | `ui/src/App.tsx` | Add `/syllabi/:skillId/quiz` route |
 
 ---
@@ -552,3 +598,7 @@ or `PUBLIC_PREFIXES` — which is already the case (no action needed).
 - [ ] Passing attempt → `quiz.status` = `passed`, progress = 100%
 - [ ] `POST /quiz/{skill_id}/generate` second time → 409
 - [ ] `GET /public/syllabi/{skill_id}` → no quiz data leaked
+- [ ] Analytics: all chapters done but quiz not passed → status "in-progress", not "completed"
+- [ ] Analytics: all chapters done + quiz passed → status "completed", progress 100%
+- [ ] `GET /syllabi` response includes `quiz_status` per course
+- [ ] `GET /syllabi/{skill_id}` response includes `quiz_status` and `quiz_difficulty`
