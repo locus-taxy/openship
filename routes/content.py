@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 from schemas.skill import GenerateContentRequest, GenerateChapterContentRequest
 from controllers import content as content_controller
+from controllers.content import CompleteChapterBody
 
 router = APIRouter(tags=["content"])
 
@@ -17,5 +18,9 @@ def get_chapter(task_id: int, request: Request):
     return content_controller.get_chapter(task_id, request.state.user)
 
 @router.post("/chapter/{task_id}/complete")
-def complete_chapter(task_id: int, request: Request):
-    return content_controller.complete_chapter(task_id, request.state.user)
+def complete_chapter(task_id: int, body: CompleteChapterBody, request: Request):
+    return content_controller.complete_chapter(task_id, request.state.user, body.local_date)
+
+@router.get("/streak")
+def get_streak(request: Request):
+    return content_controller.get_streak(request.state.user)
