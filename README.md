@@ -139,6 +139,7 @@ Interactive docs (Swagger UI) are available at `http://localhost:3005/docs` when
 | `GET` | `/auth/me/settings` | Get LLM provider and model settings |
 | `PUT` | `/auth/me/settings` | Update provider, model, or API key |
 | `GET` | `/auth/me/models` | List available models for a provider |
+| `POST` | `/auth/me/models/verify` | Verify a provider/model/API key combination |
 | `POST` | `/subscribe` | Enroll in a skill |
 | `GET` | `/syllabi` | List all enrolled syllabi |
 | `GET` | `/syllabi/search` | Search syllabi and chapters |
