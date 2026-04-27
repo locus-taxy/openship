@@ -22,6 +22,10 @@ def record_activity(user_id: str, activity_date: date) -> UserStreak:
     with Session(engine) as session:
         streak = _get_or_create_streak(session, user_id)
 
+        utc_today = datetime.now(timezone.utc).date()
+        if activity_date > utc_today + timedelta(days=1):
+            return streak  # future-dated event — reject to prevent streak fast-forward
+
         if streak.last_activity_date == activity_date:
             return streak  # already counted today
 
