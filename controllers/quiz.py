@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from models.quiz import Quiz
 from models.skill import Skill
@@ -42,13 +43,6 @@ def _get_owned_quiz(skill_id: int, current_user: User) -> Quiz:
 def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateResponse:
     skill = _get_owned_skill(skill_id, current_user)
 
-    # Guard: all chapters must be complete
-    if not quiz_service.all_chapters_complete(skill_id):
-        raise HTTPException(
-            status_code=400,
-            detail="Complete all chapters before generating the quiz",
-        )
-
     # Guard: quiz already exists
     if quiz_service.get_quiz_by_skill(skill_id) is not None:
         raise HTTPException(status_code=409, detail="Quiz already generated for this course")
@@ -78,7 +72,10 @@ def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateRe
     if generated is None:
         raise HTTPException(status_code=502, detail="Quiz generation failed. Please try again.")
 
-    quiz = quiz_service.create_quiz(skill_id, difficulty, generated.questions)
+    try:
+        quiz = quiz_service.create_quiz(skill_id, difficulty, generated.questions)
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="Quiz already generated for this course")
 
     return QuizGenerateResponse(
         quiz_id=quiz.id,

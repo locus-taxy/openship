@@ -6,6 +6,7 @@ import {
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
     Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, BookCheck,
 } from "lucide-react"
+import { QuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -360,10 +361,12 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
 
 // ─── Chapter Nav (left panel) ─────────────────────────────────────────────────
 
-function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus, allComplete }: {
+function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus }: {
     detail: SyllabusDetail
     activeChapterId: number | null
     onSelectChapter: (chapter: Chapter) => void
+    onSelectQuiz: () => void
+    isQuizActive: boolean
     overallProgress: number
     completedCount: number
     totalCount: number
@@ -375,7 +378,6 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
     onToggleShare: () => void
     onCopyLink: () => void
     quizStatus: string
-    allComplete: boolean
 }) {
     const [openMonths, setOpenMonths] = useState<Set<number>>(
         () => new Set(detail.months.map((m) => m.month))
@@ -492,36 +494,36 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
                 ))}
                 </div>
 
-                {/* Take Quiz CTA — shown when all chapters complete */}
-                {allComplete && (
-                    <div className="p-4 border-t shrink-0">
-                        {quizStatus === "passed" ? (
-                            <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-4 py-3">
-                                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Quiz Passed!</span>
-                            </div>
-                        ) : (
-                            <a href={`/syllabi/${skillId}/quiz`} className="block w-full">
-                                <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 cursor-pointer transition-all duration-150 ${
-                                    quizStatus === "available"
-                                        ? "border-indigo-200 bg-indigo-50 dark:bg-indigo-950/30 dark:border-indigo-800 hover:bg-indigo-100"
-                                        : "border-primary/30 bg-primary/5 hover:bg-primary/10"
-                                }`}>
-                                    <BookCheck className="h-4 w-4 text-primary shrink-0" />
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-semibold text-foreground">
-                                            {quizStatus === "available" ? "Continue Quiz" : "Take Final Quiz"}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground mt-0.5">
-                                            {quizStatus === "available" ? "Quiz generated — complete it to finish" : "Complete the course quiz to finish"}
-                                        </p>
-                                    </div>
-                                    <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                                </div>
-                            </a>
+                {/* Final Quiz nav item */}
+                <div className="border-t shrink-0">
+                    <button
+                        onClick={onSelectQuiz}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                            isQuizActive
+                                ? "bg-primary/10 text-primary border-r-2 border-primary"
+                                : "hover:bg-muted/50"
+                        }`}
+                    >
+                        <BookCheck className={`h-4 w-4 shrink-0 ${
+                            quizStatus === "passed" ? "text-emerald-500"
+                            : isQuizActive ? "text-primary"
+                            : "text-muted-foreground"
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium ${isQuizActive ? "text-primary" : "text-foreground/80"}`}>
+                                Final Quiz
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                {quizStatus === "passed" ? "Passed ✓"
+                                    : quizStatus === "available" ? "Ready to attempt"
+                                    : "Not generated yet"}
+                            </p>
+                        </div>
+                        {quizStatus === "passed" && (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                         )}
-                    </div>
-                )}
+                    </button>
+                </div>
             </div>
         </div>
     )
@@ -563,6 +565,7 @@ export default function SyllabusDetailPage() {
     const [copied, setCopied] = useState(false)
     const [copyFailed, setCopyFailed] = useState(false)
     const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
+    const [activeView, setActiveView] = useState<"chapter" | "quiz">("chapter")
     const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set())
     const [navCollapsed, setNavCollapsed] = useState(false)
     const [navWidth, setNavWidth] = useState(350)
@@ -652,6 +655,10 @@ export default function SyllabusDetailPage() {
                 })),
             }
         })
+    }
+
+    function handleQuizStatusChange(status: string) {
+        setDetail((prev) => prev ? { ...prev, quiz_status: status } : prev)
     }
 
     function handleGenerationStart(taskId: number) {
@@ -759,7 +766,7 @@ export default function SyllabusDetailPage() {
                     <ChapterNav
                         detail={detail}
                         activeChapterId={activeChapterId}
-                        onSelectChapter={(chapter) => { setActiveChapterId(chapter.id); setSearchParams({ chapter: String(chapter.id) }); setMobileSidebarOpen(false); }}
+                        onSelectChapter={(chapter) => { setActiveChapterId(chapter.id); setActiveView("chapter"); setSearchParams({ chapter: String(chapter.id) }); setMobileSidebarOpen(false); }}
                         overallProgress={overallProgress}
                         completedCount={completedCount}
                         totalCount={allTasks.length}
@@ -771,7 +778,8 @@ export default function SyllabusDetailPage() {
                         onToggleShare={handleToggleShare}
                         onCopyLink={handleCopyLink}
                         quizStatus={detail.quiz_status}
-                        allComplete={completedCount === allTasks.length && allTasks.length > 0}
+                        onSelectQuiz={() => { setActiveView("quiz"); setMobileSidebarOpen(false) }}
+                        isQuizActive={activeView === "quiz"}
                     />
                     {/* Resize handle */}
                     <div
@@ -799,25 +807,35 @@ export default function SyllabusDetailPage() {
                                 <ArrowLeft className="h-3.5 w-3.5 mr-1" /> <span className="hidden sm:inline">All Courses</span>
                             </Button>
                             <span className="text-sm font-semibold text-foreground/80 truncate">{detail.skill}</span>
-                            {activeChapter && (
-                                <>
-                                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
-                                    <span className="text-sm text-muted-foreground truncate hidden sm:block">
-                                        <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
-                                    </span>
-                                </>
+                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
+                            {activeView === "quiz" ? (
+                                <span className="text-sm text-muted-foreground truncate hidden sm:block">Final Quiz</span>
+                            ) : activeChapter && (
+                                <span className="text-sm text-muted-foreground truncate hidden sm:block">
+                                    <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
+                                </span>
                             )}
                         </>
                     )}
-                    {!navCollapsed && activeChapter && (
-                        <span className="text-sm text-muted-foreground truncate">
-                            <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
-                        </span>
+                    {!navCollapsed && (
+                        activeView === "quiz" ? (
+                            <span className="text-sm text-muted-foreground truncate">Final Quiz</span>
+                        ) : activeChapter ? (
+                            <span className="text-sm text-muted-foreground truncate">
+                                <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
+                            </span>
+                        ) : null
                     )}
                 </div>
 
                 <div className="flex-1 overflow-hidden">
-                    {activeChapter && (
+                    {activeView === "quiz" ? (
+                        <QuizPanel
+                            skillId={skillId!}
+                            onBack={() => setActiveView("chapter")}
+                            onQuizStatusChange={handleQuizStatusChange}
+                        />
+                    ) : activeChapter ? (
                         <ChapterContentPanel
                             key={activeChapter.id}
                             chapter={activeChapter}
@@ -829,7 +847,7 @@ export default function SyllabusDetailPage() {
                             onGoToNext={goToNextChapter}
                             hasNext={!!nextChapter}
                         />
-                    )}
+                    ) : null}
                 </div>
             </main>
         </div>

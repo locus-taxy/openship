@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Home } from "lucide-react";
 import SyllabiPage from "@/app/plugins/syllabi";
 import SyllabusDetailPage from "@/app/plugins/syllabi/detail";
-import QuizPage from "@/app/plugins/syllabi/quiz";
 import PublicSyllabusPage from "@/app/plugins/syllabi/public";
 import GenerateContentPage from "@/app/plugins/generateContent";
 import GenerateSyllabusPage from "@/app/plugins/generateSyllabus";
@@ -80,10 +79,6 @@ const router = createBrowserRouter([
             {
                 path: "syllabi/:skillId",
                 element: <SyllabusDetailPage />,
-            },
-            {
-                path: "syllabi/:skillId/quiz",
-                element: <QuizPage />,
             },
             {
                 path: "analytics",
