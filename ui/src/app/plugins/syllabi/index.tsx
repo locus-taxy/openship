@@ -330,7 +330,7 @@ export default function SyllabiPage() {
     const { setPluginName } = useStore((state: any) => state)
 
     useEffect(() => {
-        setPluginName("Syllabi")
+        setPluginName("Courses")
     }, [setPluginName])
 
     const fetchedRef = useRef(false)
@@ -387,7 +387,7 @@ export default function SyllabiPage() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight">My Courses</h1>
+                    <h1 className="text-2xl font-bold tracking-tight">Courses</h1>
                     <p className="text-muted-foreground text-sm mt-0.5">All active learning plans</p>
                 </div>
                 <Button onClick={() => navigate("/enroll")}>
