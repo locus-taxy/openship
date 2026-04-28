@@ -141,6 +141,10 @@ export function QuizPanel({
     }
 
     function handleRetry() {
+        if (quiz) {
+            const shuffled = [...quiz.questions].sort(() => Math.random() - 0.5)
+            setQuiz({ ...quiz, questions: shuffled })
+        }
         setResult(null)
         setAnswers({})
         setSubmitError("")
