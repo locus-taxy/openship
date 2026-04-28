@@ -238,8 +238,8 @@ export function NavUser() {
                                     className={cn(
                                         "flex flex-col sm:flex-row items-center sm:gap-2 px-1.5 sm:px-3 py-2 rounded-lg text-[10px] sm:text-sm font-medium transition-colors w-full text-center sm:text-left",
                                         activeTab === id
-                                            ? "bg-background text-foreground shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-background/60"
+                                            ? "bg-primary/10 text-primary"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
                                     )}
                                 >
                                     <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 mb-0.5 sm:mb-0" />
@@ -426,7 +426,7 @@ export function NavUser() {
                                                         ) : (
                                                             <div className="shrink-0 flex items-center gap-1">
                                                                 <button type="button" onClick={handleRemoveKey} disabled={removing} className="flex items-center gap-1 rounded-lg bg-destructive px-2 py-1 text-[10px] sm:text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors">
-                                                                    {removing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Trash2 className="h-2.5 w-2.5" />} Del
+                                                                    {removing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Trash2 className="h-2.5 w-2.5" />} Delete
                                                                 </button>
                                                                 <button type="button" onClick={() => setConfirmDelete(false)} className="rounded-lg border border-border bg-background p-1 text-muted-foreground hover:bg-accent transition-colors">
                                                                     <X className="h-2.5 w-2.5" />

@@ -178,8 +178,13 @@ export default function EnrollPage() {
                     </div>
                 )}
 
-                {/* Form card */}
-                <div className="rounded-2xl border border-border bg-card shadow-sm">
+                {/* Form card — only shown when API key is configured */}
+                {hasApiKey === null && (
+                    <div className="flex justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                )}
+                {hasApiKey === true && <div className="rounded-2xl border border-border bg-card shadow-sm">
                     <form onSubmit={handleSubmit}>
                         <div className="p-6 space-y-6">
 
@@ -433,7 +438,8 @@ export default function EnrollPage() {
                             </Button>
                         </div>
                     </form>
-                </div>
+                </div>}
+
             </div>
         </div>
     );
