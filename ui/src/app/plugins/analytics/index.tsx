@@ -30,13 +30,15 @@ interface Syllabus {
     created_at: string
     total_tasks: number
     completed_tasks: number
+    quiz_status: string   // "not_generated" | "available" | "passed"
 }
 
-function getStatus(completed: number, total: number) {
+function getStatus(completed: number, total: number, quizStatus: string) {
     if (total === 0) return "no-syllabus"
     const completionPercentage = (completed / total) * 100
-    if (completionPercentage === 100) return "completed"
-    if (completionPercentage > 0) return "in-progress"
+    // A course is only "completed" when all chapters done AND quiz passed
+    if (completionPercentage === 100 && quizStatus === "passed") return "completed"
+    if (completionPercentage > 0 || quizStatus !== "not_generated") return "in-progress"
     return "not-started"
 }
 
@@ -86,10 +88,10 @@ export default function AnalyticsPage() {
     }, [])
 
     const totalCourses = syllabi.length
-    const inProgress = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "in-progress")
-    const completedCourses = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "completed")
-    const notStarted = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "not-started")
-    const noSyllabus = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks) === "no-syllabus")
+    const inProgress = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks, s.quiz_status ?? "not_generated") === "in-progress")
+    const completedCourses = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks, s.quiz_status ?? "not_generated") === "completed")
+    const notStarted = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks, s.quiz_status ?? "not_generated") === "not-started")
+    const noSyllabus = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks, s.quiz_status ?? "not_generated") === "no-syllabus")
     const totalTasks = syllabi.reduce((sum, s) => sum + s.total_tasks, 0)
     const totalTaskDone = syllabi.reduce((sum, s) => sum + s.completed_tasks, 0)
     const totalHours = syllabi.reduce((sum, s) => sum + s.hours * s.days, 0)
@@ -98,7 +100,7 @@ export default function AnalyticsPage() {
 
     const sortedSyllabi = [...syllabi].sort((a, b) => {
         const order: Record<string, number> = { "in-progress": 0, "not-started": 1, "no-syllabus": 2, "completed": 3 }
-        return order[getStatus(a.completed_tasks, a.total_tasks)] - order[getStatus(b.completed_tasks, b.total_tasks)]
+        return order[getStatus(a.completed_tasks, a.total_tasks, a.quiz_status ?? "not_generated")] - order[getStatus(b.completed_tasks, b.total_tasks, b.quiz_status ?? "not_generated")]
     })
 
     if (loading) {
@@ -350,7 +352,7 @@ export default function AnalyticsPage() {
 
                     <div className="space-y-2.5">
                         {sortedSyllabi.map((s) => {
-                            const status = getStatus(s.completed_tasks, s.total_tasks)
+                            const status = getStatus(s.completed_tasks, s.total_tasks, s.quiz_status ?? "not_generated")
                             const pct = s.total_tasks > 0 ? Math.round((s.completed_tasks / s.total_tasks) * 100) : 0
                             const ringColor = status === "completed" ? "#10b981" : status === "in-progress" ? "#6366f1" : "#94a3b8"
                             const trackColor = status === "completed" ? "rgba(16,185,129,0.15)" : status === "in-progress" ? "rgba(99,102,241,0.15)" : "rgba(148,163,184,0.15)"

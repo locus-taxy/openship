@@ -175,6 +175,19 @@ class SyllabusResponse(BaseModel):
 class ChapterContent(BaseModel):
     html: str
 
+class QuizOption(BaseModel):
+    label: str  # "A", "B", "C", "D"
+    text: str
+
+class GeneratedQuestion(BaseModel):
+    question: str
+    options: List[QuizOption]  # exactly 4
+    correct_option: str  # "A", "B", "C", or "D"
+    explanation: str  # shown after submission
+
+class GeneratedQuiz(BaseModel):
+    questions: List[GeneratedQuestion]
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _norm(value: Optional[str]) -> Optional[str]:
@@ -370,6 +383,62 @@ def generate_syllabus_json(
     except Exception as e:
         _raise_if_provider_error(provider, e)
         logger.error("Syllabus generation failed [provider=%s]: %s", provider, e)
+        return None
+
+def generate_quiz(
+    skill: str,
+    topics: List[str],
+    difficulty: str,
+    num_questions: int,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[GeneratedQuiz]:
+    """Generate a multiple-choice quiz using Instructor. Returns GeneratedQuiz or None."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+
+    difficulty_desc = {
+        "beginner": "recall and basic understanding",
+        "intermediate": "application and problem-solving",
+        "advanced": "analysis, edge cases, and trade-offs",
+    }.get(difficulty, "recall and basic understanding")
+
+    topics_list = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(topics))
+
+    system_prompt = (
+        f"You are an expert educator creating a {difficulty}-level quiz for a student who "
+        f"has just completed a {skill} course covering {len(topics)} topics."
+    )
+    user_prompt = (
+        f"The course covered these topics (in order):\n{topics_list}\n\n"
+        f"Generate exactly {num_questions} multiple-choice questions.\n"
+        f"Rules:\n"
+        f"- Each question must have exactly 4 options with labels A, B, C, D\n"
+        f"- Questions should test understanding across the breadth of the course topics\n"
+        f"- Difficulty level: {difficulty} — focus on {difficulty_desc}\n"
+        f"- Vary question types: definitions, code reasoning, best-practice selection, comparisons\n"
+        f"- The explanation should clarify why the correct answer is right (1-2 sentences)"
+    )
+
+    try:
+        client = _build_client(provider, api_key)
+        response: GeneratedQuiz = client.chat.completions.create(
+            model=model,
+            response_model=GeneratedQuiz,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            **_token_kwargs(provider, 8192),
+            max_retries=1,
+        )
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.error("Quiz generation failed [provider=%s]: %s", provider, e)
         return None
 
 def generate_chapter_html(

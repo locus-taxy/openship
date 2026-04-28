@@ -3,8 +3,8 @@ import { LlmBar } from "@/components/llm-bar"
 import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
     ArrowLeft, ArrowRight, CheckCircle2,
-    FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send,
-    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen,
+    FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
+    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, BookCheck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -49,6 +49,8 @@ interface SyllabusDetail {
     days: number
     hours: number
     share_enabled: boolean
+    quiz_difficulty: string
+    quiz_status: string   // "not_generated" | "available" | "passed"
     created_at: string
     months: Month[]
 }
@@ -355,7 +357,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
 
 // ─── Chapter Nav (left panel) ─────────────────────────────────────────────────
 
-function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink }: {
+function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus, allComplete }: {
     detail: SyllabusDetail
     activeChapterId: number | null
     onSelectChapter: (chapter: Chapter) => void
@@ -369,6 +371,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
     skillId: string
     onToggleShare: () => void
     onCopyLink: () => void
+    quizStatus: string
+    allComplete: boolean
 }) {
     const [openMonths, setOpenMonths] = useState<Set<number>>(
         () => new Set(detail.months.map((m) => m.month))
@@ -443,7 +447,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
             </div>
 
             {/* Chapter tree */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto flex flex-col">
+                <div className="flex-1">
                 {detail.months.map((month) => (
                     <div key={month.month}>
                         <button
@@ -482,6 +487,38 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
                         ))}
                     </div>
                 ))}
+                </div>
+
+                {/* Take Quiz CTA — shown when all chapters complete */}
+                {allComplete && (
+                    <div className="p-4 border-t shrink-0">
+                        {quizStatus === "passed" ? (
+                            <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-4 py-3">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Quiz Passed!</span>
+                            </div>
+                        ) : (
+                            <a href={`/syllabi/${skillId}/quiz`} className="block w-full">
+                                <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 cursor-pointer transition-all duration-150 ${
+                                    quizStatus === "available"
+                                        ? "border-indigo-200 bg-indigo-50 dark:bg-indigo-950/30 dark:border-indigo-800 hover:bg-indigo-100"
+                                        : "border-primary/30 bg-primary/5 hover:bg-primary/10"
+                                }`}>
+                                    <BookCheck className="h-4 w-4 text-primary shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-semibold text-foreground">
+                                            {quizStatus === "available" ? "Continue Quiz" : "Take Final Quiz"}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                            {quizStatus === "available" ? "Quiz generated — complete it to finish" : "Complete the course quiz to finish"}
+                                        </p>
+                                    </div>
+                                    <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                                </div>
+                            </a>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -574,7 +611,10 @@ export default function SyllabusDetailPage() {
 
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length
-    const overallProgress = allTasks.length > 0 ? Math.round((completedCount / allTasks.length) * 100) : 0
+    const quizPassed = detail?.quiz_status === "passed"
+    const rawProgress = allTasks.length > 0 ? Math.round((completedCount / allTasks.length) * 100) : 0
+    // Cap at 99% until quiz is passed — jumps to 100% on pass
+    const overallProgress = rawProgress === 100 && !quizPassed ? 99 : rawProgress
 
     // Restore chapter from URL param, fallback to first chapter
     useEffect(() => {
@@ -718,6 +758,8 @@ export default function SyllabusDetailPage() {
                         skillId={skillId!}
                         onToggleShare={handleToggleShare}
                         onCopyLink={handleCopyLink}
+                        quizStatus={detail.quiz_status}
+                        allComplete={completedCount === allTasks.length && allTasks.length > 0}
                     />
                     {/* Resize handle */}
                     <div

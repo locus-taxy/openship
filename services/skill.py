@@ -1,19 +1,34 @@
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
-from sqlalchemy import func, case
+from sqlalchemy import func, case, outerjoin
 from database import engine
 from models.skill import Skill
 from models.daily_task import DailyTask
+from models.quiz import Quiz
 
 def skill_exists(email: str, skill: str) -> bool:
     with Session(engine) as session:
         statement = select(Skill).where(Skill.email == email, Skill.skill == skill)
         return session.exec(statement).first() is not None
 
-def create_skill(user_id: str, email: str, skill: str, days: int, hours: int) -> Optional[int]:
+def create_skill(
+    user_id: str,
+    email: str,
+    skill: str,
+    days: int,
+    hours: int,
+    quiz_difficulty: str = "beginner",
+) -> Optional[int]:
     try:
         with Session(engine) as session:
-            db_skill = Skill(user_id=user_id, email=email, skill=skill, days=days, hours=hours)
+            db_skill = Skill(
+                user_id=user_id,
+                email=email,
+                skill=skill,
+                days=days,
+                hours=hours,
+                quiz_difficulty=quiz_difficulty,
+            )
             session.add(db_skill)
             session.commit()
             session.refresh(db_skill)
@@ -35,6 +50,8 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
         skill_row = session.get(Skill, skill_id)
         if skill_row is None:
             return None
+
+        quiz_row = session.exec(select(Quiz).where(Quiz.skill_id == skill_id)).first()
 
         statement = (
             select(DailyTask)
@@ -66,6 +83,8 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
             "days": skill_row.days,
             "hours": skill_row.hours,
             "share_enabled": skill_row.share_enabled,
+            "quiz_difficulty": skill_row.quiz_difficulty,
+            "quiz_status": quiz_row.status if quiz_row else "not_generated",
             "created_at": str(skill_row.created_at) if skill_row.created_at else None,
             "months": [
                 {
@@ -92,13 +111,15 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
                 Skill.created_at,
                 func.count(DailyTask.id).label("total_tasks"),
                 completed_expr.label("completed_tasks"),
+                Quiz.status.label("quiz_status"),
             )
             .outerjoin(DailyTask, DailyTask.skill_id == Skill.id)
+            .outerjoin(Quiz, Quiz.skill_id == Skill.id)
             .where(Skill.stop_sending == False)
         )
         if email is not None:
             statement = statement.where(Skill.email == email)
-        statement = statement.group_by(Skill.id).order_by(Skill.created_at.desc())
+        statement = statement.group_by(Skill.id, Quiz.status).order_by(Skill.created_at.desc())
         rows = session.exec(statement).all()
         return [
             {
@@ -109,6 +130,7 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
                 "created_at": str(row[6]) if row[6] else None,
                 "total_tasks": row[7] or 0,
                 "completed_tasks": int(row[8] or 0),
+                "quiz_status": row[9] if row[9] else "not_generated",
             }
             for row in rows
         ]

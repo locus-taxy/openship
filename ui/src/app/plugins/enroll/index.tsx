@@ -34,6 +34,14 @@ const HOUR_OPTIONS = [
 
 const QUICK_PICKS = ["Python", "React", "TypeScript", "Machine Learning", "System Design", "Docker & Kubernetes"];
 
+const DIFFICULTY_OPTIONS = [
+    { value: "beginner", label: "Beginner", desc: "New to this topic" },
+    { value: "intermediate", label: "Intermediate", desc: "Some experience" },
+    { value: "advanced", label: "Advanced", desc: "Deep expertise" },
+] as const;
+
+type Difficulty = "beginner" | "intermediate" | "advanced";
+
 const ALL_ITEMS = ([] as string[]).concat(...SUBJECTS.map((g) => g.items));
 
 export default function EnrollPage() {
@@ -45,6 +53,7 @@ export default function EnrollPage() {
     const [isOther, setIsOther] = useState(false);
     const [days, setDays] = useState(90);
     const [hours, setHours] = useState(1);
+    const [difficulty, setDifficulty] = useState<Difficulty>("beginner");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
@@ -125,6 +134,7 @@ export default function EnrollPage() {
                 skill: finalSubject,
                 days,
                 hours,
+                quiz_difficulty: difficulty,
             });
             if (success) navigate("/syllabi");
         } catch {
@@ -378,6 +388,32 @@ export default function EnrollPage() {
                                         >
                                             <span className="text-lg font-bold leading-none">{h.value}</span>
                                             <span className="text-xs mt-0.5 opacity-70">{h.value > 1 ? "hrs" : "hr"}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Quiz difficulty */}
+                            <div className="space-y-2.5">
+                                <Label className="text-sm font-medium">Quiz difficulty</Label>
+                                <p className="text-xs text-muted-foreground -mt-1">
+                                    Sets how hard the end-of-course quiz will be.
+                                </p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {DIFFICULTY_OPTIONS.map((d) => (
+                                        <button
+                                            key={d.value}
+                                            type="button"
+                                            onClick={() => setDifficulty(d.value)}
+                                            className={cn(
+                                                "flex flex-col items-center justify-center py-3 rounded-xl border text-sm transition-all duration-150",
+                                                difficulty === d.value
+                                                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                                    : "border-border bg-background hover:border-primary/50 hover:bg-muted text-foreground"
+                                            )}
+                                        >
+                                            <span className="font-semibold leading-none">{d.label}</span>
+                                            <span className="text-xs mt-1 opacity-70">{d.desc}</span>
                                         </button>
                                     ))}
                                 </div>
