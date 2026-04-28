@@ -192,41 +192,96 @@ export function QuizPanel({
     // ── Ready (quiz exists, not yet started) ─────────────────────────────────
 
     if (view === "ready" && quiz) {
+        const hasPrevAttempts = quiz.attempt_count > 0
+        const passed = quiz.status === "passed"
+        const bestScore = quiz.best_score ?? 0
+
         return (
-            <div className="flex flex-col items-center justify-center h-full text-center px-8 gap-6">
-                <div className="rounded-full bg-primary/10 p-4">
-                    <BookCheck className="h-10 w-10 text-primary" />
-                </div>
-                <div className="space-y-1">
-                    <h2 className="text-xl font-bold">Final Quiz</h2>
-                    <div className="flex items-center justify-center gap-2 mt-2">
-                        <span className={cn(
-                            "text-xs px-2.5 py-0.5 rounded-full font-medium border capitalize",
-                            DIFFICULTY_COLORS[quiz.difficulty] ?? DIFFICULTY_COLORS.beginner
-                        )}>
-                            {quiz.difficulty}
-                        </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground pt-1">
-                        {quiz.questions.length} questions · Pass score: {quiz.pass_score}%
-                    </p>
-                    {quiz.attempt_count > 0 && (
+            <div className="flex flex-col h-full overflow-y-auto">
+                <div className="mx-auto w-full max-w-xl px-6 py-10 space-y-8">
+
+                    {/* Header */}
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                            <BookCheck className="h-5 w-5 text-primary" />
+                            <h2 className="text-xl font-bold tracking-tight">Final Quiz</h2>
+                            <span className={cn(
+                                "text-xs px-2.5 py-0.5 rounded-full font-medium border capitalize ml-1",
+                                DIFFICULTY_COLORS[quiz.difficulty] ?? DIFFICULTY_COLORS.beginner
+                            )}>
+                                {quiz.difficulty}
+                            </span>
+                            {passed && (
+                                <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 ml-auto">
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Passed
+                                </span>
+                            )}
+                        </div>
                         <p className="text-sm text-muted-foreground">
-                            {quiz.attempt_count} attempt{quiz.attempt_count !== 1 ? "s" : ""}
-                            {quiz.best_score != null && ` · Best score: ${quiz.best_score}%`}
+                            Test your knowledge across all course topics. You need {quiz.pass_score}% to pass.
                         </p>
-                    )}
-                    {quiz.status === "passed" && (
-                        <div className="flex items-center justify-center gap-1.5 text-emerald-600 dark:text-emerald-400 pt-1">
-                            <CheckCircle2 className="h-4 w-4" />
-                            <span className="text-sm font-medium">Quiz passed!</span>
+                    </div>
+
+                    {/* Stats row */}
+                    <div className="grid grid-cols-3 gap-3">
+                        <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
+                            <p className="text-2xl font-bold">{quiz.questions.length}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Questions</p>
+                        </div>
+                        <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
+                            <p className="text-2xl font-bold">{quiz.pass_score}%</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Pass Score</p>
+                        </div>
+                        <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
+                            <p className="text-2xl font-bold">{quiz.attempt_count}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Attempt{quiz.attempt_count !== 1 ? "s" : ""}</p>
+                        </div>
+                    </div>
+
+                    {/* Best score bar — only shown after at least one attempt */}
+                    {hasPrevAttempts && (
+                        <div className="rounded-xl border bg-card px-5 py-4 space-y-3">
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium">Your best score</span>
+                                <span className={cn(
+                                    "font-bold",
+                                    passed ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
+                                )}>
+                                    {bestScore}%
+                                </span>
+                            </div>
+                            <div className="relative h-2.5 bg-muted rounded-full overflow-hidden">
+                                {/* pass threshold marker */}
+                                <div
+                                    className="absolute top-0 bottom-0 w-0.5 bg-foreground/30 z-10"
+                                    style={{ left: `${quiz.pass_score}%` }}
+                                />
+                                {/* score fill */}
+                                <div
+                                    className={cn(
+                                        "h-full rounded-full transition-all duration-500",
+                                        passed ? "bg-emerald-500" : bestScore >= quiz.pass_score ? "bg-emerald-500" : "bg-primary"
+                                    )}
+                                    style={{ width: `${bestScore}%` }}
+                                />
+                            </div>
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>0%</span>
+                                <span className="text-foreground/50">Pass: {quiz.pass_score}%</span>
+                                <span>100%</span>
+                            </div>
                         </div>
                     )}
+
+                    {/* CTA */}
+                    <Button
+                        className="w-full h-11 rounded-xl"
+                        onClick={() => setView("taking")}
+                    >
+                        <BookCheck className="h-4 w-4 mr-2" />
+                        {hasPrevAttempts ? "Retake Quiz" : "Start Quiz"}
+                    </Button>
                 </div>
-                <Button onClick={() => setView("taking")} size="lg">
-                    <BookCheck className="h-4 w-4 mr-2" />
-                    {quiz.attempt_count > 0 ? "Retake Quiz" : "Start Quiz"}
-                </Button>
             </div>
         )
     }
