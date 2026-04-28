@@ -417,8 +417,8 @@ export function QuizPanel({
                         </p>
                     </div>
                     <div className="flex gap-2 mt-4">
-                        <Button variant="outline" size="sm" onClick={onBack}>
-                            Back to Course
+                        <Button variant="outline" size="sm" onClick={loadQuiz}>
+                            Quiz Overview
                         </Button>
                         <Button size="sm" onClick={handleRetry}>
                             <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry Quiz
