@@ -57,8 +57,11 @@ interface SyllabusDetail {
 
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
-function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
+function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGenerationEnd, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
     chapter: Chapter
+    isGenerating: boolean
+    onGenerationStart: (taskId: number) => void
+    onGenerationEnd: (taskId: number) => void
     onContentGenerated: (taskId: number) => void
     onMarkComplete: (taskId: number) => void
     onGoToNext: () => void
@@ -66,7 +69,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
 }) {
     const [content, setContent] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
-    const [generating, setGenerating] = useState(false)
+    const generating = isGenerating
     // const [sending, setSending] = useState(false)
     const [completed, setCompleted] = useState(chapter.completed)
     // const [emailSent, setEmailSent] = useState(false)
@@ -173,7 +176,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
 
     async function handleGenerate() {
         setConfirmOpen(false)
-        setGenerating(true)
+        onGenerationStart(chapter.id)
         try {
             await api.post("/py/generate-content/chapter", { task_id: chapter.id })
             setHasContent(true)
@@ -198,7 +201,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
                 toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate content." })
             }
         } finally {
-            setGenerating(false)
+            onGenerationEnd(chapter.id)
         }
     }
 
@@ -560,6 +563,7 @@ export default function SyllabusDetailPage() {
     const [copied, setCopied] = useState(false)
     const [copyFailed, setCopyFailed] = useState(false)
     const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
+    const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set())
     const [navCollapsed, setNavCollapsed] = useState(false)
     const [navWidth, setNavWidth] = useState(350)
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -648,6 +652,14 @@ export default function SyllabusDetailPage() {
                 })),
             }
         })
+    }
+
+    function handleGenerationStart(taskId: number) {
+        setGeneratingIds((prev) => new Set(prev).add(taskId))
+    }
+
+    function handleGenerationEnd(taskId: number) {
+        setGeneratingIds((prev) => { const next = new Set(prev); next.delete(taskId); return next })
     }
 
     function handleChapterCompleted(taskId: number) {
@@ -809,6 +821,9 @@ export default function SyllabusDetailPage() {
                         <ChapterContentPanel
                             key={activeChapter.id}
                             chapter={activeChapter}
+                            isGenerating={generatingIds.has(activeChapter.id)}
+                            onGenerationStart={handleGenerationStart}
+                            onGenerationEnd={handleGenerationEnd}
                             onContentGenerated={handleContentGenerated}
                             onMarkComplete={handleChapterCompleted}
                             onGoToNext={goToNextChapter}
