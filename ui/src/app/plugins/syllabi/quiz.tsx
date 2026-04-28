@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { CheckCircle2, XCircle, Loader2, BookCheck, Sparkles, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { getRequest, postRequest } from "@/services"
+import api, { getRequest, postRequest } from "@/services"
 
 interface QuizQuestion {
     id: number
@@ -79,11 +79,12 @@ export function QuizPanel({
     async function loadQuiz() {
         setView("loading")
         setGenerateError("")
-        const { success, data } = await getRequest(`/py/quiz/${skillId}`)
-        if (success) {
-            setQuiz(data)
+        try {
+            const res = await api.get(`/py/quiz/${skillId}`)
+            setQuiz(res.data)
             setView("ready")
-        } else {
+        } catch (err: any) {
+            // 404 = quiz not generated yet — expected, show generate prompt silently
             setQuiz(null)
             setView("no-quiz")
         }
@@ -94,12 +95,12 @@ export function QuizPanel({
         setGenerateError("")
         const { success, data } = await postRequest(`/py/quiz/${skillId}/generate`, {})
         if (success) {
-            const res = await getRequest(`/py/quiz/${skillId}`)
-            if (res.success) {
+            try {
+                const res = await api.get(`/py/quiz/${skillId}`)
                 setQuiz(res.data)
                 onQuizStatusChange?.("available")
                 setView("ready")
-            } else {
+            } catch {
                 setGenerateError("Quiz generated but failed to load. Please refresh.")
                 setView("no-quiz")
             }
@@ -107,12 +108,12 @@ export function QuizPanel({
             const msg: string = data?.detail ?? ""
             // 409 or race: quiz already exists — just fetch it
             if (msg.includes("already generated") || data?.status === 409) {
-                const res = await getRequest(`/py/quiz/${skillId}`)
-                if (res.success) {
+                try {
+                    const res = await api.get(`/py/quiz/${skillId}`)
                     setQuiz(res.data)
                     setView("ready")
                     return
-                }
+                } catch { /* fall through to error */ }
             }
             setGenerateError(msg || "Failed to generate quiz. Please try again.")
             setView("no-quiz")
