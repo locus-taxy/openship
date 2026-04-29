@@ -245,7 +245,7 @@ Get full syllabus detail (all months → weeks → chapters) for a course.
               "topic": "Introduction",
               "task": "...",
               "completed": false,
-              "newsletter": null
+              "has_content": false
             }
           ]
         }
@@ -582,7 +582,7 @@ This means a course with all chapters done but quiz not passed will show **~95�
 5. POST /generate-syllabus        — generate the course plan
                                     └─ quiz auto-generated in background
 6. POST /generate-content/chapter — generate AI content for a chapter
-7. POST /chapter/{id}/complete    — mark chapter complete (repeat for each chapter)
+7. POST /chapter/{task_id}/complete — mark chapter complete (repeat for each chapter)
 8. GET  /quiz/{skill_id}          — fetch quiz (poll if still generating)
 9. POST /quiz/{skill_id}/submit   — submit answers → course marked Completed if passed
 ```

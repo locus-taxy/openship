@@ -469,6 +469,14 @@ def generate_quiz(
             **_token_kwargs(provider, 8192),
             max_retries=1,
         )
+        if not response.questions or len(response.questions) != num_questions:
+            logger.warning(
+                "Quiz generation returned %d questions, expected %d [provider=%s]",
+                len(response.questions) if response.questions else 0,
+                num_questions,
+                provider,
+            )
+            return None
         return response
     except HTTPException:
         raise
