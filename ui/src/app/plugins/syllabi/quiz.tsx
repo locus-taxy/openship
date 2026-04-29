@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
-import { CheckCircle2, XCircle, Loader2, BookCheck, Sparkles, RotateCcw } from "lucide-react"
+import { CheckCircle2, XCircle, Loader2, BookCheck, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import api, { getRequest, postRequest } from "@/services"
+import api, { postRequest } from "@/services"
 
 interface QuizQuestion {
     id: number
@@ -53,7 +53,7 @@ function getOptionText(q: QuizQuestion, opt: string): string {
     return ({ A: q.option_a, B: q.option_b, C: q.option_c, D: q.option_d } as Record<string, string>)[opt] ?? ""
 }
 
-type View = "loading" | "no-quiz" | "generating" | "ready" | "taking" | "submitted"
+type View = "loading" | "ready" | "taking" | "submitted"
 
 export function QuizPanel({
     skillId,
@@ -66,7 +66,6 @@ export function QuizPanel({
 }) {
     const [view, setView] = useState<View>("loading")
     const [quiz, setQuiz] = useState<QuizData | null>(null)
-    const [generateError, setGenerateError] = useState("")
     const [submitError, setSubmitError] = useState("")
     const [answers, setAnswers] = useState<Record<number, string>>({})
     const [submitting, setSubmitting] = useState(false)
@@ -78,46 +77,24 @@ export function QuizPanel({
 
     async function loadQuiz() {
         setView("loading")
-        setGenerateError("")
-        try {
-            const res = await api.get(`/py/quiz/${skillId}`)
-            setQuiz(res.data)
-            setView("ready")
-        } catch (err: any) {
-            // 404 = quiz not generated yet — expected, show generate prompt silently
-            setQuiz(null)
-            setView("no-quiz")
-        }
-    }
-
-    async function handleGenerate() {
-        setView("generating")
-        setGenerateError("")
-        const { success, data } = await postRequest(`/py/quiz/${skillId}/generate`, {})
-        if (success) {
+        // Poll until quiz is ready (background LLM generation may still be in progress)
+        for (let attempt = 0; attempt < 20; attempt++) {
             try {
                 const res = await api.get(`/py/quiz/${skillId}`)
                 setQuiz(res.data)
-                onQuizStatusChange?.("available")
                 setView("ready")
+                // Update the nav status so it doesn't show "Not generated yet"
+                if (res.data.status === "passed") {
+                    onQuizStatusChange?.("passed")
+                } else {
+                    onQuizStatusChange?.("available")
+                }
+                return
             } catch {
-                setGenerateError("Quiz generated but failed to load. Please refresh.")
-                setView("no-quiz")
+                await new Promise((r) => setTimeout(r, 2000))
             }
-        } else {
-            const msg: string = data?.detail ?? ""
-            // 409 or race: quiz already exists — just fetch it
-            if (msg.includes("already generated") || data?.status === 409) {
-                try {
-                    const res = await api.get(`/py/quiz/${skillId}`)
-                    setQuiz(res.data)
-                    setView("ready")
-                    return
-                } catch { /* fall through to error */ }
-            }
-            setGenerateError(msg || "Failed to generate quiz. Please try again.")
-            setView("no-quiz")
         }
+        // After 40s still not ready — stay on loading (shouldn't normally happen)
     }
 
     async function handleSubmit() {
@@ -160,41 +137,6 @@ export function QuizPanel({
             </div>
         )
     }
-
-    // ── Generating ───────────────────────────────────────────────────────────
-
-    if (view === "generating") {
-        return (
-            <div className="flex flex-col items-center justify-center h-full gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Generating your quiz… this may take a moment.</p>
-            </div>
-        )
-    }
-
-    // ── No quiz yet ──────────────────────────────────────────────────────────
-
-    if (view === "no-quiz") {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-center px-8 gap-5">
-                <div className="rounded-full bg-primary/10 p-4">
-                    <BookCheck className="h-10 w-10 text-primary" />
-                </div>
-                <div>
-                    <h2 className="text-xl font-bold">Final Quiz</h2>
-                    <p className="text-sm text-muted-foreground mt-1.5 max-w-sm">
-                        Test your knowledge with a multiple-choice quiz generated from your course topics.
-                    </p>
-                </div>
-                {generateError && <p className="text-sm text-destructive max-w-sm">{generateError}</p>}
-                <Button onClick={handleGenerate} size="lg">
-                    <Sparkles className="h-4 w-4 mr-2" /> Generate Quiz
-                </Button>
-            </div>
-        )
-    }
-
-    // ── Ready (quiz exists, not yet started) ─────────────────────────────────
 
     if (view === "ready" && quiz) {
         const hasPrevAttempts = quiz.attempt_count > 0

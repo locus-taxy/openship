@@ -369,6 +369,21 @@ export default function EnrollPage() {
                                             {d.label}
                                         </button>
                                     ))}
+                                    <div className="flex items-center gap-1.5">
+                                        <Input
+                                            type="number"
+                                            min={1}
+                                            max={365}
+                                            placeholder="Custom"
+                                            value={DAY_OPTIONS.some((d) => d.value === days) ? "" : days}
+                                            onChange={(e) => {
+                                                const v = parseInt(e.target.value, 10)
+                                                if (!isNaN(v) && v > 0) setDays(v)
+                                            }}
+                                            className="w-24 h-9 rounded-xl text-sm text-center"
+                                        />
+                                        <span className="text-xs text-muted-foreground">days</span>
+                                    </div>
                                 </div>
                             </div>
 

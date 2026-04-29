@@ -96,7 +96,11 @@ export default function AnalyticsPage() {
     const totalTaskDone = syllabi.reduce((sum, s) => sum + s.completed_tasks, 0)
     const totalHours = syllabi.reduce((sum, s) => sum + s.hours * s.days, 0)
     const remainingTasks = Math.max(0, totalTasks - totalTaskDone)
-    const overallPct = totalTasks > 0 ? Math.round((totalTaskDone / totalTasks) * 100) : 0
+    // Quiz counts as +1 step per course that has a syllabus
+    const coursesWithSyllabus = syllabi.filter(s => s.total_tasks > 0)
+    const totalStepsOverall = totalTasks + coursesWithSyllabus.length
+    const completedStepsOverall = totalTaskDone + coursesWithSyllabus.filter(s => s.quiz_status === "passed").length
+    const overallPct = totalStepsOverall > 0 ? Math.round((completedStepsOverall / totalStepsOverall) * 100) : 0
 
     const sortedSyllabi = [...syllabi].sort((a, b) => {
         const order: Record<string, number> = { "in-progress": 0, "not-started": 1, "no-syllabus": 2, "completed": 3 }
@@ -212,7 +216,7 @@ export default function AnalyticsPage() {
                         </div>
                         <div className="text-center relative z-10">
                             <p className="text-white font-semibold text-sm">Overall Completion</p>
-                            <p className="text-indigo-200 text-xs mt-0.5">{totalTaskDone} of {totalTasks} tasks done</p>
+                            <p className="text-indigo-200 text-xs mt-0.5">{completedStepsOverall} of {totalStepsOverall} steps done</p>
                         </div>
                     </div>
 
@@ -353,7 +357,9 @@ export default function AnalyticsPage() {
                     <div className="space-y-2.5">
                         {sortedSyllabi.map((s) => {
                             const status = getStatus(s.completed_tasks, s.total_tasks, s.quiz_status ?? "not_generated")
-                            const pct = s.total_tasks > 0 ? Math.round((s.completed_tasks / s.total_tasks) * 100) : 0
+                            const totalSteps = s.total_tasks > 0 ? s.total_tasks + 1 : 0
+                            const completedSteps = s.completed_tasks + (s.quiz_status === "passed" ? 1 : 0)
+                            const pct = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
                             const ringColor = status === "completed" ? "#10b981" : status === "in-progress" ? "#6366f1" : "#94a3b8"
                             const trackColor = status === "completed" ? "rgba(16,185,129,0.15)" : status === "in-progress" ? "rgba(99,102,241,0.15)" : "rgba(148,163,184,0.15)"
 

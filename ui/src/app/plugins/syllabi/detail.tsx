@@ -494,8 +494,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                 ))}
                 </div>
 
-                {/* Final Quiz nav item */}
-                <div className="border-t shrink-0">
+                {/* Final Quiz nav item — only visible after all chapters complete */}
+                {completedCount === totalCount && totalCount > 0 && <div className="border-t shrink-0">
                     <button
                         onClick={onSelectQuiz}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
@@ -523,7 +523,7 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                             <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                         )}
                     </button>
-                </div>
+                </div>}
             </div>
         </div>
     )
@@ -619,9 +619,10 @@ export default function SyllabusDetailPage() {
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length
     const quizPassed = detail?.quiz_status === "passed"
-    const rawProgress = allTasks.length > 0 ? Math.round((completedCount / allTasks.length) * 100) : 0
-    // Cap at 99% until quiz is passed — jumps to 100% on pass
-    const overallProgress = rawProgress === 100 && !quizPassed ? 99 : rawProgress
+    // Quiz counts as one extra step — chapters + quiz = total course
+    const totalSteps = allTasks.length + 1
+    const completedSteps = completedCount + (quizPassed ? 1 : 0)
+    const overallProgress = totalSteps > 1 ? Math.round((completedSteps / totalSteps) * 100) : 0
 
     // Restore chapter from URL param, fallback to first chapter
     useEffect(() => {

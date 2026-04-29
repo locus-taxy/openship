@@ -43,7 +43,12 @@ def get_skill(email: str, skill: str) -> Optional[Dict[str, Any]]:
         result = session.exec(statement).first()
         if result is None:
             return None
-        return {"user_id": result.user_id, "days": result.days, "hours": result.hours}
+        return {
+            "user_id": result.user_id,
+            "days": result.days,
+            "hours": result.hours,
+            "quiz_difficulty": result.quiz_difficulty,
+        }
 
 def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
     with Session(engine) as session:
@@ -150,6 +155,16 @@ def get_skill_id_by_email_and_skill(email: str, skill: str) -> Optional[int]:
         statement = select(Skill.id).where(Skill.email == email, Skill.skill == skill)
         return session.exec(statement).first()
 
+def delete_skill(skill_id: int, user_id: str) -> bool:
+    """Hard-delete a skill and all related data (cascade). Returns True on success."""
+    with Session(engine) as session:
+        skill = session.get(Skill, skill_id)
+        if skill is None or skill.user_id != user_id:
+            return False
+        session.delete(skill)
+        session.commit()
+        return True
+
 def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
     q = f"%{query}%"
     with Session(engine) as session:
@@ -190,10 +205,12 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
                 Skill.created_at,
                 func.count(DailyTask.id).label("total_tasks"),
                 completed_expr.label("completed_tasks"),
+                Quiz.status.label("quiz_status"),
             )
             .outerjoin(DailyTask, DailyTask.skill_id == Skill.id)
+            .outerjoin(Quiz, Quiz.skill_id == Skill.id)
             .where(Skill.id.in_(matching_skill_ids))
-            .group_by(Skill.id)
+            .group_by(Skill.id, Quiz.status)
             .order_by(Skill.created_at.desc())
         )
         rows = session.exec(statement).all()
@@ -218,6 +235,7 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
                 "created_at": str(row[6]) if row[6] else None,
                 "total_tasks": row[7] or 0,
                 "completed_tasks": int(row[8] or 0),
+                "quiz_status": row[9] if row[9] else "not_generated",
                 "matching_chapters": matching_tasks_by_skill.get(row[0], []),
             }
             for row in rows

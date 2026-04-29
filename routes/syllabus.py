@@ -17,6 +17,10 @@ def search_syllabi(request: Request, q: str = Query("", description="Keyword to 
 def get_syllabus(skill_id: int, request: Request):
     return syllabus_controller.get_syllabus(skill_id, request.state.user)
 
+@router.delete("/syllabi/{skill_id}")
+def delete_syllabus(skill_id: int, request: Request):
+    return syllabus_controller.delete_syllabus(skill_id, request.state.user)
+
 @router.patch("/syllabi/{skill_id}/share")
 def toggle_share(skill_id: int, enable: bool, request: Request):
     return syllabus_controller.toggle_share(skill_id, enable, request.state.user)

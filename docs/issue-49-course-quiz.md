@@ -10,16 +10,17 @@ fully complete until the user passes the quiz.
 
 ## Requirements Summary
 
-| # | Requirement |
-|---|-------------|
-| 1 | Difficulty collected during enrollment (beginner / intermediate / advanced) |
-| 2 | Quiz is the last "chapter" — appears after all daily tasks are complete |
-| 3 | AI generates questions based on the actual syllabus topics the user studied |
-| 4 | Quiz is multiple-choice (4 options per question) |
-| 5 | Pass threshold varies by difficulty (see below) |
-| 6 | Unlimited retries; each attempt is recorded |
-| 7 | Course is only marked **complete** after passing the quiz |
-| 8 | Quiz answers are never exposed in GET responses — only revealed after submission |
+| # | Requirement | Status |
+|---|-------------|--------|
+| 1 | Difficulty collected during enrollment (beginner / intermediate / advanced) | ✅ |
+| 2 | Quiz is auto-generated in the background when the syllabus is created | ✅ |
+| 3 | AI generates questions based on the actual syllabus topics the user studied | ✅ |
+| 4 | Quiz is multiple-choice (4 options per question) | ✅ |
+| 5 | Pass threshold varies by difficulty (see below) | ✅ |
+| 6 | Unlimited retries; each attempt is recorded; questions shuffled on retry | ✅ |
+| 7 | Course is only marked **complete** after passing the quiz | ✅ |
+| 8 | Quiz answers are never exposed in GET responses — only revealed after submission | ✅ |
+| 9 | Final Quiz nav item only becomes visible after all chapters are complete | ✅ |
 
 ---
 
@@ -27,11 +28,30 @@ fully complete until the user passes the quiz.
 
 ### 1. Alter `skills` table — add `quiz_difficulty`
 
+**Existing columns**
+
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| `id` | Integer PK | — | Auto-increment |
+| `user_id` | String | — | FK to users (stored as str) |
+| `email` | String | — | Indexed |
+| `skill` | String | — | Skill name |
+| `days` | Integer | `90` | Total plan duration |
+| `hours` | Integer | `1` | Hours per day |
+| `stop_sending` | Boolean | `false` | Soft-deactivate flag |
+| `share_enabled` | Boolean | `false` | Public share toggle |
+| `created_at` | DateTime | `now()` | Server default |
+| `updated_at` | DateTime | `now()` | Auto-updated on change |
+
+**New column**
+
+| Column | Type | Default | Allowed values |
+|--------|------|---------|----------------|
+| `quiz_difficulty` | VARCHAR(20) | `"beginner"` | `"beginner"` · `"intermediate"` · `"advanced"` |
+
 ```sql
 ALTER TABLE skills ADD COLUMN quiz_difficulty VARCHAR(20) DEFAULT 'beginner';
 ```
-
-Allowed values: `"beginner"` | `"intermediate"` | `"advanced"`
 
 ```python
 # models/skill.py  (add field)
@@ -40,7 +60,7 @@ quiz_difficulty: str = Field(default="beginner")
 
 ### 2. New table — `quizzes`
 
-One row per skill. Created lazily when the quiz is first generated.
+One row per skill. Created automatically when the syllabus is generated.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -141,31 +161,58 @@ class QuizAttempt(SQLModel, table=True):
 
 | Days | Questions |
 |------|-----------|
-| 30 | 10 |
-| 60 | 12 |
-| 90 | 15 |
+| ≤ 30 | 10 |
+| ≤ 60 | 12 |
+| > 60 | 15 |
 
 ---
 
 ## API Routes
 
-### New routes
+### Quiz routes
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/quiz/{skill_id}/generate` | Required | Generate quiz (called once when all chapters complete) |
-| `GET` | `/quiz/{skill_id}` | Required | Get quiz questions (no correct answers in response) |
+| `GET` | `/quiz/{skill_id}` | Required | Get quiz questions (no correct answers in response); returns 404 while still generating — poll with 2 s interval |
 | `POST` | `/quiz/{skill_id}/submit` | Required | Submit answers; returns score + per-question result |
 | `GET` | `/quiz/{skill_id}/attempts` | Required | List all past attempts for this quiz |
+| `POST` | `/quiz/{skill_id}/generate` | Required | Manually trigger quiz generation (fallback only — normally auto-generated) |
 
 ### Modified routes
 
 | Method | Path | Change |
 |--------|------|--------|
-| `POST` | `/subscribe` | Accept `quiz_difficulty` field (default `"beginner"`) |
+| `POST` | `/subscribe` | Accepts `quiz_difficulty` field (default `"beginner"`) |
+| `POST` | `/generate-syllabus` | Now also fires background thread to auto-generate quiz after saving syllabus |
+| `GET` | `/syllabi` | Response includes `quiz_status` per course |
+| `GET` | `/syllabi/search` | Response includes `quiz_status` per course (same as list) |
 | `GET` | `/syllabi/{skill_id}` | Response includes `quiz_status` and `quiz_difficulty` |
-| `GET` | `/syllabi` | Response includes `quiz_status` per course (for analytics + syllabi list) |
-| `POST` | `/chapter/{task_id}/complete` | No change in logic — chapter-level completion is unchanged |
+| `DELETE` | `/syllabi/{skill_id}` | New — hard deletes course + all chapters, progress, quiz, attempts (CASCADE) |
+
+---
+
+## Auto-Generation Flow
+
+Quiz generation is **automatic** — no user action required.
+
+```
+POST /generate-syllabus
+  └─ store_syllabus_tasks()       ← saves months/weeks/chapters to DB
+  └─ threading.Thread(daemon=True)
+       └─ _auto_generate_quiz()
+            ├─ guard: quiz already exists? → return early
+            ├─ fetch all topic strings for skill
+            ├─ compute num_questions from topic count
+            ├─ call LLM generate_quiz()
+            └─ quiz_service.create_quiz()  ← inserts Quiz + QuizQuestion rows
+```
+
+The background thread runs concurrently — `POST /generate-syllabus` returns
+immediately to the client. The frontend polls `GET /quiz/{skill_id}` (every 2 s,
+up to 20 attempts = 40 s) until the quiz is available.
+
+`POST /quiz/{skill_id}/generate` still exists as a manual fallback if the
+background thread failed, but it is not surfaced in the UI.
 
 ---
 
@@ -175,90 +222,16 @@ class QuizAttempt(SQLModel, table=True):
 
 ```python
 # schemas/skill.py
-from typing import Literal
-
 class SubscribeRequest(BaseModel):
     skill: str
     days: int = Field(90, gt=0)
     hours: int = Field(1, gt=0)
-    quiz_difficulty: Literal["beginner", "intermediate", "advanced"] = "beginner"  # NEW
-```
-
-> Uses `Literal` type (Pydantic v2 style, already used in the codebase) instead of
-> a `@validator` — FastAPI will auto-validate and return 422 on invalid values.
-
-### `POST /quiz/{skill_id}/generate` — response
-
-```python
-# schemas/quiz.py
-class QuizGenerateResponse(BaseModel):
-    quiz_id: int
-    status: str          # "available"
-    question_count: int
-    pass_score: int
-```
-
-### `GET /syllabi/{skill_id}` (modified response)
-
-`services/skill.py::get_syllabus_detail()` needs a LEFT JOIN on `quizzes` to add:
-
-```python
-# added to the returned dict
-"quiz_difficulty": skill_row.quiz_difficulty,
-"quiz_status": quiz_row.status if quiz_row else "not_generated",
-# "not_generated" | "available" | "passed"
-```
-
-### `GET /syllabi` (modified response)
-
-`services/skill.py::get_all_syllabi()` needs a LEFT JOIN on `quizzes` to add per course:
-
-```python
-"quiz_status": quiz_row.status if quiz_row else "not_generated",
-```
-
-Analytics `getStatus()` in `ui/src/app/plugins/analytics/index.tsx` currently treats
-`completed_tasks / total_tasks === 100%` as "completed". This must be updated:
-
-```typescript
-// BEFORE
-function getStatus(completed: number, total: number) {
-    const pct = (completed / total) * 100
-    if (pct === 100) return "completed"
-    ...
-}
-
-// AFTER — quiz_status must also be "passed" for a course to show as complete
-function getStatus(completed: number, total: number, quizStatus: string) {
-    if (total === 0) return "no-syllabus"
-    const pct = (completed / total) * 100
-    if (pct === 100 && quizStatus === "passed") return "completed"
-    if (pct > 0 || quizStatus !== "not_generated") return "in-progress"
-    return "not-started"
-}
-```
-
-### `GET /quiz/{skill_id}/attempts` — response
-
-```python
-# schemas/quiz.py
-class QuizAttemptOut(BaseModel):
-    attempt_id: int
-    score: int
-    passed: bool
-    created_at: str
-
-class QuizAttemptsResponse(BaseModel):
-    quiz_id: int
-    skill_id: int
-    pass_score: int
-    attempts: List[QuizAttemptOut]
+    quiz_difficulty: Literal["beginner", "intermediate", "advanced"] = "beginner"
 ```
 
 ### `GET /quiz/{skill_id}` — response
 
 ```python
-# schemas/quiz.py
 class QuizQuestionOut(BaseModel):
     id: int
     position: int
@@ -274,16 +247,18 @@ class QuizOut(BaseModel):
     skill_id: int
     difficulty: str
     pass_score: int
-    status: str
+    status: str          # "available" | "passed"
     questions: List[QuizQuestionOut]
-    best_score: Optional[int]     # from past attempts
+    best_score: Optional[int]   # from past attempts; null if no attempts yet
     attempt_count: int
 ```
+
+Returns `404` while the background quiz generation is still in progress — clients
+should poll.
 
 ### `POST /quiz/{skill_id}/submit` — request + response
 
 ```python
-# schemas/quiz.py
 class QuizSubmitRequest(BaseModel):
     answers: Dict[int, str]   # { question_id: "A" | "B" | "C" | "D" }
 
@@ -302,11 +277,27 @@ class QuizSubmitResponse(BaseModel):
     results: List[QuizQuestionResult]
 ```
 
+### `GET /quiz/{skill_id}/attempts` — response
+
+```python
+class QuizAttemptOut(BaseModel):
+    attempt_id: int
+    score: int
+    passed: bool
+    created_at: str
+
+class QuizAttemptsResponse(BaseModel):
+    quiz_id: int
+    skill_id: int
+    pass_score: int
+    attempts: List[QuizAttemptOut]
+```
+
 ---
 
 ## LLM Generation
 
-### New Pydantic output model
+### Pydantic output model
 
 ```python
 # services/llm.py
@@ -339,218 +330,134 @@ def generate_quiz(
 ) -> GeneratedQuiz:
 ```
 
-### System prompt
-
-```
-You are an expert educator creating a {difficulty}-level quiz for a student who
-has just completed a {num_questions}-chapter {skill} course.
-
-The course covered these topics (in order):
-{topics_numbered_list}
-
-Generate exactly {num_questions} multiple-choice questions:
-- Each question must have exactly 4 options labeled A, B, C, D
-- Questions should test understanding across the breadth of the course topics
-- Difficulty: {difficulty} — {"recall and basic understanding" if beginner,
-  "application and problem-solving" if intermediate,
-  "analysis, edge cases, and trade-offs" if advanced}
-- Vary question types: definitions, code reasoning, best-practice selection,
-  debugging concepts, comparisons
-- The explanation should clarify why the correct answer is right and the main
-  distractors are wrong (1-2 sentences)
-```
-
 ---
 
-## Service Layer
-
-### `services/quiz.py` (new file)
+## Service Layer — `services/quiz.py`
 
 ```python
-def get_or_create_quiz(skill_id: int) -> Quiz | None
+def get_quiz_by_skill(skill_id: int) -> Quiz | None
     # returns existing quiz or None if not yet generated
+
+def get_topics_for_skill(skill_id: int) -> List[str]
+    # returns all daily_task.topic strings for the skill (used as LLM input)
+
+def get_num_questions(num_topics: int) -> int
+    # maps topic count to question count (10 / 12 / 15)
 
 def create_quiz(skill_id: int, difficulty: str, questions: List[GeneratedQuestion]) -> Quiz
     # inserts Quiz + QuizQuestion rows in a single transaction
-    # sets pass_score based on difficulty constant
+    # raises IntegrityError (→ 409) if quiz already exists
 
-def get_quiz_with_questions(quiz_id: int) -> tuple[Quiz, List[QuizQuestion]]
-    # used for GET /quiz/{skill_id}
+def get_quiz_with_questions(skill_id: int) -> QuizOut | None
+    # used for GET /quiz/{skill_id}; strips correct_option, attaches best_score + attempt_count
 
-def record_attempt(quiz: Quiz, user_id: int, answers: Dict[int, str]) -> QuizAttempt
-    # scores the attempt, sets quiz.status to "passed" if passed, commits
-
-def get_best_score(quiz_id: int, user_id: int) -> Optional[int]
-    # returns highest score across all attempts
-
-def all_chapters_complete(skill_id: int) -> bool
-    # SELECT COUNT(*) WHERE skill_id=X AND completed=False == 0
+def submit_quiz(skill_id: int, answers: Dict[int, str], user_id: int) -> QuizSubmitResponse
+    # scores the attempt, updates quiz.status to "passed" if score >= pass_score, commits
 ```
 
 ---
 
-## Controller Layer
-
-### `controllers/quiz.py` (new file)
+## Controller Layer — `controllers/quiz.py`
 
 ```python
-def generate_quiz(skill_id: int, current_user: User) -> QuizGenerateResponse:
-    # 1. Verify skill ownership: skill_row.user_id == str(current_user.id)
-    #    (skills.user_id is stored as str — matches pattern in content_controller)
-    # 2. Check all chapters complete — raise HTTP 400 if not
-    # 3. Check quiz doesn't already exist — raise HTTP 409 if it does
-    # 4. Fetch topics from daily_tasks
-    # 5. Get user LLM settings; raise HTTP 400 if not configured
-    # 6. Call services.llm.generate_quiz()
-    # 7. Call services.quiz.create_quiz()
-    # 8. Return QuizGenerateResponse
+def generate_quiz_for_skill(skill_id: int, current_user: User):
+    # 1. Verify skill ownership
+    # 2. Guard: quiz already exists → raise HTTP 409
+    # 3. Fetch topics; raise 404 if none
+    # 4. Get user LLM settings; raise 400 if not configured
+    # 5. Call services.llm.generate_quiz()
+    # 6. Call services.quiz.create_quiz()
+    # Note: does NOT check whether all chapters are complete
+    #       (chapter-completion gate is enforced in the UI, not the API)
 
-def get_quiz(skill_id: int, current_user: User) -> QuizOut:
+def get_quiz(skill_id: int, current_user: User):
     # 1. Verify ownership
-    # 2. Fetch quiz (404 if not generated yet)
-    # 3. Strip correct_option from questions
-    # 4. Attach best_score and attempt_count
+    # 2. Return quiz (404 if not generated yet — client polls)
 
-def submit_quiz(skill_id: int, payload: QuizSubmitRequest, current_user: User) -> QuizSubmitResponse:
+def submit_quiz(skill_id: int, payload: QuizSubmitRequest, current_user: User):
     # 1. Verify ownership
     # 2. Fetch quiz (404 if missing)
-    # 3. Validate all question IDs belong to this quiz
-    # 4. Score answers
-    # 5. services.quiz.record_attempt()
-    # 6. Return full per-question breakdown with correct answers + explanations
+    # 3. Score answers, record attempt
 
-def get_attempts(skill_id: int, current_user: User) -> QuizAttemptsResponse:
+def get_attempts(skill_id: int, current_user: User):
     # 1. Verify ownership
-    # 2. Fetch quiz (404 if not generated yet)
-    # 3. Fetch all quiz_attempts for this quiz ordered by created_at desc
-    # 4. Return QuizAttemptsResponse
+    # 2. Return all past attempts ordered by created_at desc
 ```
 
 ---
 
-## Route Registration
+## Progress & Completion Model
 
-```python
-# routes/quiz.py (new file)
-router = APIRouter(prefix="/quiz", tags=["quiz"])
+The quiz counts as one extra step in course progress:
 
-@router.post("/{skill_id}/generate")
-def generate_quiz(skill_id: int, request: Request):
-    return quiz_controller.generate_quiz(skill_id, request.state.user)
-
-@router.get("/{skill_id}")
-def get_quiz(skill_id: int, request: Request):
-    return quiz_controller.get_quiz(skill_id, request.state.user)
-
-@router.post("/{skill_id}/submit")
-def submit_quiz(skill_id: int, payload: QuizSubmitRequest, request: Request):
-    return quiz_controller.submit_quiz(skill_id, payload, request.state.user)
-
-@router.get("/{skill_id}/attempts")
-def get_attempts(skill_id: int, request: Request):
-    return quiz_controller.get_attempts(skill_id, request.state.user)
+```
+totalSteps     = total_tasks + 1
+completedSteps = completed_tasks + (quiz_status === "passed" ? 1 : 0)
+progress%      = round(completedSteps / totalSteps * 100)
 ```
 
-Register in `routes/__init__.py` (not directly in `main.py` — routers are registered
-via `register_routers(app)` in `routes/__init__.py`):
+A course is **Completed** only when:
+- All chapter tasks are marked complete, **and**
+- The final quiz is passed
 
-```python
-# routes/__init__.py
-from routes.quiz import router as quiz_router
+A course with all chapters done but quiz not passed shows **~95–99%** progress
+(depending on task count), never 100%.
 
-def register_routers(app: FastAPI):
-    ...
-    app.include_router(quiz_router)   # add alongside existing routers
-```
-
-`main.py` itself needs no changes.
+This logic is applied consistently in:
+- `ui/src/app/plugins/syllabi/detail.tsx` — course detail progress bar
+- `ui/src/app/plugins/syllabi/index.tsx` — courses list card progress + badge
+- `ui/src/app/plugins/analytics/index.tsx` — dashboard ring + getStatus()
 
 ---
 
-## Frontend Changes
+## Frontend Implementation
 
-### 1. Enrollment form — add difficulty picker
+### Enrollment form (`enroll/index.tsx`)
 
-New step in `ui/src/app/plugins/enroll/index.tsx`:
+- Added **Quiz Difficulty** picker (Beginner / Intermediate / Advanced), default Beginner
+- Added **custom duration input** alongside the 30 / 60 / 90 day pills (for testing any duration)
+- `quiz_difficulty` sent in the POST `/subscribe` payload
+- Form card is hidden entirely when no LLM API key is configured
 
-```
-Difficulty Level
-[ Beginner ]  [ Intermediate ]  [ Advanced ]
-```
+### Course detail (`syllabi/detail.tsx`)
 
-- Default: `Beginner`
-- Add `quiz_difficulty` to the POST payload
+- **Final Quiz nav item** is only rendered after `completedCount === totalCount && totalCount > 0` — hidden until all chapters are done
+- Clicking "Final Quiz" in the nav sets `activeView = "quiz"` — the quiz renders in the **same right panel** as chapter content (no separate page/route)
+- Progress formula uses `totalSteps = allTasks.length + 1`; passing the quiz moves progress from ~99% → 100%
 
-### 2. Syllabus detail — quiz entry point
+### Quiz panel (`syllabi/quiz.tsx`) — `QuizPanel` component
 
-In `ui/src/app/plugins/syllabi/detail.tsx`, after all chapters are complete:
-
-- Replace "all done" empty state with a **"Take Quiz"** button in the chapter nav footer
-- The "Take Quiz" button is disabled until all chapters are marked complete
-- Clicking it:
-  - If quiz not yet generated → calls `POST /quiz/{skill_id}/generate` first
-  - Then navigates to `/syllabi/{skill_id}/quiz`
-
-**Progress display**: course progress bar stays at 99% until quiz is passed — jumps to 100% on pass.
-
-### 3. New quiz page — `/syllabi/{skill_id}/quiz`
-
-New file: `ui/src/app/plugins/syllabi/quiz.tsx`
-
-**States**:
+Embedded in `detail.tsx`; not a separate route. States:
 
 | State | UI |
 |-------|----|
-| Loading | Spinner |
-| Ready | Question list with radio buttons, Submit button |
-| Submitted (pass) | Green result card, score, per-question breakdown with explanations, "Back to Course" button |
-| Submitted (fail) | Red result card, score, per-question breakdown, "Retry Quiz" button |
-| Already passed | Show best score, "View Result" or "Back to Course" |
+| `loading` | Spinner — polls `GET /quiz/{skill_id}` every 2 s (up to 20 attempts) until quiz is ready |
+| `ready` | Stats grid (questions / pass score / attempts), best-score bar (after first attempt), Start / Retake button |
+| `taking` | Scrollable question list with A–D option buttons, sticky progress header, Submit button |
+| `submitted` | Sticky pass/fail score card with Quiz Overview + Retry buttons; per-question breakdown with correct answers and explanations |
 
-**Question rendering**:
-```
-Q1. What is the time complexity of binary search?
-  ○ A. O(n)
-  ○ B. O(log n)   ← user selects
-  ○ C. O(n²)
-  ○ D. O(1)
-```
+**Retry** shuffles questions client-side: `[...quiz.questions].sort(() => Math.random() - 0.5)`.
 
-After submission, each question shows:
-- Green checkmark (correct) or red X (wrong)
-- The correct option highlighted
-- Explanation text
+**"Quiz Overview"** button in the submitted view calls `loadQuiz()` which resets to the `ready` state (does not navigate away from the course).
 
-**Retry**: clears selected answers, re-fetches questions, posts a new attempt.
+### Courses list (`syllabi/index.tsx`)
 
-### 4. Route registration in React Router
+- `Syllabus` interface includes `quiz_status`
+- `isCompleted` requires both all tasks done and `quiz_status === "passed"`
+- Progress bar and percentage reflect quiz step
+- Stats row (Completed / In Progress counts) use the same logic
 
-Routes live in `ui/src/routes/index.tsx` (not `App.tsx` — `App.tsx` just renders
-`<RouterProvider>`). Add the quiz route as a nested child under the layout:
+### Dashboard (`analytics/index.tsx`)
 
-```tsx
-// ui/src/routes/index.tsx
-import QuizPage from "@/app/plugins/syllabi/quiz";
-
-// inside the Layout children array:
-{
-    path: "syllabi/:skillId/quiz",
-    element: <QuizPage />,
-},
-```
-
-### 5. Nav / progress — course status
-
-`GET /syllabi/{skill_id}` response should include `quiz_status` so the sidebar can show:
-- `quiz_status === "not_generated"` and all chapters done → "Take Quiz" CTA
-- `quiz_status === "available"` → quiz generated, not yet passed → show "Take Quiz" / "Retry"
-- `quiz_status === "passed"` → progress 100%
+- `getStatus()` requires `quiz_status === "passed"` for "completed"
+- Per-course ring % includes quiz step
+- Overall completion ring and "X of Y steps done" text include quiz steps across all courses
 
 ---
 
 ## Alembic Migrations
 
-Three new migration files (in order):
+Three migration files (in linear chain order):
 
 ### 1. `add_quiz_difficulty_to_skills.py`
 ```python
@@ -570,36 +477,7 @@ op.create_table("quiz_attempts", ...)
 
 ---
 
-## Public Syllabus (no auth)
-
-`GET /public/syllabi/{skill_id}` — currently shows syllabus tree. No quiz info
-should be exposed in the public view. This route requires no change.
-
----
-
-## Auth Middleware — no change needed
-
-The new `/quiz/` routes are under the authenticated prefix. The only change
-needed in `middleware/auth.py` is confirming `/quiz/` is NOT in `PUBLIC_EXACT`
-or `PUBLIC_PREFIXES` — which is already the case (no action needed).
-
----
-
-## Edge Cases
-
-| Case | Handling |
-|------|----------|
-| Generate quiz before all chapters done | HTTP 400 "Complete all chapters before taking the quiz" |
-| Generate quiz twice | HTTP 409 "Quiz already generated for this course" |
-| Submit with missing question IDs | HTTP 422 validation error |
-| Submit with question IDs from different quiz | HTTP 400 "Invalid question IDs" |
-| LLM fails during quiz generation | HTTP 502; no partial quiz saved (transaction rollback) |
-| User retries after passing | Allowed; attempt recorded; `passed` status stays |
-| 0 chapters (edge) | Cannot subscribe with 0 days — guarded at enrollment |
-
----
-
-## Files to Create / Modify
+## Files Created / Modified
 
 ### New files
 | File | Purpose |
@@ -611,40 +489,62 @@ or `PUBLIC_PREFIXES` — which is already the case (no action needed).
 | `services/quiz.py` | Quiz business logic |
 | `controllers/quiz.py` | Quiz request handlers |
 | `routes/quiz.py` | FastAPI router |
-| `ui/src/app/plugins/syllabi/quiz.tsx` | Quiz page component |
-| `alembic/versions/xxx_add_quiz_difficulty_to_skills.py` | Migration |
-| `alembic/versions/xxx_create_quizzes_and_questions.py` | Migration |
-| `alembic/versions/xxx_create_quiz_attempts.py` | Migration |
+| `ui/src/app/plugins/syllabi/quiz.tsx` | `QuizPanel` component (embedded in detail, not a page) |
+| `alembic/versions/*_add_quiz_difficulty_to_skills.py` | Migration |
+| `alembic/versions/*_create_quizzes_and_questions.py` | Migration |
+| `alembic/versions/*_create_quiz_attempts.py` | Migration |
 
 ### Modified files
 | File | Change |
 |------|--------|
-| `models/skill.py` | Add `quiz_difficulty` field |
-| `models/__init__.py` | Export `Quiz`, `QuizQuestion`, `QuizAttempt` |
-| `schemas/skill.py` | Add `quiz_difficulty: Literal[...]` to `SubscribeRequest` |
-| `services/skill.py` | `create_skill()` accepts `quiz_difficulty`; `get_syllabus_detail()` and `get_all_syllabi()` LEFT JOIN quizzes, return `quiz_status` / `quiz_difficulty` |
-| `services/llm.py` | Add `GeneratedQuestion`, `GeneratedQuiz`, `generate_quiz()` |
-| `controllers/subscription.py` | Pass `quiz_difficulty` through to `create_skill()` |
-| `routes/__init__.py` | Register quiz router in `register_routers()` |
-| `ui/src/app/plugins/enroll/index.tsx` | Add difficulty picker |
-| `ui/src/app/plugins/syllabi/detail.tsx` | Add "Take Quiz" CTA, update progress logic |
-| `ui/src/app/plugins/analytics/index.tsx` | Update `getStatus()` to require `quiz_status === "passed"` for "completed" |
-| `ui/src/routes/index.tsx` | Add `syllabi/:skillId/quiz` route under layout children |
+| `models/skill.py` | Added `quiz_difficulty` field |
+| `models/__init__.py` | Exports `Quiz`, `QuizQuestion`, `QuizAttempt` |
+| `schemas/skill.py` | `quiz_difficulty: Literal[...]` added to `SubscribeRequest` |
+| `services/skill.py` | `get_syllabus_detail()`, `get_all_syllabi()`, and `search_syllabi()` all LEFT JOIN quizzes and return `quiz_status` / `quiz_difficulty` |
+| `services/llm.py` | Added `GeneratedQuestion`, `GeneratedQuiz`, `generate_quiz()` |
+| `controllers/subscription.py` | Passes `quiz_difficulty` through to `create_skill()` |
+| `controllers/syllabus.py` | Added `_auto_generate_quiz()` background function; fires daemon thread after `store_syllabus_tasks()`; added `delete_syllabus()` |
+| `routes/syllabus.py` | Added `DELETE /syllabi/{skill_id}` |
+| `routes/__init__.py` | Registers quiz router |
+| `ui/src/app/plugins/enroll/index.tsx` | Difficulty picker, custom duration input, hide form when no API key |
+| `ui/src/app/plugins/syllabi/detail.tsx` | Final Quiz nav gate, `activeView` state, `QuizPanel` in right panel, updated progress formula |
+| `ui/src/app/plugins/syllabi/index.tsx` | `quiz_status` in interface, updated progress/completion logic |
+| `ui/src/app/plugins/analytics/index.tsx` | Updated `getStatus()`, per-course ring %, overall ring % |
+
+---
+
+## Edge Cases
+
+| Case | Handling |
+|------|----------|
+| Quiz not ready yet when user opens Final Quiz | Frontend polls `GET /quiz/{skill_id}` every 2 s (spinner shown); API returns 404 until ready |
+| Background quiz generation fails | Logged server-side; user can trigger `POST /quiz/{skill_id}/generate` manually as fallback |
+| Generate quiz twice | HTTP 409 "Quiz already exists" |
+| Submit with missing question IDs | HTTP 422 validation error |
+| LLM fails during quiz generation | Returns `None`; background thread logs warning and exits without saving partial data |
+| User retries after passing | Allowed; new attempt recorded; `quiz.status` stays `"passed"` |
+| Delete course | Hard delete via `DELETE /syllabi/{skill_id}`; CASCADE removes quiz, questions, attempts, tasks |
 
 ---
 
 ## Verification Checklist
 
-- [ ] `POST /subscribe` with `quiz_difficulty: "advanced"` → skill row has `quiz_difficulty = advanced`
-- [ ] `POST /quiz/{skill_id}/generate` before all chapters complete → 400
-- [ ] `POST /quiz/{skill_id}/generate` after all chapters complete → 200, questions created
-- [ ] `GET /quiz/{skill_id}` → questions returned, no `correct_option` field
-- [ ] `POST /quiz/{skill_id}/submit` correct answers → score + explanations
-- [ ] Failing attempt → `quiz.status` stays `available`, retry works
-- [ ] Passing attempt → `quiz.status` = `passed`, progress = 100%
-- [ ] `POST /quiz/{skill_id}/generate` second time → 409
-- [ ] `GET /public/syllabi/{skill_id}` → no quiz data leaked
-- [ ] Analytics: all chapters done but quiz not passed → status "in-progress", not "completed"
-- [ ] Analytics: all chapters done + quiz passed → status "completed", progress 100%
-- [ ] `GET /syllabi` response includes `quiz_status` per course
-- [ ] `GET /syllabi/{skill_id}` response includes `quiz_status` and `quiz_difficulty`
+- [x] `POST /subscribe` with `quiz_difficulty: "advanced"` → skill row has `quiz_difficulty = advanced`
+- [x] `POST /generate-syllabus` → quiz auto-generated in background thread
+- [x] `GET /quiz/{skill_id}` while generating → 404 (client polls)
+- [x] `GET /quiz/{skill_id}` after generation → questions returned, no `correct_option` field
+- [x] `POST /quiz/{skill_id}/submit` correct answers → score + explanations
+- [x] Failing attempt → `quiz.status` stays `available`, retry works
+- [x] Passing attempt → `quiz.status` = `passed`, progress = 100%
+- [x] `POST /quiz/{skill_id}/generate` second time → 409
+- [x] `GET /public/syllabi/{skill_id}` → no quiz data leaked
+- [x] Courses page: all chapters done but quiz not passed → "In Progress" badge, < 100%
+- [x] Courses page: all chapters done + quiz passed → "Completed" badge, 100%
+- [x] Dashboard: same completion logic as courses page
+- [x] `GET /syllabi` response includes `quiz_status` per course
+- [x] `GET /syllabi/search` response includes `quiz_status` per course
+- [x] `GET /syllabi/{skill_id}` response includes `quiz_status` and `quiz_difficulty`
+- [x] Final Quiz nav item hidden until all chapters complete
+- [x] Retry shuffles question order
+- [x] "Quiz Overview" button in results returns to ready state (not chapter view)
+- [x] `DELETE /syllabi/{skill_id}` removes course + quiz + attempts
