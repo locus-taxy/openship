@@ -27,6 +27,12 @@ def upgrade() -> None:
             server_default="beginner",
         ),
     )
+    op.create_check_constraint(
+        "ck_skills_quiz_difficulty",
+        "skills",
+        "quiz_difficulty IN ('beginner', 'intermediate', 'advanced')",
+    )
 
 def downgrade() -> None:
+    op.drop_constraint("ck_skills_quiz_difficulty", "skills", type_="check")
     op.drop_column("skills", "quiz_difficulty")
