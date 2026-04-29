@@ -39,7 +39,7 @@ https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
 - **AI-generated final quiz** — automatically created in the background when a course is generated; multiple-choice questions drawn from the actual topics you studied; difficulty set at enrollment (beginner / intermediate / advanced)
 - **Quiz gating** — Final Quiz appears only after all chapters are complete; passing it brings the course to 100%
 - **Unlimited quiz retries** — questions are shuffled on each retry; every attempt is recorded with score history
-- **Progress tracking** — mark chapters complete; progress bar accounts for both chapters and quiz pass; analytics update in real time
+- **Progress tracking** — mark chapters complete; progress bar accounts for both chapters and quiz pass; analytics update in real-time
 - **Analytics dashboard** — overview of all courses: completion rates, in-progress courses, hours planned, tasks remaining
 - **Course management** — delete any enrolled course (removes all chapters, progress, quiz, and attempts)
 - **Shareable syllabi** — generate a public link to share any syllabus with others

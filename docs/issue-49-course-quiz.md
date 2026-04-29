@@ -195,14 +195,14 @@ class QuizAttempt(SQLModel, table=True):
 
 Quiz generation is **automatic** — no user action required.
 
-```
+```text
 POST /generate-syllabus
   └─ store_syllabus_tasks()       ← saves months/weeks/chapters to DB
-  └─ threading.Thread(daemon=True)
+  └─ threading.Thread()
        └─ _auto_generate_quiz()
             ├─ guard: quiz already exists? → return early
             ├─ fetch all topic strings for skill
-            ├─ compute num_questions from topic count
+            ├─ compute num_questions from course duration (days)
             ├─ call LLM generate_quiz()
             └─ quiz_service.create_quiz()  ← inserts Quiz + QuizQuestion rows
 ```
@@ -390,7 +390,7 @@ def get_attempts(skill_id: int, current_user: User):
 
 The quiz counts as one extra step in course progress:
 
-```
+```text
 totalSteps     = total_tasks + 1
 completedSteps = completed_tasks + (quiz_status === "passed" ? 1 : 0)
 progress%      = round(completedSteps / totalSteps * 100)
@@ -480,6 +480,7 @@ op.create_table("quiz_attempts", ...)
 ## Files Created / Modified
 
 ### New files
+
 | File | Purpose |
 |------|---------|
 | `schemas/quiz.py` | All quiz request/response schemas |
@@ -495,6 +496,7 @@ op.create_table("quiz_attempts", ...)
 | `alembic/versions/*_create_quiz_attempts.py` | Migration |
 
 ### Modified files
+
 | File | Change |
 |------|--------|
 | `models/skill.py` | Added `quiz_difficulty` field |

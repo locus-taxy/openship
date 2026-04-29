@@ -5,4 +5,4 @@ from models.quiz import Quiz
 from models.quiz_question import QuizQuestion
 from models.quiz_attempt import QuizAttempt
 
-__all__ = ["User", "Skill", "DailyTask", "Quiz", "QuizQuestion", "QuizAttempt"]
+__all__ = ["DailyTask", "Quiz", "QuizAttempt", "QuizQuestion", "Skill", "User"]

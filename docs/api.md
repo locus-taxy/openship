@@ -562,7 +562,7 @@ A course is considered **Completed** only when:
 
 Progress percentage is calculated as:
 
-```
+```text
 totalSteps     = total_tasks + 1         (quiz counts as 1 extra step)
 completedSteps = completed_tasks + (quiz_passed ? 1 : 0)
 progress%      = round(completedSteps / totalSteps * 100)
@@ -574,7 +574,7 @@ This means a course with all chapters done but quiz not passed will show **~95�
 
 ## Typical Flow
 
-```
+```text
 1. POST /auth/signup              — create account
 2. POST /auth/login               — get access token
 3. PUT  /auth/me/settings         — configure LLM provider + API key

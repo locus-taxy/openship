@@ -158,7 +158,6 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
         threading.Thread(
             target=_auto_generate_quiz,
             args=(skill_id, payload.skill, difficulty, skill["days"], provider, api_key, model),
-            daemon=True,
         ).start()
 
     return {"status": "success", "message": f"Syllabus generated for '{payload.skill}'"}

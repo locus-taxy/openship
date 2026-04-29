@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from google import genai
 from mistralai import Mistral
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -175,15 +175,51 @@ class SyllabusResponse(BaseModel):
 class ChapterContent(BaseModel):
     html: str
 
+_VALID_OPTIONS = {"A", "B", "C", "D"}
+
 class QuizOption(BaseModel):
     label: str  # "A", "B", "C", "D"
     text: str
+
+    @field_validator("label")
+    @classmethod
+    def label_must_be_valid(cls, v: str) -> str:
+        if v.upper() not in _VALID_OPTIONS:
+            raise ValueError(f"QuizOption label must be one of A/B/C/D, got '{v}'")
+        return v.upper()
+
+    @field_validator("text")
+    @classmethod
+    def text_must_be_nonempty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("QuizOption text must not be empty")
+        return v
 
 class GeneratedQuestion(BaseModel):
     question: str
     options: List[QuizOption]  # exactly 4
     correct_option: str  # "A", "B", "C", or "D"
     explanation: str  # shown after submission
+
+    @field_validator("correct_option")
+    @classmethod
+    def correct_option_must_be_valid(cls, v: str) -> str:
+        if v.upper() not in _VALID_OPTIONS:
+            raise ValueError(f"correct_option must be one of A/B/C/D, got '{v}'")
+        return v.upper()
+
+    @model_validator(mode="after")
+    def validate_options(self) -> "GeneratedQuestion":
+        if len(self.options) != 4:
+            raise ValueError(f"Expected exactly 4 options, got {len(self.options)}")
+        labels = [o.label for o in self.options]
+        if len(set(labels)) != 4:
+            raise ValueError(f"Option labels must be unique A/B/C/D, got {labels}")
+        if self.correct_option not in {o.label for o in self.options}:
+            raise ValueError(
+                f"correct_option '{self.correct_option}' not found among option labels {labels}"
+            )
+        return self
 
 class GeneratedQuiz(BaseModel):
     questions: List[GeneratedQuestion]

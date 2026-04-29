@@ -72,15 +72,19 @@ export function QuizPanel({
     const [result, setResult] = useState<SubmitResult | null>(null)
 
     useEffect(() => {
-        loadQuiz()
+        const controller = new AbortController()
+        loadQuiz(controller.signal)
+        return () => controller.abort()
     }, [skillId])
 
-    async function loadQuiz() {
+    async function loadQuiz(signal?: AbortSignal) {
         setView("loading")
         // Poll until quiz is ready (background LLM generation may still be in progress)
         for (let attempt = 0; attempt < 20; attempt++) {
+            if (signal?.aborted) return
             try {
                 const res = await api.get(`/py/quiz/${skillId}`)
+                if (signal?.aborted) return
                 setQuiz(res.data)
                 setView("ready")
                 if (res.data.status === "passed") {
@@ -90,6 +94,7 @@ export function QuizPanel({
                 }
                 return
             } catch (err: any) {
+                if (signal?.aborted) return
                 const status = err?.response?.status
                 if (status !== 404) {
                     // Non-retriable error (403, 500, network failure) — stop polling
@@ -101,7 +106,7 @@ export function QuizPanel({
             }
         }
         // Exhausted all retries — show error instead of spinning indefinitely
-        setView("error")
+        if (!signal?.aborted) setView("error")
     }
 
     async function handleSubmit() {
@@ -124,7 +129,7 @@ export function QuizPanel({
         setSubmitting(false)
     }
 
-    function handleRetry() {
+    function startAttempt() {
         if (quiz) {
             const shuffled = [...quiz.questions].sort(() => Math.random() - 0.5)
             setQuiz({ ...quiz, questions: shuffled })
@@ -133,6 +138,10 @@ export function QuizPanel({
         setAnswers({})
         setSubmitError("")
         setView("taking")
+    }
+
+    function handleRetry() {
+        startAttempt()
     }
 
     // ── Loading ──────────────────────────────────────────────────────────────
@@ -239,7 +248,7 @@ export function QuizPanel({
                     {/* CTA */}
                     <Button
                         className="w-full h-11 rounded-xl"
-                        onClick={() => setView("taking")}
+                        onClick={startAttempt}
                     >
                         <BookCheck className="h-4 w-4 mr-2" />
                         {hasPrevAttempts ? "Retake Quiz" : "Start Quiz"}
