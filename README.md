@@ -6,7 +6,7 @@
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-Openship is an AI-powered personalized learning platform. Pick a skill and your time commitment — it builds a structured **Month → Week → Day** curriculum and generates AI-written lessons for each chapter, all accessible through a clean in-browser reader.
+Openship is an AI-powered personalized learning platform. Pick a skill and your time commitment — it builds a structured **Month → Week → Day** curriculum, generates AI-written lessons for each chapter, and caps every course with an AI-generated final quiz to validate what you've learned.
 
 ---
 
@@ -23,10 +23,11 @@ https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
 ## How it works
 
 1. **Configure** — add your LLM provider API key (Anthropic, OpenAI, Google Gemini, or Mistral) in Settings
-2. **Enroll** — choose a skill, set your duration and daily time commitment
-3. **Generate** — your AI model creates a structured syllabus organized by month, week, and day
+2. **Enroll** — choose a skill, set your duration, daily time commitment, and quiz difficulty
+3. **Generate** — your AI model creates a structured syllabus organized by month, week, and day — and auto-generates a final quiz in the background
 4. **Learn** — open any chapter, generate its content on demand, and mark days complete as you go
-5. **Track** — the analytics dashboard shows your overall progress across all courses
+5. **Quiz** — once all chapters are done, take the AI-generated final quiz; pass it to reach 100% completion
+6. **Track** — the analytics dashboard shows your overall progress across all courses
 
 ---
 
@@ -35,8 +36,12 @@ https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
 - **Multi-provider LLM support** — bring your own API key for Anthropic (Claude), OpenAI (GPT), Google Gemini, or Mistral; switch providers and models at any time from the UI
 - **Personalized syllabus generation** — AI produces a structured 3-level plan (month / week / day) tailored to the skill and your schedule
 - **On-demand chapter content** — rich AI-written lessons generated per chapter with syntax-highlighted code blocks, tables, and examples
-- **Progress tracking** — mark chapters complete; progress bar and analytics update in real time
+- **AI-generated final quiz** — automatically created in the background when a course is generated; multiple-choice questions drawn from the actual topics you studied; difficulty set at enrollment (beginner / intermediate / advanced)
+- **Quiz gating** — Final Quiz appears only after all chapters are complete; passing it brings the course to 100%
+- **Unlimited quiz retries** — questions are shuffled on each retry; every attempt is recorded with score history
+- **Progress tracking** — mark chapters complete; progress bar accounts for both chapters and quiz pass; analytics update in real time
 - **Analytics dashboard** — overview of all courses: completion rates, in-progress courses, hours planned, tasks remaining
+- **Course management** — delete any enrolled course (removes all chapters, progress, quiz, and attempts)
 - **Shareable syllabi** — generate a public link to share any syllabus with others
 - **Resizable chapter sidebar** — collapsible and draggable sidebar with chapter tree navigation
 - **JWT authentication** — cookie-based auth with access and refresh tokens, enforced globally via middleware
@@ -140,15 +145,20 @@ Interactive docs (Swagger UI) are available at `http://localhost:3005/docs` when
 | `PUT` | `/auth/me/settings` | Update provider, model, or API key |
 | `GET` | `/auth/me/models` | List available models for a provider |
 | `POST` | `/auth/me/models/verify` | Verify a provider/model/API key combination |
-| `POST` | `/subscribe` | Enroll in a skill |
-| `GET` | `/syllabi` | List all enrolled syllabi |
-| `GET` | `/syllabi/search` | Search syllabi and chapters |
-| `GET` | `/syllabi/{skill_id}` | Get syllabus with full chapter tree |
-| `POST` | `/generate-syllabus` | Generate Month → Week → Day plan |
+| `POST` | `/subscribe` | Enroll in a skill (`quiz_difficulty` included) |
+| `GET` | `/syllabi` | List all courses (includes `quiz_status` per course) |
+| `GET` | `/syllabi/search` | Search courses and chapters (includes `quiz_status`) |
+| `GET` | `/syllabi/{skill_id}` | Get course with full chapter tree + quiz status |
+| `DELETE` | `/syllabi/{skill_id}` | Delete a course and all its data |
+| `POST` | `/generate-syllabus` | Generate syllabus + auto-trigger quiz generation |
 | `PATCH` | `/syllabi/{skill_id}/share` | Enable / disable public sharing |
 | `POST` | `/generate-content/chapter` | Generate content for a chapter |
 | `GET` | `/chapter/{task_id}` | Get generated chapter content |
 | `POST` | `/chapter/{task_id}/complete` | Mark a chapter as complete |
+| `GET` | `/quiz/{skill_id}` | Get quiz questions (poll until ready; 404 while generating) |
+| `POST` | `/quiz/{skill_id}/submit` | Submit answers; returns score + per-question breakdown |
+| `GET` | `/quiz/{skill_id}/attempts` | List all past quiz attempts |
+| `POST` | `/quiz/{skill_id}/generate` | Manually trigger quiz generation (fallback only) |
 | `GET` | `/public/syllabi/{skill_id}` | View a publicly shared syllabus (no auth) |
 
 ---
