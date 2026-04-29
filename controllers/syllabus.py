@@ -27,7 +27,13 @@ from services import quiz as quiz_service
 logger = logging.getLogger(__name__)
 
 def _auto_generate_quiz(
-    skill_id: int, skill_name: str, difficulty: str, provider: str, api_key: str, model: str
+    skill_id: int,
+    skill_name: str,
+    difficulty: str,
+    days: int,
+    provider: str,
+    api_key: str,
+    model: str,
 ):
     """Background thread: generate and store quiz immediately after syllabus creation."""
     try:
@@ -39,7 +45,7 @@ def _auto_generate_quiz(
             logger.warning("Auto-quiz skipped for skill %s: no topics found", skill_id)
             return
 
-        num_questions = quiz_service.get_num_questions(len(topics))
+        num_questions = quiz_service.get_num_questions(days)
         generated = generate_quiz(
             skill=skill_name,
             topics=topics,
@@ -151,7 +157,7 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
         difficulty = skill.get("quiz_difficulty", "beginner")
         threading.Thread(
             target=_auto_generate_quiz,
-            args=(skill_id, payload.skill, difficulty, provider, api_key, model),
+            args=(skill_id, payload.skill, difficulty, skill["days"], provider, api_key, model),
             daemon=True,
         ).start()
 

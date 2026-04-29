@@ -29,6 +29,18 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["skill_id"], ["skills.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("skill_id"),
+        sa.CheckConstraint(
+            "difficulty IN ('beginner', 'intermediate', 'advanced')",
+            name="ck_quizzes_difficulty",
+        ),
+        sa.CheckConstraint(
+            "status IN ('available', 'passed')",
+            name="ck_quizzes_status",
+        ),
+        sa.CheckConstraint(
+            "pass_score >= 0 AND pass_score <= 100",
+            name="ck_quizzes_pass_score",
+        ),
     )
     op.create_index("ix_quizzes_skill_id", "quizzes", ["skill_id"])
 
@@ -46,6 +58,10 @@ def upgrade() -> None:
         sa.Column("explanation", sa.Text(), nullable=False),
         sa.ForeignKeyConstraint(["quiz_id"], ["quizzes.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sa.CheckConstraint(
+            "correct_option IN ('A', 'B', 'C', 'D')",
+            name="ck_quiz_questions_correct_option",
+        ),
     )
     op.create_index("ix_quiz_questions_quiz_id", "quiz_questions", ["quiz_id"])
 

@@ -38,7 +38,7 @@ function getStatus(completed: number, total: number, quizStatus: string) {
     const completionPercentage = (completed / total) * 100
     // A course is only "completed" when all chapters done AND quiz passed
     if (completionPercentage === 100 && quizStatus === "passed") return "completed"
-    if (completionPercentage > 0 || quizStatus !== "not_generated") return "in-progress"
+    if (completionPercentage > 0 || quizStatus === "passed") return "in-progress"
     return "not-started"
 }
 

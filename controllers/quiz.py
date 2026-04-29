@@ -74,8 +74,10 @@ def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateRe
 
     try:
         quiz = quiz_service.create_quiz(skill_id, difficulty, generated.questions)
-    except IntegrityError:
-        raise HTTPException(status_code=409, detail="Quiz already generated for this course")
+    except IntegrityError as err:
+        raise HTTPException(
+            status_code=409, detail="Quiz already generated for this course"
+        ) from err
 
     return QuizGenerateResponse(
         quiz_id=quiz.id,
@@ -160,7 +162,7 @@ def get_attempts(skill_id: int, current_user: User) -> QuizAttemptsResponse:
                 attempt_id=a.id,
                 score=a.score,
                 passed=a.passed,
-                created_at=str(a.created_at),
+                created_at=a.created_at.isoformat() if a.created_at else None,
             )
             for a in attempts
         ],

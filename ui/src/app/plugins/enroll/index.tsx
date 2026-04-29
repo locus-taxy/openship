@@ -378,7 +378,7 @@ export default function EnrollPage() {
                                             value={DAY_OPTIONS.some((d) => d.value === days) ? "" : days}
                                             onChange={(e) => {
                                                 const v = parseInt(e.target.value, 10)
-                                                if (!isNaN(v) && v > 0) setDays(v)
+                                                if (!isNaN(v)) setDays(Math.min(365, Math.max(1, v)))
                                             }}
                                             className="w-24 h-9 rounded-xl text-sm text-center"
                                         />

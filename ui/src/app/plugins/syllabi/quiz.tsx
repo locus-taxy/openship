@@ -53,7 +53,7 @@ function getOptionText(q: QuizQuestion, opt: string): string {
     return ({ A: q.option_a, B: q.option_b, C: q.option_c, D: q.option_d } as Record<string, string>)[opt] ?? ""
 }
 
-type View = "loading" | "ready" | "taking" | "submitted"
+type View = "loading" | "ready" | "taking" | "submitted" | "error"
 
 export function QuizPanel({
     skillId,
@@ -83,18 +83,25 @@ export function QuizPanel({
                 const res = await api.get(`/py/quiz/${skillId}`)
                 setQuiz(res.data)
                 setView("ready")
-                // Update the nav status so it doesn't show "Not generated yet"
                 if (res.data.status === "passed") {
                     onQuizStatusChange?.("passed")
                 } else {
                     onQuizStatusChange?.("available")
                 }
                 return
-            } catch {
+            } catch (err: any) {
+                const status = err?.response?.status
+                if (status !== 404) {
+                    // Non-retriable error (403, 500, network failure) — stop polling
+                    setView("error")
+                    return
+                }
+                // 404 = still generating, retry after 2s
                 await new Promise((r) => setTimeout(r, 2000))
             }
         }
-        // After 40s still not ready — stay on loading (shouldn't normally happen)
+        // Exhausted all retries — show error instead of spinning indefinitely
+        setView("error")
     }
 
     async function handleSubmit() {
@@ -134,6 +141,15 @@ export function QuizPanel({
         return (
             <div className="flex items-center justify-center h-full">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+        )
+    }
+
+    if (view === "error") {
+        return (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
+                <p className="text-sm text-muted-foreground">Could not load quiz. Please try again.</p>
+                <Button variant="outline" size="sm" onClick={loadQuiz}>Retry</Button>
             </div>
         )
     }

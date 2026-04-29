@@ -11,6 +11,8 @@ def skill_exists(email: str, skill: str) -> bool:
         statement = select(Skill).where(Skill.email == email, Skill.skill == skill)
         return session.exec(statement).first() is not None
 
+_VALID_DIFFICULTIES = {"beginner", "intermediate", "advanced"}
+
 def create_skill(
     user_id: str,
     email: str,
@@ -19,6 +21,9 @@ def create_skill(
     hours: int,
     quiz_difficulty: str = "beginner",
 ) -> Optional[int]:
+    normalized = quiz_difficulty.strip().lower() if quiz_difficulty else "beginner"
+    if normalized not in _VALID_DIFFICULTIES:
+        normalized = "beginner"
     try:
         with Session(engine) as session:
             db_skill = Skill(
@@ -27,7 +32,7 @@ def create_skill(
                 skill=skill,
                 days=days,
                 hours=hours,
-                quiz_difficulty=quiz_difficulty,
+                quiz_difficulty=normalized,
             )
             session.add(db_skill)
             session.commit()

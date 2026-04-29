@@ -60,7 +60,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, onDeleted, searchQue
     const progress = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
     const hasSyllabus = item.total_tasks > 0
     const isCompleted = item.total_tasks > 0 && item.completed_tasks === item.total_tasks && quizPassed
-    const isInProgress = hasSyllabus && !isCompleted && (item.completed_tasks > 0 || item.quiz_status !== "not_generated")
+    const isInProgress = hasSyllabus && !isCompleted && (item.completed_tasks > 0 || item.quiz_status === "passed")
 
     async function handleGenerate(e?: React.MouseEvent) {
         e?.stopPropagation()
@@ -432,7 +432,7 @@ export default function SyllabiPage() {
     // Compute stats
     const total = syllabi.length
     const completed = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === s.total_tasks && s.quiz_status === "passed").length
-    const inProgress = syllabi.filter(s => s.total_tasks > 0 && !(s.completed_tasks === s.total_tasks && s.quiz_status === "passed") && (s.completed_tasks > 0 || s.quiz_status !== "not_generated")).length
+    const inProgress = syllabi.filter(s => s.total_tasks > 0 && !(s.completed_tasks === s.total_tasks && s.quiz_status === "passed") && (s.completed_tasks > 0 || s.quiz_status === "passed")).length
 
     return (
         <div className="p-4 sm:p-6 space-y-6">

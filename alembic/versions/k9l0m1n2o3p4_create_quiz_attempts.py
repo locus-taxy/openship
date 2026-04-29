@@ -22,7 +22,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("quiz_id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
-        sa.Column("answers", sa.JSON(), nullable=True),
+        sa.Column("answers", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
         sa.Column("score", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("passed", sa.Boolean(), nullable=False, server_default="false"),
         sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=True),
