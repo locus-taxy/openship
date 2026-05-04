@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-
 from middleware.auth import AuthMiddleware
 from config import limiter
 from run_migrations import run_startup_migrations
