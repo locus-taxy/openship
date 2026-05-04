@@ -79,22 +79,6 @@ Starring the repo signals to other developers that this is worth their attention
 
 ---
 
-## Get Started in Three Commands
-
-```bash
-git clone https://github.com/locus-taxy/openship.git
-cd openship
-make setup
-```
-
-Add your database URL and secrets to `.env`, run `make dev`, open your browser, add your LLM API key in Settings, and enroll in your first skill.
-
-That's it.
-
----
-*Openship is MIT-licensed and open to contributions. See CONTRIBUTING.md for how to get involved.*
-
-
 ## Features
 
 - **Multi-provider LLM support** — bring your own API key for Anthropic (Claude), OpenAI (GPT), Google Gemini, or Mistral; switch providers and models at any time from the UI
