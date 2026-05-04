@@ -1,4 +1,4 @@
-# Openship
+# Openship: The Open-Source AI Learning Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
@@ -6,17 +6,7 @@
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-Openship is an AI-powered personalized learning platform. Pick a skill and your time commitment — it builds a structured **Month → Week → Day** curriculum and generates AI-written lessons for each chapter, all accessible through a clean in-browser reader.
-
----
-
-## Demo
-
-https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
-
----
-
-# Openship: The Open-Source AI Learning Platform
+## What Is Openship?
 
 The internet is an ocean — vast, deep, and full of treasure. But oceans without a map and a vessel are just water. Most learners today are treading water: endless browser tabs, half-finished tutorials, YouTube rabbit holes, and blog posts that lead nowhere. The knowledge is out there, but there's no ship to carry you through it with purpose.
 
@@ -26,11 +16,17 @@ Think of Openship as your personal vessel on the sea of learning. You choose the
 
 Built by the team at **Locus**, Openship is a fully open-source, AI-powered personalized learning platform. And it might just be the most thoughtful approach to self-directed learning available today.
 
-## What Is Openship?
-
 Openship takes a skill you want to learn and the time you can realistically commit, then builds a structured **Month → Week → Day** curriculum — completely tailored to you. Every chapter is generated on demand by the AI model of your choice, written specifically for your learning path.
 
 It's not a video course. It's not a content aggregator. It's a dynamic learning engine that generates your syllabus, writes your lessons, tracks your progress, and grows with you.
+
+---
+
+## Demo
+
+https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
+
+---
 
 ## Why Openship Stands Out
 
