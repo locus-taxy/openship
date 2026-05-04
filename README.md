@@ -1,4 +1,4 @@
-# Openship
+# Openship: The Open-Source AI Learning Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
@@ -6,29 +6,94 @@
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-Openship is an AI-powered personalized learning platform. Pick a skill and your time commitment — it builds a structured **Month → Week → Day** curriculum and generates AI-written lessons for each chapter, all accessible through a clean in-browser reader.
+## What Is Openship?
+
+The internet is an ocean — vast, deep, and full of treasure. But oceans without a map and a vessel are just water. Most learners today are treading water: endless browser tabs, half-finished tutorials, YouTube rabbit holes, blog posts and scattered chats with LLMs that lead nowhere. The knowledge is out there, but there's no ship to carry you through it with purpose.
+
+That's where **Openship** comes in.
+
+Think of Openship as your personal vessel on the sea of learning. You choose the destination — the skill you want to master. You set the pace — how many days, how many hours. Openship then charts your course: a structured **Month → Week → Day** route through the waters, with AI-written lessons waiting at every waypoint. You're not lost at sea anymore. You're navigating.
+
+Built by the team at **Locus**, Openship is a fully open-source, AI-powered personalized learning platform. And it might just be the most thoughtful approach to self-directed learning available today.
+
+Openship takes a skill you want to learn and the time you can realistically commit, then builds a structured **Month → Week → Day** curriculum — completely tailored to you. Every chapter is generated on demand by the AI model of your choice, written specifically for your learning path.
+
+It's not a video course. It's not a content aggregator. It's a dynamic learning engine that generates your syllabus, writes your lessons, tracks your progress, and grows with you.
 
 ---
 
 ## Demo
 
-
-
 https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
 
+---
 
+## Why Openship Stands Out
+
+### 1. Bring Your Own AI — No Lock-in
+
+Unlike most AI tools that hide their model and charge you a subscription, Openship lets you plug in your own API key for whichever provider you prefer. Switch from Claude to GPT to Gemini mid-journey if you want. You own your experience.
+
+### 2. Structure That Actually Fits Your Life
+
+No more "complete this 40-hour course at your own pace" ambiguity. You tell Openship how many days you have and how many hours per day — it builds a plan that respects your constraints. The curriculum isn't generic; it's shaped around your schedule.
+
+### 3. On-Demand Lessons, Not Static Content
+
+Content isn't pre-written and locked. Each chapter is generated when you open it — meaning the AI writes specifically for that lesson in the context of your full syllabus. Code examples include syntax highlighting. Tables render cleanly. It reads like a textbook written for you, not for the median student.
+
+### 4. Real Progress Tracking
+
+Mark chapters complete, watch your progress bar move, check your analytics dashboard across all active courses. Completion rates, hours planned, tasks remaining — it's all there. This is the accountability layer that most self-study methods completely lack.
+
+### 5. Share What You Build
+
+Generated a great syllabus for learning Rust in 30 days or becoming a data analyst in 3 months? Share it publicly with one click. Other learners can view your syllabus without even needing an account.
+
+### 6. Your API Keys Stay Yours
+
+Openship stores LLM API keys with partial encryption — the key prefix is stored in plaintext while only the sensitive suffix is encrypted using a server-side Fernet key. A database breach alone isn't enough to reconstruct a full key. Security was a first-class consideration, not an afterthought.
+
+## Who Should Use and Contribute to Openship?
+
+**Learners** — anyone building a new skill on their own time. Developers switching stacks, students filling gaps, professionals upskilling, curious people with limited hours but real ambition.
+
+**Developers** — the stack is approachable (FastAPI, React, TypeScript) and the project structure is clean. Whether you want to add a new LLM provider, improve the analytics dashboard, build better mobile UX, or add export features, there's meaningful work to do.
+
+**Teams and educators** — Openship's architecture is designed to extend. A team learning infrastructure, a bootcamp building structured paths, an educator who wants to generate and share custom curricula — the foundation is already here.
 
 ---
 
-## How it works
+## Why Star and Contribute?
 
-1. **Configure** — add your LLM provider API key (Anthropic, OpenAI, Google Gemini, or Mistral) in Settings
-2. **Enroll** — choose a skill, set your duration and daily time commitment
-3. **Generate** — your AI model creates a structured syllabus organized by month, week, and day
-4. **Learn** — open any chapter, generate its content on demand, and mark days complete as you go
-5. **Track** — the analytics dashboard shows your overall progress across all courses
+Open source only works when people show up. Openship is early enough that individual contributions have outsized impact. Your PR doesn't get lost in a 500-issue backlog — it shapes the direction of the project.
+
+Here's what's at stake if this grows:
+
+- A free, self-hostable alternative to expensive e-learning subscriptions
+- A platform that respects user privacy (your keys, your data, your server)
+- A community-built learning engine that any AI provider can plug into
+- A reference implementation of a clean FastAPI + React application that developers can learn from
+
+Starring the repo signals to other developers that this is worth their attention. Contributing — even one good PR — moves the project forward in a way that benefits every future learner.
 
 ---
+
+## Get Started in Three Commands
+
+```bash
+git clone https://github.com/locus-taxy/openship.git
+cd openship
+make setup
+```
+
+Add your database URL and secrets to `.env`, run `make dev`, open your browser, add your LLM API key in Settings, and enroll in your first skill.
+
+That's it.
+
+---
+*Openship is MIT-licensed and open to contributions. See CONTRIBUTING.md for how to get involved.*
+
 
 ## Features
 
@@ -128,53 +193,6 @@ Copy `.env.example` to `.env` and set at minimum:
 ## API Reference
 
 Interactive docs (Swagger UI) are available at `http://localhost:3005/docs` when running locally.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/auth/signup` | Create an account |
-| `POST` | `/auth/login` | Log in, receive access + refresh cookies |
-| `POST` | `/auth/refresh` | Refresh an expired access token |
-| `POST` | `/auth/logout` | Clear session cookies |
-| `GET` | `/auth/me` | Get current user profile |
-| `GET` | `/auth/me/settings` | Get LLM provider and model settings |
-| `PUT` | `/auth/me/settings` | Update provider, model, or API key |
-| `GET` | `/auth/me/models` | List available models for a provider |
-| `POST` | `/auth/me/models/verify` | Verify a provider/model/API key combination |
-| `POST` | `/subscribe` | Enroll in a skill |
-| `GET` | `/syllabi` | List all enrolled syllabi |
-| `GET` | `/syllabi/search` | Search syllabi and chapters |
-| `GET` | `/syllabi/{skill_id}` | Get syllabus with full chapter tree |
-| `POST` | `/generate-syllabus` | Generate Month → Week → Day plan |
-| `PATCH` | `/syllabi/{skill_id}/share` | Enable / disable public sharing |
-| `POST` | `/generate-content/chapter` | Generate content for a chapter |
-| `GET` | `/chapter/{task_id}` | Get generated chapter content |
-| `POST` | `/chapter/{task_id}/complete` | Mark a chapter as complete |
-| `GET` | `/public/syllabi/{skill_id}` | View a publicly shared syllabus (no auth) |
-
----
-
-## Project Structure
-
-```text
-openship/
-├── controllers/          # Request handling logic (auth, syllabus, content)
-├── services/             # Business logic (LLM routing, encryption, JWT)
-├── models/               # SQLModel table definitions
-├── schemas/              # Pydantic request/response schemas
-├── routes/               # FastAPI router registration
-├── middleware/            # Global auth middleware
-├── alembic/              # Database migration scripts
-├── scripts/              # setup.sh and formatting helpers
-├── docs/                 # Local setup guide, architecture notes
-├── ui/                   # React + TypeScript frontend (Vite)
-│   └── src/
-│       ├── app/plugins/  # Page-level components (enroll, syllabi, analytics)
-│       ├── components/   # Shared UI (sidebar, llm-bar, settings dialog)
-│       └── store/        # Zustand global state
-└── main.py               # Application entry point
-```
-
----
 
 ## Contributing
 
