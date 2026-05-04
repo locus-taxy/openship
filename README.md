@@ -8,7 +8,7 @@
 
 ## What Is Openship?
 
-The internet is an ocean — vast, deep, and full of treasure. But oceans without a map and a vessel are just water. Most learners today are treading water: endless browser tabs, half-finished tutorials, YouTube rabbit holes, and blog posts that lead nowhere. The knowledge is out there, but there's no ship to carry you through it with purpose.
+The internet is an ocean — vast, deep, and full of treasure. But oceans without a map and a vessel are just water. Most learners today are treading water: endless browser tabs, half-finished tutorials, YouTube rabbit holes, blog posts and scattered chats with LLMs that lead nowhere. The knowledge is out there, but there's no ship to carry you through it with purpose.
 
 That's where **Openship** comes in.
 
