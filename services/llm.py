@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from google import genai
 from mistralai import Mistral
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +174,55 @@ class SyllabusResponse(BaseModel):
 
 class ChapterContent(BaseModel):
     html: str
+
+_VALID_OPTIONS = {"A", "B", "C", "D"}
+
+class QuizOption(BaseModel):
+    label: str  # "A", "B", "C", "D"
+    text: str
+
+    @field_validator("label")
+    @classmethod
+    def label_must_be_valid(cls, v: str) -> str:
+        if v.upper() not in _VALID_OPTIONS:
+            raise ValueError(f"QuizOption label must be one of A/B/C/D, got '{v}'")
+        return v.upper()
+
+    @field_validator("text")
+    @classmethod
+    def text_must_be_nonempty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("QuizOption text must not be empty")
+        return v
+
+class GeneratedQuestion(BaseModel):
+    question: str
+    options: List[QuizOption]  # exactly 4
+    correct_option: str  # "A", "B", "C", or "D"
+    explanation: str  # shown after submission
+
+    @field_validator("correct_option")
+    @classmethod
+    def correct_option_must_be_valid(cls, v: str) -> str:
+        if v.upper() not in _VALID_OPTIONS:
+            raise ValueError(f"correct_option must be one of A/B/C/D, got '{v}'")
+        return v.upper()
+
+    @model_validator(mode="after")
+    def validate_options(self) -> "GeneratedQuestion":
+        if len(self.options) != 4:
+            raise ValueError(f"Expected exactly 4 options, got {len(self.options)}")
+        labels = [o.label for o in self.options]
+        if len(set(labels)) != 4:
+            raise ValueError(f"Option labels must be unique A/B/C/D, got {labels}")
+        if self.correct_option not in {o.label for o in self.options}:
+            raise ValueError(
+                f"correct_option '{self.correct_option}' not found among option labels {labels}"
+            )
+        return self
+
+class GeneratedQuiz(BaseModel):
+    questions: List[GeneratedQuestion]
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -370,6 +419,70 @@ def generate_syllabus_json(
     except Exception as e:
         _raise_if_provider_error(provider, e)
         logger.error("Syllabus generation failed [provider=%s]: %s", provider, e)
+        return None
+
+def generate_quiz(
+    skill: str,
+    topics: List[str],
+    difficulty: str,
+    num_questions: int,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[GeneratedQuiz]:
+    """Generate a multiple-choice quiz using Instructor. Returns GeneratedQuiz or None."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+
+    difficulty_desc = {
+        "beginner": "recall and basic understanding",
+        "intermediate": "application and problem-solving",
+        "advanced": "analysis, edge cases, and trade-offs",
+    }.get(difficulty, "recall and basic understanding")
+
+    topics_list = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(topics))
+
+    system_prompt = (
+        f"You are an expert educator creating a {difficulty}-level quiz for a student who "
+        f"has just completed a {skill} course covering {len(topics)} topics."
+    )
+    user_prompt = (
+        f"The course covered these topics (in order):\n{topics_list}\n\n"
+        f"Generate exactly {num_questions} multiple-choice questions.\n"
+        f"Rules:\n"
+        f"- Each question must have exactly 4 options with labels A, B, C, D\n"
+        f"- Questions should test understanding across the breadth of the course topics\n"
+        f"- Difficulty level: {difficulty} — focus on {difficulty_desc}\n"
+        f"- Vary question types: definitions, code reasoning, best-practice selection, comparisons\n"
+        f"- The explanation should clarify why the correct answer is right (1-2 sentences)"
+    )
+
+    try:
+        client = _build_client(provider, api_key)
+        response: GeneratedQuiz = client.chat.completions.create(
+            model=model,
+            response_model=GeneratedQuiz,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            **_token_kwargs(provider, 8192),
+            max_retries=1,
+        )
+        if not response.questions or len(response.questions) != num_questions:
+            logger.warning(
+                "Quiz generation returned %d questions, expected %d [provider=%s]",
+                len(response.questions) if response.questions else 0,
+                num_questions,
+                provider,
+            )
+            return None
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.error("Quiz generation failed [provider=%s]: %s", provider, e)
         return None
 
 def generate_chapter_html(

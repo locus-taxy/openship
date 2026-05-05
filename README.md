@@ -16,7 +16,7 @@ Think of Openship as your personal vessel on the sea of learning. You choose the
 
 Built by the team at **Locus**, Openship is a fully open-source, AI-powered personalized learning platform. And it might just be the most thoughtful approach to self-directed learning available today.
 
-Openship takes a skill you want to learn and the time you can realistically commit, then builds a structured **Month → Week → Day** curriculum — completely tailored to you. Every chapter is generated on demand by the AI model of your choice, written specifically for your learning path.
+Openship takes a skill you want to learn and the time you can realistically commit, then builds a structured **Month → Week → Day** curriculum — completely tailored to you. Every chapter is generated on demand by the AI model of your choice, written specifically for your learning path. Once all chapters are done, an AI-generated final quiz validates what you've learned — pass it to reach 100% completion.
 
 It's not a video course. It's not a content aggregator. It's a dynamic learning engine that generates your syllabus, writes your lessons, tracks your progress, and grows with you.
 
@@ -25,6 +25,17 @@ It's not a video course. It's not a content aggregator. It's a dynamic learning 
 ## Demo
 
 https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
+
+---
+
+## How it works
+
+1. **Configure** — add your LLM provider API key (Anthropic, OpenAI, Google Gemini, or Mistral) in Settings
+2. **Enroll** — choose a skill, set your duration, daily time commitment, and quiz difficulty
+3. **Generate** — your AI model creates a structured syllabus organized by month, week, and day — and auto-generates a final quiz in the background
+4. **Learn** — open any chapter, generate its content on demand, and mark days complete as you go
+5. **Quiz** — once all chapters are done, take the AI-generated final quiz; pass it to reach 100% completion
+6. **Track** — the analytics dashboard shows your overall progress across all courses
 
 ---
 
@@ -100,8 +111,12 @@ That's it.
 - **Multi-provider LLM support** — bring your own API key for Anthropic (Claude), OpenAI (GPT), Google Gemini, or Mistral; switch providers and models at any time from the UI
 - **Personalized syllabus generation** — AI produces a structured 3-level plan (month / week / day) tailored to the skill and your schedule
 - **On-demand chapter content** — rich AI-written lessons generated per chapter with syntax-highlighted code blocks, tables, and examples
-- **Progress tracking** — mark chapters complete; progress bar and analytics update in real time
+- **AI-generated final quiz** — automatically created in the background when a course is generated; multiple-choice questions drawn from the actual topics you studied; difficulty set at enrollment (beginner / intermediate / advanced)
+- **Quiz gating** — Final Quiz appears only after all chapters are complete; passing it brings the course to 100%
+- **Unlimited quiz retries** — questions are shuffled on each retry; every attempt is recorded with score history
+- **Progress tracking** — mark chapters complete; progress bar accounts for both chapters and quiz pass; analytics update in real-time
 - **Analytics dashboard** — overview of all courses: completion rates, in-progress courses, hours planned, tasks remaining
+- **Course management** — delete any enrolled course (removes all chapters, progress, quiz, and attempts)
 - **Shareable syllabi** — generate a public link to share any syllabus with others
 - **Resizable chapter sidebar** — collapsible and draggable sidebar with chapter tree navigation
 - **JWT authentication** — cookie-based auth with access and refresh tokens, enforced globally via middleware
@@ -193,6 +208,7 @@ Copy `.env.example` to `.env` and set at minimum:
 ## API Reference
 
 Interactive docs (Swagger UI) are available at `http://localhost:3005/docs` when running locally.
+
 
 ## Contributing
 

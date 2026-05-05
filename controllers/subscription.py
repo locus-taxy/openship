@@ -8,7 +8,12 @@ def subscribe_to_skill(payload: SubscribeRequest, current_user: User):
         raise HTTPException(status_code=409, detail=f"Already subscribed to '{payload.skill}'")
 
     skill_id = create_skill(
-        str(current_user.id), current_user.email, payload.skill, payload.days, payload.hours
+        str(current_user.id),
+        current_user.email,
+        payload.skill,
+        payload.days,
+        payload.hours,
+        payload.quiz_difficulty,
     )
     if skill_id is None:
         raise HTTPException(status_code=500, detail="Failed to create subscription")
