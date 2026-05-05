@@ -13,6 +13,9 @@ import time
 from typing import Dict, List, Optional, Tuple
 
 import instructor
+from prompts import chapter as chapter_prompts
+from prompts import quiz as quiz_prompts
+from prompts import syllabus as syllabus_prompts
 from anthropic import Anthropic
 from fastapi import HTTPException
 from google import genai
@@ -388,26 +391,14 @@ def generate_syllabus_json(
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
-    system_prompt = (
-        "You are an expert curriculum designer and career mentor. "
-        "Create an in-depth, structured learning roadmap for the requested skill. "
-        f"The total duration must be exactly {days} days with {hours} hours per day. "
-        "Ensure daily tasks are specific, actionable, and progressively build depth."
-    )
-    user_query = (
-        f"Create a comprehensive learning syllabus to master '{skill}'. "
-        f"The plan must span exactly {days} days with {hours} hours per day. "
-        "Return the complete roadmap."
-    )
-
     try:
         client = _build_client(provider, api_key)
         response: SyllabusResponse = client.chat.completions.create(
             model=model,
             response_model=SyllabusResponse,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_query},
+                {"role": "system", "content": syllabus_prompts.system_prompt(days, hours)},
+                {"role": "user", "content": syllabus_prompts.user_prompt(skill, days, hours)},
             ],
             **_token_kwargs(provider, 8192),
             max_retries=1,
@@ -434,37 +425,20 @@ def generate_quiz(
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
-    difficulty_desc = {
-        "beginner": "recall and basic understanding",
-        "intermediate": "application and problem-solving",
-        "advanced": "analysis, edge cases, and trade-offs",
-    }.get(difficulty, "recall and basic understanding")
-
-    topics_list = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(topics))
-
-    system_prompt = (
-        f"You are an expert educator creating a {difficulty}-level quiz for a student who "
-        f"has just completed a {skill} course covering {len(topics)} topics."
-    )
-    user_prompt = (
-        f"The course covered these topics (in order):\n{topics_list}\n\n"
-        f"Generate exactly {num_questions} multiple-choice questions.\n"
-        f"Rules:\n"
-        f"- Each question must have exactly 4 options with labels A, B, C, D\n"
-        f"- Questions should test understanding across the breadth of the course topics\n"
-        f"- Difficulty level: {difficulty} — focus on {difficulty_desc}\n"
-        f"- Vary question types: definitions, code reasoning, best-practice selection, comparisons\n"
-        f"- The explanation should clarify why the correct answer is right (1-2 sentences)"
-    )
-
     try:
         client = _build_client(provider, api_key)
         response: GeneratedQuiz = client.chat.completions.create(
             model=model,
             response_model=GeneratedQuiz,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {
+                    "role": "system",
+                    "content": quiz_prompts.system_prompt(skill, difficulty, len(topics)),
+                },
+                {
+                    "role": "user",
+                    "content": quiz_prompts.user_prompt(topics, num_questions, difficulty),
+                },
             ],
             **_token_kwargs(provider, 8192),
             max_retries=1,
@@ -497,27 +471,17 @@ def generate_chapter_html(
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
-    system_prompt = (
-        "You are a senior technical educator and blog writer. "
-        "Write a detailed, beginner-friendly blog explaining the concept or task described. "
-        "Focus on practical explanation, step-by-step instructions, examples, and insights. "
-        "Return the response as clean HTML content with no CSS or extra metadata. "
-        "While taking examples, make them relevant to the given skill and industry."
-    )
-    user_prompt = (
-        f"Write a detailed blog about: {task_title}\n"
-        f"Skill: {skill}\n"
-        f"Task description: {task_description}"
-    )
-
     try:
         client = _build_client(provider, api_key)
         response: ChapterContent = client.chat.completions.create(
             model=model,
             response_model=ChapterContent,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "system", "content": chapter_prompts.system_prompt()},
+                {
+                    "role": "user",
+                    "content": chapter_prompts.user_prompt(task_title, skill, task_description),
+                },
             ],
             **_token_kwargs(provider, 8192),
             max_retries=1,
