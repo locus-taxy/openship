@@ -4,7 +4,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
     ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
-    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, BookCheck,
+    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap,
 } from "lucide-react"
 import { QuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
@@ -504,7 +504,7 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                                         : "hover:bg-muted/50"
                                 }`}
                             >
-                                <BookCheck className={`h-4 w-4 shrink-0 ${
+                                <GraduationCap className={`h-4 w-4 shrink-0 ${
                                     quizStatus === "passed" ? "text-emerald-500"
                                     : isQuizActive ? "text-primary"
                                     : "text-muted-foreground"
@@ -525,7 +525,7 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                             </button>
                         ) : (
                             <div className="w-full flex items-center gap-3 px-4 py-3 opacity-50 cursor-not-allowed select-none">
-                                <BookCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <GraduationCap className="h-4 w-4 shrink-0 text-muted-foreground" />
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium text-foreground/80">Final Quiz</p>
                                     <p className="text-xs text-muted-foreground mt-0.5">Complete all chapters to attempt</p>
