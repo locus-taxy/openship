@@ -100,31 +100,14 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             const codeEl = pre.querySelector("code") as HTMLElement | null
             if (!codeEl) return
 
-            // — Syntax highlight —
-            hljs.highlightElement(codeEl)
-
-            // — Line numbers —
+            // — Capture raw text before highlight (used for copy + line count) —
             const rawText = codeEl.innerText
             const lines = rawText.split("\n")
-            // remove trailing empty line if present
             if (lines[lines.length - 1] === "") lines.pop()
+            const lineCount = lines.length
 
-            // rebuild innerHTML: wrap each line in a span, add gutter
-            const highlighted = codeEl.innerHTML
-            const lineSpans = highlighted.split("\n")
-            if (lineSpans[lineSpans.length - 1] === "") lineSpans.pop()
-
-            codeEl.innerHTML = lineSpans
-                .map((line, i) =>
-                    `<span class="hljs-line" style="display:table-row">`
-                    + `<span style="display:table-cell;user-select:none;padding-right:16px;min-width:2.5rem;text-align:right;color:#636d83;font-size:0.75rem;line-height:1.6">${i + 1}</span>`
-                    + `<span style="display:table-cell;width:100%;line-height:1.6">${line}</span>`
-                    + `</span>`
-                )
-                .join("\n")
-
-            codeEl.style.display = "table"
-            codeEl.style.width = "100%"
+            // — Syntax highlight (operates on codeEl innerHTML, never split) —
+            hljs.highlightElement(codeEl)
 
             // — Pre styles —
             Object.assign(pre.style, {
@@ -134,10 +117,35 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                 overflow: "hidden",
                 background: "transparent",
             })
-            // wrap code in scrollable inner div
+
+            // — Flex container: gutter | scrollable code —
+            const flexWrap = document.createElement("div")
+            flexWrap.style.cssText = "display:flex;overflow-x:auto"
+
+            // Gutter: one <span> per line, derived from raw text count (never from HTML split)
+            const gutter = document.createElement("div")
+            gutter.style.cssText = [
+                "display:flex", "flex-direction:column", "user-select:none",
+                "padding:1rem 0.75rem 1rem 1rem", "text-align:right",
+                "color:#636d83", "font-size:0.75rem", "line-height:1.6",
+                "min-width:2.5rem", "border-right:1px solid rgba(255,255,255,0.08)",
+                "flex-shrink:0",
+            ].join(";")
+            for (let i = 1; i <= lineCount; i++) {
+                const span = document.createElement("span")
+                span.textContent = String(i)
+                gutter.appendChild(span)
+            }
+
+            // Code scroll area
             const scrollWrap = document.createElement("div")
-            scrollWrap.style.cssText = "overflow-x:auto;padding:1rem 1.25rem"
-            pre.insertBefore(scrollWrap, codeEl)
+            scrollWrap.style.cssText = "flex:1;overflow-x:auto;padding:1rem 1.25rem;min-width:0"
+            codeEl.style.display = "block"
+            codeEl.style.whiteSpace = "pre"
+
+            pre.insertBefore(flexWrap, codeEl)
+            flexWrap.appendChild(gutter)
+            flexWrap.appendChild(scrollWrap)
             scrollWrap.appendChild(codeEl)
 
             // — Copy button —
