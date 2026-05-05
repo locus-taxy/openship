@@ -422,6 +422,11 @@ def generate_quiz(
     model: Optional[str] = None,
 ) -> Optional[GeneratedQuiz]:
     """Generate a multiple-choice quiz using Instructor. Returns GeneratedQuiz or None."""
+    _VALID_DIFFICULTIES = {"beginner", "intermediate", "advanced"}
+    difficulty = difficulty.strip().lower() if difficulty else "beginner"
+    if difficulty not in _VALID_DIFFICULTIES:
+        difficulty = "beginner"
+
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
