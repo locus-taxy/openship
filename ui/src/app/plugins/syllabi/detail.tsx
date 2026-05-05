@@ -452,8 +452,7 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
             </div>
 
             {/* Chapter tree */}
-            <div className="flex-1 overflow-y-auto flex flex-col">
-                <div className="flex-1">
+            <div className="flex-1 overflow-y-auto">
                 {detail.months.map((month) => (
                     <div key={month.month}>
                         <button
@@ -492,38 +491,49 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                         ))}
                     </div>
                 ))}
-                </div>
 
-                {/* Final Quiz nav item — only visible after all chapters complete */}
-                {completedCount === totalCount && totalCount > 0 && <div className="border-t shrink-0">
-                    <button
-                        onClick={onSelectQuiz}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                            isQuizActive
-                                ? "bg-primary/10 text-primary border-r-2 border-primary"
-                                : "hover:bg-muted/50"
-                        }`}
-                    >
-                        <BookCheck className={`h-4 w-4 shrink-0 ${
-                            quizStatus === "passed" ? "text-emerald-500"
-                            : isQuizActive ? "text-primary"
-                            : "text-muted-foreground"
-                        }`} />
-                        <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium ${isQuizActive ? "text-primary" : "text-foreground/80"}`}>
-                                Final Quiz
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                                {quizStatus === "passed" ? "Passed ✓"
-                                    : quizStatus === "available" ? "Ready to attempt"
-                                    : "Not generated yet"}
-                            </p>
-                        </div>
-                        {quizStatus === "passed" && (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                {/* Final Quiz — always shown at end of chapter list */}
+                {totalCount > 0 && (
+                    <div className="border-t mt-1">
+                        {completedCount === totalCount ? (
+                            <button
+                                onClick={onSelectQuiz}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                                    isQuizActive
+                                        ? "bg-primary/10 text-primary border-r-2 border-primary"
+                                        : "hover:bg-muted/50"
+                                }`}
+                            >
+                                <BookCheck className={`h-4 w-4 shrink-0 ${
+                                    quizStatus === "passed" ? "text-emerald-500"
+                                    : isQuizActive ? "text-primary"
+                                    : "text-muted-foreground"
+                                }`} />
+                                <div className="flex-1 min-w-0">
+                                    <p className={`text-sm font-medium ${isQuizActive ? "text-primary" : "text-foreground/80"}`}>
+                                        Final Quiz
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        {quizStatus === "passed" ? "Passed ✓"
+                                            : quizStatus === "available" ? "Ready to attempt"
+                                            : "Not generated yet"}
+                                    </p>
+                                </div>
+                                {quizStatus === "passed" && (
+                                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                                )}
+                            </button>
+                        ) : (
+                            <div className="w-full flex items-center gap-3 px-4 py-3 opacity-50 cursor-not-allowed select-none">
+                                <BookCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-foreground/80">Final Quiz</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Complete all chapters to attempt</p>
+                                </div>
+                            </div>
                         )}
-                    </button>
-                </div>}
+                    </div>
+                )}
             </div>
         </div>
     )
