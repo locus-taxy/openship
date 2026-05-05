@@ -145,8 +145,8 @@ export default function EnrollPage() {
     }
 
     return (
-        <div className="p-4 sm:p-6 md:p-10">
-            <div className="max-w-xl mx-auto space-y-8">
+        <div className="h-full overflow-hidden flex flex-col p-4 sm:p-6 md:p-8">
+            <div className="max-w-xl mx-auto w-full space-y-5">
 
                 {/* Hero header */}
                 <div className="space-y-1">
@@ -186,7 +186,7 @@ export default function EnrollPage() {
                 )}
                 {hasApiKey === true && <div className="rounded-2xl border border-border bg-card shadow-sm">
                     <form onSubmit={handleSubmit}>
-                        <div className="p-6 space-y-6">
+                        <div className="p-5 space-y-4">
 
                             {/* Subject */}
                             <div className="space-y-2">
