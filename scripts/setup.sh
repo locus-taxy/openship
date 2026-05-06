@@ -205,7 +205,12 @@ CURRENT_REV=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
 if [ -n "$CURRENT_REV" ]; then
     cd "$ROOT"
     if ! "$VENV/bin/alembic" history 2>/dev/null | grep -q "$CURRENT_REV"; then
-        HEAD_REV=$("$VENV/bin/alembic" heads 2>/dev/null | awk '{print $1}')
+        HEADS_OUTPUT=$("$VENV/bin/alembic" heads 2>/dev/null)
+        HEADS_COUNT=$(printf '%s\n' "$HEADS_OUTPUT" | grep -c .)
+        if [ "$HEADS_COUNT" -ne 1 ]; then
+            error "Expected exactly 1 alembic head but found $HEADS_COUNT — merge heads before resyncing."
+        fi
+        HEAD_REV=$(printf '%s' "$HEADS_OUTPUT" | awk '{print $1}')
         # Validate HEAD_REV is safe to use in SQL (alphanumeric only — no quotes or special chars)
         if ! printf '%s' "$HEAD_REV" | grep -qE '^[a-z0-9]{1,64}$'; then
             error "Unexpected alembic revision format '$HEAD_REV' — aborting resync."
