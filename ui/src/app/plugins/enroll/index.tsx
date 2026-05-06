@@ -34,6 +34,14 @@ const HOUR_OPTIONS = [
 
 const QUICK_PICKS = ["Python", "React", "TypeScript", "Machine Learning", "System Design", "Docker & Kubernetes"];
 
+const DIFFICULTY_OPTIONS = [
+    { value: "beginner", label: "Beginner", desc: "New to this topic" },
+    { value: "intermediate", label: "Intermediate", desc: "Some experience" },
+    { value: "advanced", label: "Advanced", desc: "Deep expertise" },
+] as const;
+
+type Difficulty = "beginner" | "intermediate" | "advanced";
+
 const ALL_ITEMS = ([] as string[]).concat(...SUBJECTS.map((g) => g.items));
 
 export default function EnrollPage() {
@@ -45,6 +53,7 @@ export default function EnrollPage() {
     const [isOther, setIsOther] = useState(false);
     const [days, setDays] = useState(90);
     const [hours, setHours] = useState(1);
+    const [difficulty, setDifficulty] = useState<Difficulty>("beginner");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
@@ -125,6 +134,7 @@ export default function EnrollPage() {
                 skill: finalSubject,
                 days,
                 hours,
+                quiz_difficulty: difficulty,
             });
             if (success) navigate("/syllabi");
         } catch {
@@ -135,8 +145,8 @@ export default function EnrollPage() {
     }
 
     return (
-        <div className="p-4 sm:p-6 md:p-10">
-            <div className="max-w-xl mx-auto space-y-8">
+        <div className="h-full overflow-hidden flex flex-col p-4 sm:p-6 md:p-8">
+            <div className="max-w-xl mx-auto w-full space-y-5">
 
                 {/* Hero header */}
                 <div className="space-y-1">
@@ -168,10 +178,15 @@ export default function EnrollPage() {
                     </div>
                 )}
 
-                {/* Form card */}
-                <div className="rounded-2xl border border-border bg-card shadow-sm">
+                {/* Form card — only shown when API key is configured */}
+                {hasApiKey === null && (
+                    <div className="flex justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                )}
+                {hasApiKey === true && <div className="rounded-2xl border border-border bg-card shadow-sm">
                     <form onSubmit={handleSubmit}>
-                        <div className="p-6 space-y-6">
+                        <div className="p-5 space-y-4">
 
                             {/* Subject */}
                             <div className="space-y-2">
@@ -354,6 +369,21 @@ export default function EnrollPage() {
                                             {d.label}
                                         </button>
                                     ))}
+                                    <div className="flex items-center gap-1.5">
+                                        <Input
+                                            type="number"
+                                            min={1}
+                                            max={365}
+                                            placeholder="Custom"
+                                            value={DAY_OPTIONS.some((d) => d.value === days) ? "" : days}
+                                            onChange={(e) => {
+                                                const v = parseInt(e.target.value, 10)
+                                                if (!isNaN(v)) setDays(Math.min(365, Math.max(1, v)))
+                                            }}
+                                            className="w-24 h-9 rounded-xl text-sm text-center"
+                                        />
+                                        <span className="text-xs text-muted-foreground">days</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -383,6 +413,32 @@ export default function EnrollPage() {
                                 </div>
                             </div>
 
+                            {/* Quiz difficulty */}
+                            <div className="space-y-2.5">
+                                <Label className="text-sm font-medium">Quiz difficulty</Label>
+                                <p className="text-xs text-muted-foreground -mt-1">
+                                    Sets how hard the end-of-course quiz will be.
+                                </p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {DIFFICULTY_OPTIONS.map((d) => (
+                                        <button
+                                            key={d.value}
+                                            type="button"
+                                            onClick={() => setDifficulty(d.value)}
+                                            className={cn(
+                                                "flex flex-col items-center justify-center py-3 rounded-xl border text-sm transition-all duration-150",
+                                                difficulty === d.value
+                                                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                                    : "border-border bg-background hover:border-primary/50 hover:bg-muted text-foreground"
+                                            )}
+                                        >
+                                            <span className="font-semibold leading-none">{d.label}</span>
+                                            <span className="text-xs mt-1 opacity-70">{d.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                         </div>
 
                         {/* Footer */}
@@ -397,7 +453,8 @@ export default function EnrollPage() {
                             </Button>
                         </div>
                     </form>
-                </div>
+                </div>}
+
             </div>
         </div>
     );

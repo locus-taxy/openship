@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
-import { BookOpen, Clock, CalendarDays, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText, GraduationCap, CheckCircle2, CircleDot } from "lucide-react"
+import { BookOpen, Clock, CalendarDays, TrendingUp, Sparkles, PlayCircle, Loader2, RotateCw, Search, FileText, GraduationCap, CheckCircle2, CircleDot, Trash2 } from "lucide-react"
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter,
     DialogHeader, DialogTitle,
@@ -34,28 +34,33 @@ interface Syllabus {
     created_at: string
     total_tasks: number
     completed_tasks: number
+    quiz_status: string  // "not_generated" | "available" | "passed"
     matching_chapters?: MatchingChapter[]
 }
 
-function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
+function SyllabusCard({ item, onSyllabusGenerated, onStart, onDeleted, searchQuery }: {
     item: Syllabus
     onSyllabusGenerated: (skillId: number) => void
     onStart: (skillId: number) => void
+    onDeleted: (skillId: number) => void
     searchQuery: string
 }) {
     const [generating, setGenerating] = useState(false)
     const [confirmOpen, setConfirmOpen] = useState(false)
+    const [deleteOpen, setDeleteOpen] = useState(false)
+    const [deleting, setDeleting] = useState(false)
     const { toast } = useToast()
     const { setSettingsOpen } = useStore((s: any) => s)
     const chapters = item.matching_chapters ?? []
     const hasMatchingChapters = searchQuery.trim() !== "" && chapters.length > 0
 
-    const progress = item.total_tasks > 0
-        ? Math.round((item.completed_tasks / item.total_tasks) * 100)
-        : 0
+    const quizPassed = item.quiz_status === "passed"
+    const totalSteps = item.total_tasks > 0 ? item.total_tasks + 1 : 0
+    const completedSteps = item.completed_tasks + (quizPassed ? 1 : 0)
+    const progress = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
     const hasSyllabus = item.total_tasks > 0
-    const isCompleted = progress === 100
-    const isInProgress = progress > 0 && progress < 100
+    const isCompleted = item.total_tasks > 0 && item.completed_tasks === item.total_tasks && quizPassed
+    const isInProgress = hasSyllabus && !isCompleted && (item.completed_tasks > 0 || item.quiz_status === "passed")
 
     async function handleGenerate(e?: React.MouseEvent) {
         e?.stopPropagation()
@@ -84,6 +89,19 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
             }
         } finally {
             setGenerating(false)
+        }
+    }
+
+    async function handleDelete() {
+        setDeleting(true)
+        try {
+            await api.delete(`/py/syllabi/${item.skill_id}`)
+            onDeleted(item.skill_id)
+        } catch {
+            toast({ variant: "destructive", title: "Error", description: "Failed to delete course." })
+        } finally {
+            setDeleting(false)
+            setDeleteOpen(false)
         }
     }
 
@@ -219,6 +237,16 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                                     >
                                         {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
                                     </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Delete course"
+                                        aria-label="Delete course"
+                                        onClick={(e) => { e.stopPropagation(); setDeleteOpen(true); }}
+                                        className="shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
                                 </div>
                             )}
                         </div>
@@ -262,6 +290,25 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, searchQuery }: {
                         <Button onClick={() => handleGenerate()}>
                             <RotateCw className="h-4 w-4 mr-1.5" />
                             Yes, Regenerate
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete confirmation dialog */}
+            <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Delete course?</DialogTitle>
+                        <DialogDescription>
+                            This will permanently delete <span className="font-medium text-foreground">{item.skill}</span> along with all chapters, progress, and quiz data. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+                        <Button variant="destructive" disabled={deleting} onClick={handleDelete}>
+                            {deleting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+                            Delete
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -330,7 +377,7 @@ export default function SyllabiPage() {
     const { setPluginName } = useStore((state: any) => state)
 
     useEffect(() => {
-        setPluginName("Syllabi")
+        setPluginName("Courses")
     }, [setPluginName])
 
     const fetchedRef = useRef(false)
@@ -377,17 +424,22 @@ export default function SyllabiPage() {
         fetchSyllabi()
     }
 
+    function handleDeleted(skillId: number) {
+        setSyllabi((prev) => prev.filter((s) => s.skill_id !== skillId))
+        setDisplayList((prev) => prev.filter((s) => s.skill_id !== skillId))
+    }
+
     // Compute stats
     const total = syllabi.length
-    const inProgress = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks > 0 && s.completed_tasks < s.total_tasks).length
-    const completed = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === s.total_tasks).length
+    const completed = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === s.total_tasks && s.quiz_status === "passed").length
+    const inProgress = syllabi.filter(s => s.total_tasks > 0 && !(s.completed_tasks === s.total_tasks && s.quiz_status === "passed") && (s.completed_tasks > 0 || s.quiz_status === "passed")).length
 
     return (
         <div className="p-4 sm:p-6 space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight">My Courses</h1>
+                    <h1 className="text-2xl font-bold tracking-tight">Courses</h1>
                     <p className="text-muted-foreground text-sm mt-0.5">All active learning plans</p>
                 </div>
                 <Button onClick={() => navigate("/enroll")}>
@@ -456,6 +508,7 @@ export default function SyllabiPage() {
                             searchQuery={search}
                             onSyllabusGenerated={handleSyllabusGenerated}
                             onStart={(skillId) => navigate(`/syllabi/${skillId}`)}
+                            onDeleted={handleDeleted}
                         />
                     ))}
                 </div>

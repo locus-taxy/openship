@@ -6,7 +6,7 @@ sqlmodel
 alembic
 psycopg2-binary
 httpx==0.28.1
-requests==2.32.5
+requests==2.33.0
 python-dotenv
 Jinja2
 sentry-sdk

@@ -3,9 +3,10 @@ import { LlmBar } from "@/components/llm-bar"
 import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
     ArrowLeft, ArrowRight, CheckCircle2,
-    FileText, ChevronDown, ChevronRight, Sparkles, Loader2, Send,
-    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen,
+    FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
+    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap,
 } from "lucide-react"
+import { QuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -49,14 +50,19 @@ interface SyllabusDetail {
     days: number
     hours: number
     share_enabled: boolean
+    quiz_difficulty: string
+    quiz_status: string   // "not_generated" | "available" | "passed"
     created_at: string
     months: Month[]
 }
 
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
-function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
+function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGenerationEnd, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
     chapter: Chapter
+    isGenerating: boolean
+    onGenerationStart: (taskId: number) => void
+    onGenerationEnd: (taskId: number) => void
     onContentGenerated: (taskId: number) => void
     onMarkComplete: (taskId: number) => void
     onGoToNext: () => void
@@ -64,7 +70,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
 }) {
     const [content, setContent] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
-    const [generating, setGenerating] = useState(false)
+    const generating = isGenerating
     // const [sending, setSending] = useState(false)
     const [completed, setCompleted] = useState(chapter.completed)
     // const [emailSent, setEmailSent] = useState(false)
@@ -171,7 +177,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
 
     async function handleGenerate() {
         setConfirmOpen(false)
-        setGenerating(true)
+        onGenerationStart(chapter.id)
         try {
             await api.post("/py/generate-content/chapter", { task_id: chapter.id })
             setHasContent(true)
@@ -196,7 +202,7 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
                 toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate content." })
             }
         } finally {
-            setGenerating(false)
+            onGenerationEnd(chapter.id)
         }
     }
 
@@ -355,10 +361,12 @@ function ChapterContentPanel({ chapter, onContentGenerated, onMarkComplete, onGo
 
 // ─── Chapter Nav (left panel) ─────────────────────────────────────────────────
 
-function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink }: {
+function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus }: {
     detail: SyllabusDetail
     activeChapterId: number | null
     onSelectChapter: (chapter: Chapter) => void
+    onSelectQuiz: () => void
+    isQuizActive: boolean
     overallProgress: number
     completedCount: number
     totalCount: number
@@ -369,6 +377,7 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
     skillId: string
     onToggleShare: () => void
     onCopyLink: () => void
+    quizStatus: string
 }) {
     const [openMonths, setOpenMonths] = useState<Set<number>>(
         () => new Set(detail.months.map((m) => m.month))
@@ -482,6 +491,49 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, overallProgress,
                         ))}
                     </div>
                 ))}
+
+                {/* Final Quiz — always shown at end of chapter list */}
+                {totalCount > 0 && (
+                    <div className="border-t mt-1">
+                        {completedCount === totalCount ? (
+                            <button
+                                onClick={onSelectQuiz}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                                    isQuizActive
+                                        ? "bg-primary/10 text-primary border-r-2 border-primary"
+                                        : "hover:bg-muted/50"
+                                }`}
+                            >
+                                <GraduationCap className={`h-4 w-4 shrink-0 ${
+                                    quizStatus === "passed" ? "text-emerald-500"
+                                    : isQuizActive ? "text-primary"
+                                    : "text-muted-foreground"
+                                }`} />
+                                <div className="flex-1 min-w-0">
+                                    <p className={`text-sm font-medium ${isQuizActive ? "text-primary" : "text-foreground/80"}`}>
+                                        Final Quiz
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        {quizStatus === "passed" ? "Passed ✓"
+                                            : quizStatus === "available" ? "Ready to attempt"
+                                            : "Not generated yet"}
+                                    </p>
+                                </div>
+                                {quizStatus === "passed" && (
+                                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                                )}
+                            </button>
+                        ) : (
+                            <div className="w-full flex items-center gap-3 px-4 py-3 opacity-50 cursor-not-allowed select-none">
+                                <GraduationCap className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-foreground/80">Final Quiz</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Complete all chapters to attempt</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -523,6 +575,8 @@ export default function SyllabusDetailPage() {
     const [copied, setCopied] = useState(false)
     const [copyFailed, setCopyFailed] = useState(false)
     const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
+    const [activeView, setActiveView] = useState<"chapter" | "quiz">("chapter")
+    const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set())
     const [navCollapsed, setNavCollapsed] = useState(false)
     const [navWidth, setNavWidth] = useState(350)
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -574,7 +628,11 @@ export default function SyllabusDetailPage() {
 
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length
-    const overallProgress = allTasks.length > 0 ? Math.round((completedCount / allTasks.length) * 100) : 0
+    const quizPassed = detail?.quiz_status === "passed"
+    // Quiz counts as one extra step — chapters + quiz = total course
+    const totalSteps = allTasks.length + 1
+    const completedSteps = completedCount + (quizPassed ? 1 : 0)
+    const overallProgress = totalSteps > 1 ? Math.round((completedSteps / totalSteps) * 100) : 0
 
     // Restore chapter from URL param, fallback to first chapter
     useEffect(() => {
@@ -608,6 +666,18 @@ export default function SyllabusDetailPage() {
                 })),
             }
         })
+    }
+
+    function handleQuizStatusChange(status: string) {
+        setDetail((prev) => prev ? { ...prev, quiz_status: status } : prev)
+    }
+
+    function handleGenerationStart(taskId: number) {
+        setGeneratingIds((prev) => new Set(prev).add(taskId))
+    }
+
+    function handleGenerationEnd(taskId: number) {
+        setGeneratingIds((prev) => { const next = new Set(prev); next.delete(taskId); return next })
     }
 
     function handleChapterCompleted(taskId: number) {
@@ -707,7 +777,7 @@ export default function SyllabusDetailPage() {
                     <ChapterNav
                         detail={detail}
                         activeChapterId={activeChapterId}
-                        onSelectChapter={(chapter) => { setActiveChapterId(chapter.id); setSearchParams({ chapter: String(chapter.id) }); setMobileSidebarOpen(false); }}
+                        onSelectChapter={(chapter) => { setActiveChapterId(chapter.id); setActiveView("chapter"); setSearchParams({ chapter: String(chapter.id) }); setMobileSidebarOpen(false); }}
                         overallProgress={overallProgress}
                         completedCount={completedCount}
                         totalCount={allTasks.length}
@@ -718,6 +788,9 @@ export default function SyllabusDetailPage() {
                         skillId={skillId!}
                         onToggleShare={handleToggleShare}
                         onCopyLink={handleCopyLink}
+                        quizStatus={detail.quiz_status}
+                        onSelectQuiz={() => { setActiveView("quiz"); setMobileSidebarOpen(false) }}
+                        isQuizActive={activeView === "quiz"}
                     />
                     {/* Resize handle */}
                     <div
@@ -745,34 +818,47 @@ export default function SyllabusDetailPage() {
                                 <ArrowLeft className="h-3.5 w-3.5 mr-1" /> <span className="hidden sm:inline">All Courses</span>
                             </Button>
                             <span className="text-sm font-semibold text-foreground/80 truncate">{detail.skill}</span>
-                            {activeChapter && (
-                                <>
-                                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
-                                    <span className="text-sm text-muted-foreground truncate hidden sm:block">
-                                        <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
-                                    </span>
-                                </>
+                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
+                            {activeView === "quiz" ? (
+                                <span className="text-sm text-muted-foreground truncate hidden sm:block">Final Quiz</span>
+                            ) : activeChapter && (
+                                <span className="text-sm text-muted-foreground truncate hidden sm:block">
+                                    <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
+                                </span>
                             )}
                         </>
                     )}
-                    {!navCollapsed && activeChapter && (
-                        <span className="text-sm text-muted-foreground truncate">
-                            <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
-                        </span>
+                    {!navCollapsed && (
+                        activeView === "quiz" ? (
+                            <span className="text-sm text-muted-foreground truncate">Final Quiz</span>
+                        ) : activeChapter ? (
+                            <span className="text-sm text-muted-foreground truncate">
+                                <span className="mr-1">Day {activeChapter.day}.</span>{activeChapter.topic}
+                            </span>
+                        ) : null
                     )}
                 </div>
 
                 <div className="flex-1 overflow-hidden">
-                    {activeChapter && (
+                    {activeView === "quiz" ? (
+                        <QuizPanel
+                            skillId={skillId!}
+                            onBack={() => setActiveView("chapter")}
+                            onQuizStatusChange={handleQuizStatusChange}
+                        />
+                    ) : activeChapter ? (
                         <ChapterContentPanel
                             key={activeChapter.id}
                             chapter={activeChapter}
+                            isGenerating={generatingIds.has(activeChapter.id)}
+                            onGenerationStart={handleGenerationStart}
+                            onGenerationEnd={handleGenerationEnd}
                             onContentGenerated={handleContentGenerated}
                             onMarkComplete={handleChapterCompleted}
                             onGoToNext={goToNextChapter}
                             hasNext={!!nextChapter}
                         />
-                    )}
+                    ) : null}
                 </div>
             </main>
         </div>
