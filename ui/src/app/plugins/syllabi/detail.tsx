@@ -142,6 +142,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             scrollWrap.style.cssText = "flex:1;overflow-x:auto;padding:1rem 1.25rem;min-width:0"
             codeEl.style.display = "block"
             codeEl.style.whiteSpace = "pre"
+            codeEl.style.lineHeight = "1.6"
 
             pre.insertBefore(flexWrap, codeEl)
             flexWrap.appendChild(gutter)
