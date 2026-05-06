@@ -13,12 +13,15 @@ import time
 from typing import Dict, List, Optional, Tuple
 
 import instructor
+from prompts import chapter as chapter_prompts
+from prompts import quiz as quiz_prompts
+from prompts import syllabus as syllabus_prompts
 from anthropic import Anthropic
 from fastapi import HTTPException
 from google import genai
 from mistralai import Mistral
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +177,55 @@ class SyllabusResponse(BaseModel):
 
 class ChapterContent(BaseModel):
     html: str
+
+_VALID_OPTIONS = {"A", "B", "C", "D"}
+
+class QuizOption(BaseModel):
+    label: str  # "A", "B", "C", "D"
+    text: str
+
+    @field_validator("label")
+    @classmethod
+    def label_must_be_valid(cls, v: str) -> str:
+        if v.upper() not in _VALID_OPTIONS:
+            raise ValueError(f"QuizOption label must be one of A/B/C/D, got '{v}'")
+        return v.upper()
+
+    @field_validator("text")
+    @classmethod
+    def text_must_be_nonempty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("QuizOption text must not be empty")
+        return v
+
+class GeneratedQuestion(BaseModel):
+    question: str
+    options: List[QuizOption]  # exactly 4
+    correct_option: str  # "A", "B", "C", or "D"
+    explanation: str  # shown after submission
+
+    @field_validator("correct_option")
+    @classmethod
+    def correct_option_must_be_valid(cls, v: str) -> str:
+        if v.upper() not in _VALID_OPTIONS:
+            raise ValueError(f"correct_option must be one of A/B/C/D, got '{v}'")
+        return v.upper()
+
+    @model_validator(mode="after")
+    def validate_options(self) -> "GeneratedQuestion":
+        if len(self.options) != 4:
+            raise ValueError(f"Expected exactly 4 options, got {len(self.options)}")
+        labels = [o.label for o in self.options]
+        if len(set(labels)) != 4:
+            raise ValueError(f"Option labels must be unique A/B/C/D, got {labels}")
+        if self.correct_option not in {o.label for o in self.options}:
+            raise ValueError(
+                f"correct_option '{self.correct_option}' not found among option labels {labels}"
+            )
+        return self
+
+class GeneratedQuiz(BaseModel):
+    questions: List[GeneratedQuestion]
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -339,26 +391,14 @@ def generate_syllabus_json(
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
-    system_prompt = (
-        "You are an expert curriculum designer and career mentor. "
-        "Create an in-depth, structured learning roadmap for the requested skill. "
-        f"The total duration must be exactly {days} days with {hours} hours per day. "
-        "Ensure daily tasks are specific, actionable, and progressively build depth."
-    )
-    user_query = (
-        f"Create a comprehensive learning syllabus to master '{skill}'. "
-        f"The plan must span exactly {days} days with {hours} hours per day. "
-        "Return the complete roadmap."
-    )
-
     try:
         client = _build_client(provider, api_key)
         response: SyllabusResponse = client.chat.completions.create(
             model=model,
             response_model=SyllabusResponse,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_query},
+                {"role": "system", "content": syllabus_prompts.system_prompt(days, hours)},
+                {"role": "user", "content": syllabus_prompts.user_prompt(skill, days, hours)},
             ],
             **_token_kwargs(provider, 8192),
             max_retries=1,
@@ -370,6 +410,58 @@ def generate_syllabus_json(
     except Exception as e:
         _raise_if_provider_error(provider, e)
         logger.error("Syllabus generation failed [provider=%s]: %s", provider, e)
+        return None
+
+def generate_quiz(
+    skill: str,
+    topics: List[str],
+    difficulty: str,
+    num_questions: int,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[GeneratedQuiz]:
+    """Generate a multiple-choice quiz using Instructor. Returns GeneratedQuiz or None."""
+    _VALID_DIFFICULTIES = {"beginner", "intermediate", "advanced"}
+    difficulty = difficulty.strip().lower() if difficulty else "beginner"
+    if difficulty not in _VALID_DIFFICULTIES:
+        difficulty = "beginner"
+
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+
+    try:
+        client = _build_client(provider, api_key)
+        response: GeneratedQuiz = client.chat.completions.create(
+            model=model,
+            response_model=GeneratedQuiz,
+            messages=[
+                {
+                    "role": "system",
+                    "content": quiz_prompts.system_prompt(skill, difficulty, len(topics)),
+                },
+                {
+                    "role": "user",
+                    "content": quiz_prompts.user_prompt(topics, num_questions, difficulty),
+                },
+            ],
+            **_token_kwargs(provider, 8192),
+            max_retries=1,
+        )
+        if not response.questions or len(response.questions) != num_questions:
+            logger.warning(
+                "Quiz generation returned %d questions, expected %d [provider=%s]",
+                len(response.questions) if response.questions else 0,
+                num_questions,
+                provider,
+            )
+            return None
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.error("Quiz generation failed [provider=%s]: %s", provider, e)
         return None
 
 def generate_chapter_html(
@@ -384,27 +476,17 @@ def generate_chapter_html(
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
-    system_prompt = (
-        "You are a senior technical educator and blog writer. "
-        "Write a detailed, beginner-friendly blog explaining the concept or task described. "
-        "Focus on practical explanation, step-by-step instructions, examples, and insights. "
-        "Return the response as clean HTML content with no CSS or extra metadata. "
-        "While taking examples, make them relevant to the given skill and industry."
-    )
-    user_prompt = (
-        f"Write a detailed blog about: {task_title}\n"
-        f"Skill: {skill}\n"
-        f"Task description: {task_description}"
-    )
-
     try:
         client = _build_client(provider, api_key)
         response: ChapterContent = client.chat.completions.create(
             model=model,
             response_model=ChapterContent,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "system", "content": chapter_prompts.system_prompt()},
+                {
+                    "role": "user",
+                    "content": chapter_prompts.user_prompt(task_title, skill, task_description),
+                },
             ],
             **_token_kwargs(provider, 8192),
             max_retries=1,

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { UserPlus, ChevronDown, Loader2, Search, PenLine, Clock, CalendarDays } from "lucide-react";
+import { UserPlus, ChevronDown, Loader2, Search, PenLine, Clock, CalendarDays, KeyRound, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { postRequest } from "@/services";
+import { postRequest, getRequest } from "@/services";
 import useStore from "@/store";
 
 const SUBJECTS = [
@@ -34,6 +34,14 @@ const HOUR_OPTIONS = [
 
 const QUICK_PICKS = ["Python", "React", "TypeScript", "Machine Learning", "System Design", "Docker & Kubernetes"];
 
+const DIFFICULTY_OPTIONS = [
+    { value: "beginner", label: "Beginner", desc: "New to this topic" },
+    { value: "intermediate", label: "Intermediate", desc: "Some experience" },
+    { value: "advanced", label: "Advanced", desc: "Deep expertise" },
+] as const;
+
+type Difficulty = "beginner" | "intermediate" | "advanced";
+
 const ALL_ITEMS = ([] as string[]).concat(...SUBJECTS.map((g) => g.items));
 
 export default function EnrollPage() {
@@ -45,9 +53,11 @@ export default function EnrollPage() {
     const [isOther, setIsOther] = useState(false);
     const [days, setDays] = useState(90);
     const [hours, setHours] = useState(1);
+    const [difficulty, setDifficulty] = useState<Difficulty>("beginner");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
-    const { setPluginName } = useStore((state: any) => state);
+    const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+    const { setPluginName, setSettingsOpen, settingsOpen } = useStore((state: any) => state);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     const finalSubject = isOther ? customSubject.trim() : subject;
@@ -61,6 +71,20 @@ export default function EnrollPage() {
     useEffect(() => {
         setPluginName("Enroll");
     }, [setPluginName]);
+
+    useEffect(() => {
+        if (settingsOpen) return; // only re-check when dialog closes (or on first load)
+        async function checkApiKey() {
+            const { success, data } = await getRequest("/py/auth/me/settings");
+            if (success) {
+                const anyKey = Object.values(data.provider_keys as Record<string, boolean>).some(Boolean);
+                setHasApiKey(anyKey);
+            } else {
+                setHasApiKey(false);
+            }
+        }
+        checkApiKey();
+    }, [settingsOpen]);
 
     useEffect(() => {
         function handleClickOutside(e: MouseEvent) {
@@ -91,6 +115,10 @@ export default function EnrollPage() {
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
+        if (hasApiKey !== true) {
+            setError("Please configure an LLM provider API key in Settings before enrolling.");
+            return;
+        }
         if (!subject) {
             setError("Please select a subject.");
             return;
@@ -106,6 +134,7 @@ export default function EnrollPage() {
                 skill: finalSubject,
                 days,
                 hours,
+                quiz_difficulty: difficulty,
             });
             if (success) navigate("/syllabi");
         } catch {
@@ -116,8 +145,8 @@ export default function EnrollPage() {
     }
 
     return (
-        <div className="p-4 sm:p-6 md:p-10">
-            <div className="max-w-xl mx-auto space-y-8">
+        <div className="h-full overflow-hidden flex flex-col p-4 sm:p-6 md:p-8">
+            <div className="max-w-xl mx-auto w-full space-y-5">
 
                 {/* Hero header */}
                 <div className="space-y-1">
@@ -127,10 +156,37 @@ export default function EnrollPage() {
                     </p>
                 </div>
 
-                {/* Form card */}
-                <div className="rounded-2xl border border-border bg-card shadow-sm">
+                {/* No API key banner */}
+                {hasApiKey === false && (
+                    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-3.5">
+                        <KeyRound className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">API key required</p>
+                            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                                You need to configure an LLM provider before enrolling. Add your API key in Settings.
+                            </p>
+                        </div>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-900/30 h-8 text-xs"
+                            onClick={() => setSettingsOpen(true)}
+                        >
+                            <Settings className="h-3.5 w-3.5 mr-1.5" />
+                            Open Settings
+                        </Button>
+                    </div>
+                )}
+
+                {/* Form card — only shown when API key is configured */}
+                {hasApiKey === null && (
+                    <div className="flex justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                )}
+                {hasApiKey === true && <div className="rounded-2xl border border-border bg-card shadow-sm">
                     <form onSubmit={handleSubmit}>
-                        <div className="p-6 space-y-6">
+                        <div className="p-5 space-y-4">
 
                             {/* Subject */}
                             <div className="space-y-2">
@@ -313,6 +369,21 @@ export default function EnrollPage() {
                                             {d.label}
                                         </button>
                                     ))}
+                                    <div className="flex items-center gap-1.5">
+                                        <Input
+                                            type="number"
+                                            min={1}
+                                            max={365}
+                                            placeholder="Custom"
+                                            value={DAY_OPTIONS.some((d) => d.value === days) ? "" : days}
+                                            onChange={(e) => {
+                                                const v = parseInt(e.target.value, 10)
+                                                if (!isNaN(v)) setDays(Math.min(365, Math.max(1, v)))
+                                            }}
+                                            className="w-24 h-9 rounded-xl text-sm text-center"
+                                        />
+                                        <span className="text-xs text-muted-foreground">days</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -342,12 +413,38 @@ export default function EnrollPage() {
                                 </div>
                             </div>
 
+                            {/* Quiz difficulty */}
+                            <div className="space-y-2.5">
+                                <Label className="text-sm font-medium">Quiz difficulty</Label>
+                                <p className="text-xs text-muted-foreground -mt-1">
+                                    Sets how hard the end-of-course quiz will be.
+                                </p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {DIFFICULTY_OPTIONS.map((d) => (
+                                        <button
+                                            key={d.value}
+                                            type="button"
+                                            onClick={() => setDifficulty(d.value)}
+                                            className={cn(
+                                                "flex flex-col items-center justify-center py-3 rounded-xl border text-sm transition-all duration-150",
+                                                difficulty === d.value
+                                                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                                    : "border-border bg-background hover:border-primary/50 hover:bg-muted text-foreground"
+                                            )}
+                                        >
+                                            <span className="font-semibold leading-none">{d.label}</span>
+                                            <span className="text-xs mt-1 opacity-70">{d.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                         </div>
 
                         {/* Footer */}
                         <div className="border-t border-border px-6 py-4 bg-muted/30 rounded-b-2xl space-y-3">
                             {error && <p className="text-sm text-destructive">{error}</p>}
-                            <Button type="submit" className="w-full h-10 rounded-xl" disabled={loading}>
+                            <Button type="submit" className="w-full h-10 rounded-xl" disabled={loading || hasApiKey !== true}>
                                 {loading ? (
                                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Enrolling…</>
                                 ) : (
@@ -356,7 +453,8 @@ export default function EnrollPage() {
                             </Button>
                         </div>
                     </form>
-                </div>
+                </div>}
+
             </div>
         </div>
     );

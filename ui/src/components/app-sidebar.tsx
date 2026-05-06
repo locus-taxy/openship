@@ -15,7 +15,7 @@ import {
 const NAV_ITEMS = [
     { title: "Dashboard", icon: BarChart2, url: "/analytics" },
     { title: "Enroll", icon: UserPlus, url: "/enroll" },
-    { title: "Syllabi", icon: BookOpen, url: "/syllabi" },
+    { title: "Courses", icon: BookOpen, url: "/syllabi" },
 ]
 
 export function AppSidebar() {
