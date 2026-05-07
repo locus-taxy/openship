@@ -20,6 +20,7 @@ class DailyTask(SQLModel, table=True):
     task: Optional[str] = None
     hours: Optional[int] = None
     newsletter: Optional[str] = None
+    content_blocks: Optional[str] = None
     completed: bool = Field(default=False)
     stop_sending: bool = Field(default=False)
     completed_at: Optional[datetime] = Field(

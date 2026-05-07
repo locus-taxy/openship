@@ -9,10 +9,12 @@ from services.daily_task import (
     get_chapter_content,
     get_tasks_for_generating_newsletter,
     add_content_to_db,
+    add_blocks_to_db,
     mark_task_completed,
 )
 from services.llm import (
     generate_chapter_html,
+    generate_chapter_content,
     get_user_api_key,
     get_user_model,
     get_user_provider_name,
@@ -56,6 +58,8 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 print(f"Failed to save content for task {task['id']}")
                 failed_tasks.append(task["id"])
             time.sleep(5)
+        except HTTPException:
+            raise  # quota / auth errors surface immediately — stop the bulk loop
         except Exception as e:
             print(f"Content generation error for task {task['id']}: {e}")
             failed_tasks.append(task["id"])
@@ -75,7 +79,7 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         raise HTTPException(status_code=404, detail="Task not found")
     _check_task_ownership(chapter, current_user)
 
-    html = generate_chapter_html(
+    result = generate_chapter_content(
         task_description=chapter["task"],
         task_title=chapter["topic"],
         skill=chapter["skill"],
@@ -83,12 +87,12 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         api_key=get_user_api_key(current_user),
         model=get_user_model(current_user),
     )
-    if not html:
+    if not result:
         raise HTTPException(
             status_code=500, detail=f"Failed to generate content for task {payload.task_id}"
         )
 
-    if not add_content_to_db(newsletter=html, task_id=payload.task_id):
+    if not add_blocks_to_db(blocks=result.blocks, task_id=payload.task_id):
         raise HTTPException(
             status_code=500, detail=f"Failed to save content for task {payload.task_id}"
         )

@@ -82,7 +82,7 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
                     "task": t.task,
                     "hours": t.hours,
                     "completed": t.completed,
-                    "has_content": t.newsletter is not None,
+                    "has_content": t.content_blocks is not None or t.newsletter is not None,
                 }
             )
 

@@ -7,6 +7,7 @@ If the provider or key is missing, raises HTTP 400 so the UI can
 prompt the user to configure their settings.
 """
 
+from enum import Enum
 import hashlib
 import logging
 import time
@@ -178,6 +179,97 @@ class SyllabusResponse(BaseModel):
 class ChapterContent(BaseModel):
     html: str
 
+class BlockType(str, Enum):
+    HEADING = "heading"
+    PARAGRAPH = "paragraph"
+    CODE = "code"
+    BULLET_LIST = "bullet_list"
+    NUMBERED_LIST = "numbered_list"
+    TABLE = "table"
+    NOTE = "note"
+    QUOTE = "quote"
+    DIVIDER = "divider"
+    DIAGRAM = "diagram"
+
+class ContentBlock(BaseModel):
+    type: BlockType
+    content: Optional[str] = None
+    level: Optional[int] = None
+    language: Optional[str] = None
+    items: Optional[List[str]] = None
+    headers: Optional[List[str]] = None
+    rows: Optional[List[List[str]]] = None
+    format: Optional[str] = None
+
+    @field_validator("level")
+    @classmethod
+    def level_must_be_valid(cls, v):
+        if v is not None and v not in (1, 2, 3):
+            raise ValueError("Heading level must be 1, 2, or 3")
+        return v
+
+    @model_validator(mode="after")
+    def validate_block(self) -> "ContentBlock":
+        t = self.type
+        if t == BlockType.HEADING:
+            if not self.content:
+                self.content = ""  # filtered out downstream
+            if self.level is None:
+                self.level = 2
+        elif t in (BlockType.PARAGRAPH, BlockType.NOTE, BlockType.QUOTE):
+            if not self.content:
+                self.content = ""  # filtered out downstream
+        elif t == BlockType.CODE:
+            if not self.content:
+                self.content = ""  # filtered out downstream
+            if not self.language:
+                self.language = ""
+        elif t in (BlockType.BULLET_LIST, BlockType.NUMBERED_LIST):
+            if not self.items:
+                self.items = []  # filtered out downstream
+        elif t == BlockType.TABLE:
+            if not self.headers:
+                self.headers = []
+            if not self.rows:
+                self.rows = []
+            elif self.headers:
+                n = len(self.headers)
+                self.rows = [(row + [""] * n)[:n] for row in self.rows]
+        elif t == BlockType.DIAGRAM:
+            if not self.content:
+                self.content = ""  # filtered out downstream
+            if not self.format:
+                self.format = "mermaid"
+        return self
+
+class StructuredChapterContent(BaseModel):
+    blocks: List[ContentBlock]
+
+    @field_validator("blocks")
+    @classmethod
+    def filter_and_validate_blocks(cls, v: List[ContentBlock]) -> List[ContentBlock]:
+        def _is_useful(b: ContentBlock) -> bool:
+            t = b.type
+            if t in (
+                BlockType.HEADING,
+                BlockType.PARAGRAPH,
+                BlockType.NOTE,
+                BlockType.QUOTE,
+                BlockType.CODE,
+                BlockType.DIAGRAM,
+            ):
+                return bool(b.content and b.content.strip())
+            if t in (BlockType.BULLET_LIST, BlockType.NUMBERED_LIST):
+                return bool(b.items)
+            if t == BlockType.TABLE:
+                return bool(b.headers and b.rows)
+            return True  # DIVIDER always kept
+
+        filtered = [b for b in v if _is_useful(b)]
+        if not filtered:
+            raise ValueError("All blocks were empty — LLM did not fill content fields")
+        return filtered
+
 _VALID_OPTIONS = {"A", "B", "C", "D"}
 
 class QuizOption(BaseModel):
@@ -251,9 +343,22 @@ def _require_settings(provider: Optional[str], api_key: Optional[str]):
         )
     return p, k
 
+def _full_exc_msg(exc: Exception) -> str:
+    """Collect the full message across the exception cause chain."""
+    parts = []
+    seen: set = set()
+    current: Exception | None = exc
+    while current is not None:
+        if id(current) in seen:
+            break
+        seen.add(id(current))
+        parts.append(str(current).lower())
+        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+    return " ".join(parts)
+
 def _raise_if_provider_error(provider: str, exc: Exception) -> None:
     """Convert common LLM API errors into meaningful HTTP exceptions."""
-    msg = str(exc).lower()
+    msg = _full_exc_msg(exc)
     # "rate" alone is too broad — "generate" contains "rate" and would false-positive.
     # Match specific rate/quota patterns instead.
     if (
@@ -298,12 +403,6 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
     raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
 def _token_kwargs(provider: str, max_tokens: int) -> dict:
-    """
-    Gemini handles token limits internally — passing any token kwarg causes errors.
-    All other providers use max_tokens.
-    """
-    if provider == "gemini":
-        return {}
     return {"max_tokens": max_tokens}
 
 # ── Model verification ────────────────────────────────────────────────────────
@@ -409,7 +508,7 @@ def generate_syllabus_json(
         raise
     except Exception as e:
         _raise_if_provider_error(provider, e)
-        logger.error("Syllabus generation failed [provider=%s]: %s", provider, e)
+        logger.exception("Syllabus generation failed [provider=%s]", provider)
         return None
 
 def generate_quiz(
@@ -461,7 +560,109 @@ def generate_quiz(
         raise
     except Exception as e:
         _raise_if_provider_error(provider, e)
-        logger.error("Quiz generation failed [provider=%s]: %s", provider, e)
+        logger.exception("Quiz generation failed [provider=%s]", provider)
+        return None
+
+def _gemini_chapter_direct(
+    model: str, api_key: str, task_title: str, skill: str, task_description: str
+) -> StructuredChapterContent:
+    """
+    Call Gemini directly (no instructor) so we can set max_output_tokens explicitly.
+    instructor.from_genai does not forward max_tokens to Gemini's GenerateContentConfig,
+    causing IncompleteOutputException for long chapters.
+    """
+    import json
+    from google.genai import types as genai_types
+
+    google_client = genai.Client(api_key=api_key)
+    config = genai_types.GenerateContentConfig(
+        response_mime_type="application/json",
+        max_output_tokens=16384,
+    )
+    prompt = (
+        f"{chapter_prompts.system_prompt()}\n\n"
+        f"{chapter_prompts.user_prompt(task_title, skill, task_description)}"
+    )
+    response = google_client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=config,
+    )
+    raw = response.text
+    if not raw:
+        raise ValueError("Empty response from Gemini")
+    data = json.loads(raw)
+    return StructuredChapterContent(**data)
+
+def generate_chapter_content(
+    task_description: str,
+    task_title: str,
+    skill: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[StructuredChapterContent]:
+    """Generate structured chapter content. Returns StructuredChapterContent or None."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+
+    # Gemini: bypass instructor — it doesn't forward max_tokens to Gemini's API,
+    # causing truncation. Call Gemini directly with explicit max_output_tokens.
+    if provider == "gemini":
+        try:
+            return _gemini_chapter_direct(model, api_key, task_title, skill, task_description)
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(
+                f"[llm] gemini-direct error: type={type(e).__name__} msg={str(e)[:400]}", flush=True
+            )
+            _raise_if_provider_error("gemini", e)
+            logger.exception("Chapter (blocks) generation failed [provider=gemini]")
+            return None
+
+    # All other providers: use instructor
+    chapter_max_tokens = 16384 if provider == "openai" else 8192
+    try:
+        client = _build_client(provider, api_key)
+        response: StructuredChapterContent = client.chat.completions.create(
+            model=model,
+            response_model=StructuredChapterContent,
+            messages=[
+                {"role": "system", "content": chapter_prompts.system_prompt()},
+                {
+                    "role": "user",
+                    "content": chapter_prompts.user_prompt(task_title, skill, task_description),
+                },
+            ],
+            **_token_kwargs(provider, chapter_max_tokens),
+            max_retries=1,
+        )
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        full_msg = _full_exc_msg(e)
+        if (
+            "incomplete" in full_msg
+            or "incompleteoutput" in full_msg.replace(" ", "")
+            or "max_tokens" in full_msg
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="The chapter was too long and the response was cut off. Try regenerating — it usually works on the next attempt.",
+            )
+        print(
+            f"[llm] chapter-blocks error provider={provider} type={type(e).__name__} msg={str(e)[:400]}",
+            flush=True,
+        )
+        cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+        if cause:
+            print(
+                f"[llm] caused by: type={type(cause).__name__} msg={str(cause)[:400]}", flush=True
+            )
+        _raise_if_provider_error(provider, e)
+        logger.exception("Chapter (blocks) generation failed [provider=%s]", provider)
         return None
 
 def generate_chapter_html(
@@ -482,7 +683,7 @@ def generate_chapter_html(
             model=model,
             response_model=ChapterContent,
             messages=[
-                {"role": "system", "content": chapter_prompts.system_prompt()},
+                {"role": "system", "content": chapter_prompts.system_prompt_html()},
                 {
                     "role": "user",
                     "content": chapter_prompts.user_prompt(task_title, skill, task_description),
@@ -496,5 +697,5 @@ def generate_chapter_html(
         raise
     except Exception as e:
         _raise_if_provider_error(provider, e)
-        logger.error("Chapter generation failed [provider=%s]: %s", provider, e)
+        logger.exception("Chapter (html) generation failed [provider=%s]", provider)
         return None

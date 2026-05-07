@@ -1,3 +1,4 @@
+import json
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
 import bleach
@@ -71,6 +72,8 @@ def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
             "hours": t.hours,
             "completed": t.completed,
             "newsletter": t.newsletter,
+            "content_blocks": t.content_blocks,
+            "has_content": t.content_blocks is not None or t.newsletter is not None,
         }
 
 def get_tasks_based_on_skill_id(skill_id: int) -> List[Dict[str, Any]]:
@@ -104,6 +107,7 @@ def get_tasks_for_generating_newsletter(skill_id: int) -> List[Dict[str, Any]]:
                 DailyTask.skill_id == skill_id,
                 DailyTask.completed == False,
                 DailyTask.newsletter == None,
+                DailyTask.content_blocks == None,
             )
             .order_by(DailyTask.day)
             .limit(90)
@@ -133,6 +137,20 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
             return True
     except Exception as e:
         print(f"Error in add_content_to_db: {e}")
+        return False
+
+def add_blocks_to_db(blocks: list, task_id: int) -> bool:
+    try:
+        with Session(engine) as session:
+            task = session.get(DailyTask, task_id)
+            if task is None:
+                return False
+            task.content_blocks = json.dumps([b.model_dump() for b in blocks])
+            session.add(task)
+            session.commit()
+            return True
+    except Exception as e:
+        print(f"Error in add_blocks_to_db: {e}")
         return False
 
 def mark_task_completed(task_id: int) -> bool:
