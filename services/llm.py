@@ -410,22 +410,31 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
             kwargs.pop("max_tokens", None)
 
             config = kwargs.get("config")
-            if config is not None and getattr(config, "max_output_tokens", None) is None:
-                update: dict = {"max_output_tokens": 32768}
-                # Gemini 2.5 models run thinking by default; thinking tokens count
-                # against max_output_tokens.  Disable it for structured output calls.
+            if config is not None:
+                update: dict = {}
+                if getattr(config, "max_output_tokens", None) is None:
+                    update["max_output_tokens"] = 32768
                 if getattr(config, "thinking_config", None) is None:
                     from google.genai import types as _gtypes
 
-                    update["thinking_config"] = _gtypes.ThinkingConfig(thinking_budget=0)
-                try:
-                    kwargs["config"] = config.model_copy(update=update)
-                except Exception:
-                    for k, v in update.items():
-                        try:
-                            setattr(config, k, v)
-                        except Exception:
-                            pass
+                    update["thinking_config"] = _gtypes.ThinkingConfig(thinking_budget=2048)
+                # Drop response_schema so Gemini generates JSON from the prompt
+                # rather than from the schema.  With response_schema set, the model
+                # ignores prompt instructions (code blocks, diagrams, etc.) and picks
+                # only the easiest block types.  instructor still validates the output
+                # against our Pydantic model via model_validate_json — same result,
+                # but the prompt now drives WHAT gets generated.
+                if getattr(config, "response_schema", None) is not None:
+                    update["response_schema"] = None
+                if update:
+                    try:
+                        kwargs["config"] = config.model_copy(update=update)
+                    except Exception:
+                        for k, v in update.items():
+                            try:
+                                setattr(config, k, v)
+                            except Exception:
+                                pass
             return _real_generate(*args, **kwargs)
 
         google_client.models.generate_content = _patched_generate
