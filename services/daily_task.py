@@ -143,25 +143,31 @@ def _clean_mermaid(content: str) -> str:
     """
     Fix common LLM-generated mermaid syntax issues that cause parse failures.
     - Unescape HTML entities (&lt; → <)
-    - Strip parentheses and slashes from sequence-diagram message labels
-      because mermaid's parser rejects them in that position.
+    - In sequence diagram message labels (after the arrow+colon), replace
+      special characters that break mermaid's parser with safe alternatives.
     """
     import re
     from html import unescape
 
     content = unescape(content)
 
-    # For sequence diagram message lines (arrows like ->>, -->, -->>)
-    # strip ( ) and / from the label part (everything after the last colon).
+    # Characters that break mermaid's sequence-diagram label parser.
+    # Replace / with a space (so "success/failure" → "success failure"),
+    # then strip remaining punctuation mermaid can't handle.
+    _REPLACE_WITH_SPACE = re.compile(r"[/|]")
+    _STRIP_CHARS = re.compile(r"[()[\]{}<>*?=,;!@#$%^&+~`\"'\\]")
+
     def _clean_label(m: re.Match) -> str:
-        prefix = m.group(1)  # "A->>B: "
+        prefix = m.group(1)  # e.g. "A->>B: "
         label = m.group(2)
-        label = re.sub(r"[()\/]", "", label)
+        label = _REPLACE_WITH_SPACE.sub(" ", label)
+        label = _STRIP_CHARS.sub("", label)
         label = re.sub(r"\s{2,}", " ", label).strip()
         return prefix + label
 
+    # Match any mermaid sequence diagram arrow line and clean its label.
     content = re.sub(
-        r"((?:->+|-->>?)\s*[^:\n]+:\s*)(.+)",
+        r"((?:-->>?|->>?|->)\s*[^:\n]+:\s*)(.+)",
         _clean_label,
         content,
     )
