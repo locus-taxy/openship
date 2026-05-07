@@ -391,6 +391,50 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
     """Create an Instructor-patched client for the given provider."""
     if provider == "gemini":
         google_client = genai.Client(api_key=api_key)
+
+        # issue #69 — instructor's GENAI_STRUCTURED_OUTPUTS mode builds a
+        # GenerateContentConfig with response_schema but never sets
+        # max_output_tokens, so Gemini uses its own low default and truncates.
+        # Gemini 2.5 models also run "thinking" by default; thinking tokens
+        # count against max_output_tokens, so with the default cap the content
+        # gets cut off before the JSON is complete.
+        # Fix: patch generate_content to inject max_output_tokens=65536 and
+        # disable thinking (thinking_budget=0) whenever instructor omits them.
+        _real_generate = google_client.models.generate_content
+
+        def _patched_generate(*args, **kwargs):
+            # generate_content only accepts model/contents/config — strip any
+            # OpenAI-style kwargs that instructor forwards but the SDK rejects.
+            # max_tokens in particular causes TypeError which we then mis-classify
+            # as a truncation error.  We apply it via config.max_output_tokens instead.
+            kwargs.pop("max_tokens", None)
+
+            config = kwargs.get("config")
+            if config is not None:
+                needs_tokens = getattr(config, "max_output_tokens", None) is None
+                needs_thinking = getattr(config, "thinking_config", None) is None
+                if needs_tokens or needs_thinking:
+                    update: dict = {}
+                    if needs_tokens:
+                        # 65536 is the Gemini 2.5 max — models cap at their own limit
+                        update["max_output_tokens"] = 65536
+                    if needs_thinking:
+                        # Thinking tokens count against max_output_tokens; disabling
+                        # it gives the full budget to structured JSON content.
+                        from google.genai import types as _gtypes
+
+                        update["thinking_config"] = _gtypes.ThinkingConfig(thinking_budget=0)
+                    try:
+                        kwargs["config"] = config.model_copy(update=update)
+                    except Exception:
+                        for k, v in update.items():
+                            try:
+                                setattr(config, k, v)
+                            except Exception:
+                                pass
+            return _real_generate(*args, **kwargs)
+
+        google_client.models.generate_content = _patched_generate
         return instructor.from_genai(
             client=google_client, mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS
         )
@@ -563,37 +607,6 @@ def generate_quiz(
         logger.exception("Quiz generation failed [provider=%s]", provider)
         return None
 
-def _gemini_chapter_direct(
-    model: str, api_key: str, task_title: str, skill: str, task_description: str
-) -> StructuredChapterContent:
-    """
-    Call Gemini directly (no instructor) so we can set max_output_tokens explicitly.
-    instructor.from_genai does not forward max_tokens to Gemini's GenerateContentConfig,
-    causing IncompleteOutputException for long chapters.
-    """
-    import json
-    from google.genai import types as genai_types
-
-    google_client = genai.Client(api_key=api_key)
-    config = genai_types.GenerateContentConfig(
-        response_mime_type="application/json",
-        max_output_tokens=16384,
-    )
-    prompt = (
-        f"{chapter_prompts.system_prompt()}\n\n"
-        f"{chapter_prompts.user_prompt(task_title, skill, task_description)}"
-    )
-    response = google_client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=config,
-    )
-    raw = response.text
-    if not raw:
-        raise ValueError("Empty response from Gemini")
-    data = json.loads(raw)
-    return StructuredChapterContent(**data)
-
 def generate_chapter_content(
     task_description: str,
     task_title: str,
@@ -602,27 +615,16 @@ def generate_chapter_content(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
 ) -> Optional[StructuredChapterContent]:
-    """Generate structured chapter content. Returns StructuredChapterContent or None."""
+    """Generate structured chapter content using Instructor. Returns StructuredChapterContent or None."""
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
-    # Gemini: bypass instructor — it doesn't forward max_tokens to Gemini's API,
-    # causing truncation. Call Gemini directly with explicit max_output_tokens.
-    if provider == "gemini":
-        try:
-            return _gemini_chapter_direct(model, api_key, task_title, skill, task_description)
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(
-                f"[llm] gemini-direct error: type={type(e).__name__} msg={str(e)[:400]}", flush=True
-            )
-            _raise_if_provider_error("gemini", e)
-            logger.exception("Chapter (blocks) generation failed [provider=gemini]")
-            return None
+    # Gemini 2.5 models run thinking by default; thinking tokens count against
+    # max_output_tokens.  _build_client patches generate_content to inject
+    # max_output_tokens=65536 and disable thinking so the full budget goes to
+    # content (issue #69).  OpenAI caps at 16384; Mistral/Anthropic at 8192.
+    chapter_max_tokens = 65536 if provider == "gemini" else 16384 if provider == "openai" else 8192
 
-    # All other providers: use instructor
-    chapter_max_tokens = 16384 if provider == "openai" else 8192
     try:
         client = _build_client(provider, api_key)
         response: StructuredChapterContent = client.chat.completions.create(
@@ -646,7 +648,7 @@ def generate_chapter_content(
         if (
             "incomplete" in full_msg
             or "incompleteoutput" in full_msg.replace(" ", "")
-            or "max_tokens" in full_msg
+            or "due to a max_tokens length limit" in full_msg
         ):
             raise HTTPException(
                 status_code=422,
