@@ -139,12 +139,37 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
         print(f"Error in add_content_to_db: {e}")
         return False
 
-def _sanitize_block(block_dict: dict) -> dict:
-    """Unescape HTML entities in diagram content so Mermaid can parse it."""
-    if block_dict.get("type") == "diagram" and block_dict.get("content"):
-        from html import unescape
+def _clean_mermaid(content: str) -> str:
+    """
+    Fix common LLM-generated mermaid syntax issues that cause parse failures.
+    - Unescape HTML entities (&lt; → <)
+    - Strip parentheses and slashes from sequence-diagram message labels
+      because mermaid's parser rejects them in that position.
+    """
+    import re
+    from html import unescape
 
-        block_dict["content"] = unescape(block_dict["content"])
+    content = unescape(content)
+
+    # For sequence diagram message lines (arrows like ->>, -->, -->>)
+    # strip ( ) and / from the label part (everything after the last colon).
+    def _clean_label(m: re.Match) -> str:
+        prefix = m.group(1)  # "A->>B: "
+        label = m.group(2)
+        label = re.sub(r"[()\/]", "", label)
+        label = re.sub(r"\s{2,}", " ", label).strip()
+        return prefix + label
+
+    content = re.sub(
+        r"((?:->+|-->>?)\s*[^:\n]+:\s*)(.+)",
+        _clean_label,
+        content,
+    )
+    return content
+
+def _sanitize_block(block_dict: dict) -> dict:
+    if block_dict.get("type") == "diagram" and block_dict.get("content"):
+        block_dict["content"] = _clean_mermaid(block_dict["content"])
     return block_dict
 
 def add_blocks_to_db(blocks: list, task_id: int) -> bool:
