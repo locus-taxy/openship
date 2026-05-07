@@ -139,13 +139,21 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
         print(f"Error in add_content_to_db: {e}")
         return False
 
+def _sanitize_block(block_dict: dict) -> dict:
+    """Unescape HTML entities in diagram content so Mermaid can parse it."""
+    if block_dict.get("type") == "diagram" and block_dict.get("content"):
+        from html import unescape
+
+        block_dict["content"] = unescape(block_dict["content"])
+    return block_dict
+
 def add_blocks_to_db(blocks: list, task_id: int) -> bool:
     try:
         with Session(engine) as session:
             task = session.get(DailyTask, task_id)
             if task is None:
                 return False
-            task.content_blocks = json.dumps([b.model_dump() for b in blocks])
+            task.content_blocks = json.dumps([_sanitize_block(b.model_dump()) for b in blocks])
             session.add(task)
             session.commit()
             return True
