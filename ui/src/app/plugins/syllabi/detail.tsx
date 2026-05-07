@@ -184,8 +184,7 @@ function MermaidBlock({ code }: { code: string }) {
             .then(({ svg }) => {
                 if (!cancelled && ref.current) ref.current.innerHTML = svg
             })
-            .catch((err) => {
-                console.error("Mermaid render error:", err)
+            .catch(() => {
                 if (!cancelled && ref.current)
                     ref.current.innerHTML = `<pre class="text-xs text-muted-foreground whitespace-pre-wrap p-4">${code}</pre>`
             })
