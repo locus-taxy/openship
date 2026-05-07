@@ -32,6 +32,7 @@ def system_prompt() -> str:
         "- NEVER put code inside a paragraph block — always use a code block\n"
         "- NEVER omit the 'content' field for heading, paragraph, code, note, quote, or diagram blocks\n"
         "- NEVER omit the 'items' field for bullet_list or numbered_list blocks\n"
+        "- For ANY chart, flowchart, sequence diagram, pie chart, or ER diagram — ALWAYS use a 'diagram' block with format 'mermaid'. NEVER use a code block for diagrams.\n"
         "- Make all examples relevant to the given skill and topic\n"
         "- Write 8-14 blocks covering the topic thoroughly — explain concepts in depth with real-world examples, step-by-step walkthroughs, and working code\n"
         "- Every code block must be complete and runnable — no placeholders or pseudocode"
