@@ -177,27 +177,20 @@ function MermaidBlock({ code }: { code: string }) {
 
     useEffect(() => {
         if (!ref.current) return
-        // Mermaid v11 render() needs the container in the DOM during rendering.
-        // We create a temporary off-screen div, append it to body, render into it,
-        // then move the resulting SVG into our visible ref element.
-        const tempId = `mermaid-${id.replace(/[^a-zA-Z0-9]/g, "")}`
-        const tempDiv = document.createElement("div")
-        tempDiv.id = tempId
-        tempDiv.style.position = "absolute"
-        tempDiv.style.visibility = "hidden"
-        document.body.appendChild(tempDiv)
+        let cancelled = false
+        const renderId = `mermaid-${id.replace(/[^a-zA-Z0-9]/g, "")}`
 
-        mermaid.render(tempId, code, tempDiv)
+        mermaid.render(renderId, code)
             .then(({ svg }) => {
-                if (ref.current) ref.current.innerHTML = svg
+                if (!cancelled && ref.current) ref.current.innerHTML = svg
             })
-            .catch(() => {
-                if (ref.current)
+            .catch((err) => {
+                console.error("Mermaid render error:", err)
+                if (!cancelled && ref.current)
                     ref.current.innerHTML = `<pre class="text-xs text-muted-foreground whitespace-pre-wrap p-4">${code}</pre>`
             })
-            .finally(() => {
-                document.body.removeChild(tempDiv)
-            })
+
+        return () => { cancelled = true }
     }, [code, id])
 
     return <div ref={ref} className="rounded-xl border border-border bg-muted/30 p-4 overflow-x-auto" />
