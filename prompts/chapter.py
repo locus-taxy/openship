@@ -12,7 +12,7 @@ def system_prompt() -> str:
         '   Example: {"type": "heading", "content": "Introduction to Variables", "level": 1}\n\n'
         "2. paragraph — REQUIRED: 'content' (non-empty string with prose explanation)\n"
         '   Example: {"type": "paragraph", "content": "A variable is a named storage location..."}\n\n'
-        "3. code — REQUIRED: 'content' (the raw code, no markdown fences), 'language' (e.g. 'python', 'javascript', 'bash', 'sql')\n"
+        "3. code — REQUIRED: 'content' (the raw code, no markdown fences), 'language' (e.g. 'python', 'javascript', 'bash', 'sql'). WARNING: NEVER use this for diagrams or charts — use the diagram block instead.\n"
         '   Example: {"type": "code", "language": "python", "content": "x = 10\\nprint(x)"}\n\n'
         "4. bullet_list — REQUIRED: 'items' (non-empty array of strings)\n"
         '   Example: {"type": "bullet_list", "items": ["First point", "Second point"]}\n\n'
@@ -26,8 +26,9 @@ def system_prompt() -> str:
         '   Example: {"type": "quote", "content": "Clean code always looks like it was written by someone who cares."}\n\n'
         "9. divider — No additional fields needed.\n"
         '   Example: {"type": "divider"}\n\n'
-        "10. diagram — REQUIRED: 'content' (valid Mermaid diagram syntax), 'format' must be 'mermaid'\n"
-        '    Example: {"type": "diagram", "format": "mermaid", "content": "graph TD\\n  A[Start] --> B[End]"}\n\n'
+        "10. diagram — REQUIRED: 'content' (valid Mermaid diagram syntax), 'format' must be 'mermaid'. Use this for ALL charts, flowcharts, pie charts, sequence diagrams, ER diagrams — NEVER a code block.\n"
+        '    Example (flowchart): {"type": "diagram", "format": "mermaid", "content": "graph TD\\n  A[Start] --> B[End]"}\n'
+        '    Example (pie chart): {"type": "diagram", "format": "mermaid", "content": "pie title Market Share\\n  \\"Apple\\" : 40\\n  \\"Samsung\\" : 30\\n  \\"Others\\" : 30"}\n\n'
         "Additional rules:\n"
         "- NEVER put code inside a paragraph block — always use a code block\n"
         "- NEVER omit the 'content' field for heading, paragraph, code, note, quote, or diagram blocks\n"
