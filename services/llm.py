@@ -405,33 +405,27 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
         def _patched_generate(*args, **kwargs):
             # generate_content only accepts model/contents/config — strip any
             # OpenAI-style kwargs that instructor forwards but the SDK rejects.
-            # max_tokens in particular causes TypeError which we then mis-classify
-            # as a truncation error.  We apply it via config.max_output_tokens instead.
+            # max_tokens causes TypeError which our error handler mis-classifies
+            # as truncation; we apply it via config.max_output_tokens instead.
             kwargs.pop("max_tokens", None)
 
             config = kwargs.get("config")
-            if config is not None:
-                needs_tokens = getattr(config, "max_output_tokens", None) is None
-                needs_thinking = getattr(config, "thinking_config", None) is None
-                if needs_tokens or needs_thinking:
-                    update: dict = {}
-                    if needs_tokens:
-                        # 65536 is the Gemini 2.5 max — models cap at their own limit
-                        update["max_output_tokens"] = 65536
-                    if needs_thinking:
-                        # Thinking tokens count against max_output_tokens; disabling
-                        # it gives the full budget to structured JSON content.
-                        from google.genai import types as _gtypes
+            if config is not None and getattr(config, "max_output_tokens", None) is None:
+                update: dict = {"max_output_tokens": 32768}
+                # Gemini 2.5 models run thinking by default; thinking tokens count
+                # against max_output_tokens.  Disable it for structured output calls.
+                if getattr(config, "thinking_config", None) is None:
+                    from google.genai import types as _gtypes
 
-                        update["thinking_config"] = _gtypes.ThinkingConfig(thinking_budget=0)
-                    try:
-                        kwargs["config"] = config.model_copy(update=update)
-                    except Exception:
-                        for k, v in update.items():
-                            try:
-                                setattr(config, k, v)
-                            except Exception:
-                                pass
+                    update["thinking_config"] = _gtypes.ThinkingConfig(thinking_budget=0)
+                try:
+                    kwargs["config"] = config.model_copy(update=update)
+                except Exception:
+                    for k, v in update.items():
+                        try:
+                            setattr(config, k, v)
+                        except Exception:
+                            pass
             return _real_generate(*args, **kwargs)
 
         google_client.models.generate_content = _patched_generate
@@ -623,7 +617,7 @@ def generate_chapter_content(
     # max_output_tokens.  _build_client patches generate_content to inject
     # max_output_tokens=65536 and disable thinking so the full budget goes to
     # content (issue #69).  OpenAI caps at 16384; Mistral/Anthropic at 8192.
-    chapter_max_tokens = 65536 if provider == "gemini" else 16384 if provider == "openai" else 8192
+    chapter_max_tokens = 32768 if provider == "gemini" else 16384 if provider == "openai" else 8192
 
     try:
         client = _build_client(provider, api_key)
@@ -645,17 +639,8 @@ def generate_chapter_content(
         raise
     except Exception as e:
         full_msg = _full_exc_msg(e)
-        if (
-            "incomplete" in full_msg
-            or "incompleteoutput" in full_msg.replace(" ", "")
-            or "due to a max_tokens length limit" in full_msg
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="The chapter was too long and the response was cut off. Try regenerating — it usually works on the next attempt.",
-            )
         print(
-            f"[llm] chapter-blocks error provider={provider} type={type(e).__name__} msg={str(e)[:400]}",
+            f"[llm] chapter-blocks error provider={provider} type={type(e).__name__} msg={str(e)[:800]}",
             flush=True,
         )
         cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
@@ -664,6 +649,15 @@ def generate_chapter_content(
                 f"[llm] caused by: type={type(cause).__name__} msg={str(cause)[:400]}", flush=True
             )
         _raise_if_provider_error(provider, e)
+        if (
+            "incompleteoutput" in full_msg.replace(" ", "")
+            or "due to a max_tokens length limit" in full_msg
+            or "finish_reason.max_tokens" in full_msg
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="The chapter was too long and the response was cut off. Try regenerating — it usually works on the next attempt.",
+            )
         logger.exception("Chapter (blocks) generation failed [provider=%s]", provider)
         return None
 
