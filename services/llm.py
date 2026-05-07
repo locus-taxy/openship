@@ -414,6 +414,10 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
                 update: dict = {}
                 if getattr(config, "max_output_tokens", None) is None:
                     update["max_output_tokens"] = 32768
+                # Disable thinking — no quality benefit for structured JSON output.
+                from google.genai import types as _gtypes
+
+                update["thinking_config"] = _gtypes.ThinkingConfig(thinking_budget=0)
                 # Drop response_schema so Gemini generates JSON from the prompt
                 # rather than from the schema.  With response_schema set, the model
                 # ignores prompt instructions (code blocks, diagrams, etc.) and picks

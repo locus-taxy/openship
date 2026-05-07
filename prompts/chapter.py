@@ -33,7 +33,8 @@ def system_prompt() -> str:
         "- NEVER omit the 'content' field for heading, paragraph, code, note, quote, or diagram blocks\n"
         "- NEVER omit the 'items' field for bullet_list or numbered_list blocks\n"
         "- Make all examples relevant to the given skill and topic\n"
-        "- Write 6-10 blocks covering the topic thoroughly — quality over quantity, keep each block concise"
+        "- Write 8-14 blocks covering the topic thoroughly — explain concepts in depth with real-world examples, step-by-step walkthroughs, and working code\n"
+        "- Every code block must be complete and runnable — no placeholders or pseudocode"
     )
 
 def system_prompt_html() -> str:
