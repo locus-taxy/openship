@@ -185,8 +185,12 @@ function MermaidBlock({ code }: { code: string }) {
                 if (!cancelled && ref.current) ref.current.innerHTML = svg
             })
             .catch(() => {
-                if (!cancelled && ref.current)
-                    ref.current.innerHTML = `<pre class="text-xs text-muted-foreground whitespace-pre-wrap p-4">${code}</pre>`
+                if (!cancelled && ref.current) {
+                    const pre = document.createElement("pre")
+                    pre.className = "text-xs text-muted-foreground whitespace-pre-wrap p-4"
+                    pre.textContent = code
+                    ref.current.replaceChildren(pre)
+                }
             })
 
         return () => { cancelled = true }
@@ -382,7 +386,16 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         const { success, data } = await getRequest(`/py/chapter/${chapter.id}`)
         if (success) {
             if (data.content_blocks) {
-                try { setBlocks(JSON.parse(data.content_blocks)) } catch { setContent(data.newsletter) }
+                try {
+                    const parsed = JSON.parse(data.content_blocks)
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        setBlocks(parsed)
+                    } else {
+                        setContent(data.newsletter)
+                    }
+                } catch {
+                    setContent(data.newsletter)
+                }
             } else {
                 setContent(data.newsletter)
             }

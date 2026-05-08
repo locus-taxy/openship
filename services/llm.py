@@ -238,8 +238,7 @@ class ContentBlock(BaseModel):
         elif t == BlockType.DIAGRAM:
             if not self.content:
                 self.content = ""  # filtered out downstream
-            if not self.format:
-                self.format = "mermaid"
+            self.format = "mermaid"  # only supported format; reject anything else
         return self
 
 class StructuredChapterContent(BaseModel):

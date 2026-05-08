@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, DateTime, func
-from sqlalchemy import Integer, ForeignKey
+from sqlalchemy import Integer, ForeignKey, Text
 
 class DailyTask(SQLModel, table=True):
     __tablename__ = "daily_tasks"
@@ -19,8 +19,8 @@ class DailyTask(SQLModel, table=True):
     topic: Optional[str] = None
     task: Optional[str] = None
     hours: Optional[int] = None
-    newsletter: Optional[str] = None
-    content_blocks: Optional[str] = None
+    newsletter: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    content_blocks: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     completed: bool = Field(default=False)
     stop_sending: bool = Field(default=False)
     completed_at: Optional[datetime] = Field(

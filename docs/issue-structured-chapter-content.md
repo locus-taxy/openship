@@ -412,7 +412,7 @@ proseRef.current.querySelectorAll("pre").forEach(pre => {
 
 ### After
 
-Each block from the database renders as a dedicated React component. No `dangerouslySetInnerHTML`, no DOM scanning.
+Each block from the database renders as a dedicated React component. No `dangerouslySetInnerHTML`, no DOM scanning — for block-rendered chapters. Legacy HTML chapters (pre-migration) still use `dangerouslySetInnerHTML` with backend sanitization as a fallback.
 
 ```tsx
 function BlockRenderer({ blocks }: { blocks: ContentBlock[] }) {

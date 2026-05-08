@@ -73,7 +73,7 @@ def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
             "completed": t.completed,
             "newsletter": t.newsletter,
             "content_blocks": t.content_blocks,
-            "has_content": t.content_blocks is not None or t.newsletter is not None,
+            "has_content": bool(t.content_blocks) or bool(t.newsletter),
         }
 
 def get_tasks_based_on_skill_id(skill_id: int) -> List[Dict[str, Any]]:
@@ -184,7 +184,10 @@ def add_blocks_to_db(blocks: list, task_id: int) -> bool:
             task = session.get(DailyTask, task_id)
             if task is None:
                 return False
-            task.content_blocks = json.dumps([_sanitize_block(b.model_dump()) for b in blocks])
+            sanitized = [_sanitize_block(b.model_dump()) for b in blocks]
+            if not sanitized:
+                return True
+            task.content_blocks = json.dumps(sanitized)
             session.add(task)
             session.commit()
             return True
