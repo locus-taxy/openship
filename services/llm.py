@@ -398,7 +398,7 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
         # Gemini 2.5 models also run "thinking" by default; thinking tokens
         # count against max_output_tokens, so with the default cap the content
         # gets cut off before the JSON is complete.
-        # Fix: patch generate_content to inject max_output_tokens=65536 and
+        # Fix: patch generate_content to inject max_output_tokens=32768 and
         # disable thinking (thinking_budget=0) whenever instructor omits them.
         _real_generate = google_client.models.generate_content
 
@@ -624,7 +624,7 @@ def generate_chapter_content(
 
     # Gemini 2.5 models run thinking by default; thinking tokens count against
     # max_output_tokens.  _build_client patches generate_content to inject
-    # max_output_tokens=65536 and disable thinking so the full budget goes to
+    # max_output_tokens=32768 and disable thinking so the full budget goes to
     # content (issue #69).  OpenAI caps at 16384; Mistral/Anthropic at 8192.
     chapter_max_tokens = 32768 if provider == "gemini" else 16384 if provider == "openai" else 8192
 
