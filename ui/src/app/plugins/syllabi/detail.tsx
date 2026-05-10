@@ -76,9 +76,25 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
     // const [emailSent, setEmailSent] = useState(false)
     const [hasContent, setHasContent] = useState(chapter.has_content)
     const [confirmOpen, setConfirmOpen] = useState(false)
+    const [chapterCost, setChapterCost] = useState<{
+        input_tokens: number | null
+        output_tokens: number | null
+        generation_cost_usd: number | null
+    } | null>(null)
+    const [displayCurrency, setDisplayCurrency] = useState("USD")
+    const [exchangeRate, setExchangeRate] = useState(1.0)
     const proseRef = useRef<HTMLDivElement>(null)
     const { toast } = useToast()
     const { setSettingsOpen } = useStore((s: any) => s)
+
+    useEffect(() => {
+        getRequest("/py/auth/me/settings").then(({ success, data }) => {
+            if (success) {
+                setDisplayCurrency(data.display_currency ?? "USD")
+                setExchangeRate(data.currency_exchange_rate ?? 1.0)
+            }
+        })
+    }, [])
 
     useEffect(() => {
         setHasContent(chapter.has_content)
@@ -171,7 +187,14 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
     async function loadContent() {
         setLoading(true)
         const { success, data } = await getRequest(`/py/chapter/${chapter.id}`)
-        if (success) setContent(data.newsletter)
+        if (success) {
+            setContent(data.newsletter)
+            setChapterCost({
+                input_tokens: data.input_tokens ?? null,
+                output_tokens: data.output_tokens ?? null,
+                generation_cost_usd: data.generation_cost_usd ?? null,
+            })
+        }
         setLoading(false)
     }
 
@@ -227,7 +250,14 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         <div className="flex flex-col h-full overflow-hidden">
             {/* Header */}
             <div className="border-b px-4 sm:px-8 py-5 bg-background shrink-0">
-                <p className="text-xs text-muted-foreground mb-1">Day {chapter.day} · {chapter.hours}h</p>
+                <p className="text-xs text-muted-foreground mb-1">
+                    Day {chapter.day} · {chapter.hours}h
+                    {chapterCost?.generation_cost_usd != null && (
+                        <span className="ml-2 text-muted-foreground/60">
+                            · {(chapterCost.generation_cost_usd * exchangeRate).toFixed(4)}{displayCurrency !== "USD" ? ` ${displayCurrency}` : " USD"}
+                        </span>
+                    )}
+                </p>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight">{chapter.topic}</h2>
             </div>
 
@@ -240,6 +270,18 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Task</p>
                         <p className="text-sm text-muted-foreground leading-relaxed">{chapter.task}</p>
                     </div>
+
+                    {/* Token usage */}
+                    {(chapterCost?.input_tokens != null || chapterCost?.output_tokens != null) && (
+                        <div className="flex gap-4 text-xs text-muted-foreground/70">
+                            {chapterCost?.input_tokens != null && (
+                                <span>↑ {chapterCost.input_tokens.toLocaleString()} input tokens</span>
+                            )}
+                            {chapterCost?.output_tokens != null && (
+                                <span>↓ {chapterCost.output_tokens.toLocaleString()} output tokens</span>
+                            )}
+                        </div>
+                    )}
 
                     {hasContent ? (
                         loading ? (

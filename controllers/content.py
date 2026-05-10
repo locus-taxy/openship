@@ -10,6 +10,7 @@ from services.daily_task import (
     get_tasks_for_generating_newsletter,
     add_content_to_db,
     mark_task_completed,
+    get_total_cost_for_user,
 )
 from services.llm import (
     generate_chapter_html,
@@ -18,6 +19,8 @@ from services.llm import (
     get_user_provider_name,
 )
 from services.streak import record_activity, get_user_streak
+from services.user import compute_generation_cost_usd, get_currency_settings
+from services.pricing import lookup_model_price
 
 class CompleteChapterBody(BaseModel):
     local_date: date
@@ -40,7 +43,7 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
     failed_tasks = []
     for task in tasks:
         try:
-            html = generate_chapter_html(
+            html, input_tokens, output_tokens = generate_chapter_html(
                 task_description=task["task"],
                 task_title=task["topic"],
                 skill=task["skill"],
@@ -52,7 +55,21 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 print(f"Failed to generate content for task {task['id']}")
                 failed_tasks.append(task["id"])
                 continue
-            if not add_content_to_db(newsletter=html, task_id=task["id"]):
+            cost_usd = None
+            if input_tokens is not None:
+                provider_name = get_user_provider_name(current_user)
+                model_name = get_user_model(current_user)
+                inp_price, out_price = lookup_model_price(provider_name or "", model_name or "")
+                cost_usd = compute_generation_cost_usd(
+                    input_tokens, output_tokens, inp_price, out_price
+                )
+            if not add_content_to_db(
+                newsletter=html,
+                task_id=task["id"],
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                generation_cost_usd=cost_usd,
+            ):
                 print(f"Failed to save content for task {task['id']}")
                 failed_tasks.append(task["id"])
             time.sleep(5)
@@ -75,7 +92,7 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         raise HTTPException(status_code=404, detail="Task not found")
     _check_task_ownership(chapter, current_user)
 
-    html = generate_chapter_html(
+    html, input_tokens, output_tokens = generate_chapter_html(
         task_description=chapter["task"],
         task_title=chapter["topic"],
         skill=chapter["skill"],
@@ -88,7 +105,20 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
             status_code=500, detail=f"Failed to generate content for task {payload.task_id}"
         )
 
-    if not add_content_to_db(newsletter=html, task_id=payload.task_id):
+    cost_usd = None
+    if input_tokens is not None:
+        provider_name = get_user_provider_name(current_user)
+        model_name = get_user_model(current_user)
+        inp_price, out_price = lookup_model_price(provider_name or "", model_name or "")
+        cost_usd = compute_generation_cost_usd(input_tokens, output_tokens, inp_price, out_price)
+
+    if not add_content_to_db(
+        newsletter=html,
+        task_id=payload.task_id,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        generation_cost_usd=cost_usd,
+    ):
         raise HTTPException(
             status_code=500, detail=f"Failed to save content for task {payload.task_id}"
         )
@@ -115,3 +145,13 @@ def complete_chapter(task_id: int, current_user: User, local_date: date):
 
 def get_streak(current_user: User):
     return get_user_streak(str(current_user.id))
+
+def get_cost_analytics(current_user: User):
+    summary = get_total_cost_for_user(str(current_user.id))
+    currency, rate = get_currency_settings(current_user.id)
+    return {
+        **summary,
+        "total_cost_display": round(summary["total_cost_usd"] * rate, 4),
+        "display_currency": currency,
+        "exchange_rate": rate,
+    }

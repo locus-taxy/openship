@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 from sqlmodel import Session, select
 from database import engine
 from models.user import User
@@ -120,6 +120,74 @@ def update_llm_settings(
                     session.add(record)
 
         session.commit()
+
+def get_provider_pricing(user_id: int, provider_id: int) -> Tuple[Optional[float], Optional[float]]:
+    """Return (input_price_per_m_usd, output_price_per_m_usd) for a user+provider pair."""
+    with Session(engine) as session:
+        record = session.exec(
+            select(UserApiKey).where(
+                UserApiKey.user_id == user_id,
+                UserApiKey.llm_provider_id == provider_id,
+            )
+        ).first()
+        if not record:
+            return None, None
+        return record.input_price_per_m_usd, record.output_price_per_m_usd
+
+def update_llm_pricing(
+    user_id: int,
+    provider_id: int,
+    input_price_per_m_usd: Optional[float],
+    output_price_per_m_usd: Optional[float],
+) -> None:
+    """Save pricing fields on the existing user_api_keys row for a user+provider pair."""
+    with Session(engine) as session:
+        record = session.exec(
+            select(UserApiKey).where(
+                UserApiKey.user_id == user_id,
+                UserApiKey.llm_provider_id == provider_id,
+            )
+        ).first()
+        if not record:
+            return
+        record.input_price_per_m_usd = input_price_per_m_usd
+        record.output_price_per_m_usd = output_price_per_m_usd
+        session.add(record)
+        session.commit()
+
+def update_currency_settings(
+    user_id: int,
+    display_currency: str,
+    currency_exchange_rate: float,
+) -> None:
+    """Save display currency and exchange rate on the users row."""
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+        if not user:
+            return
+        user.display_currency = display_currency.upper()[:8]
+        user.currency_exchange_rate = currency_exchange_rate
+        session.add(user)
+        session.commit()
+
+def get_currency_settings(user_id: int) -> Tuple[str, float]:
+    """Return (display_currency, exchange_rate); defaults to ('USD', 1.0)."""
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+        if not user:
+            return "USD", 1.0
+        return (user.display_currency or "USD"), (user.currency_exchange_rate or 1.0)
+
+def compute_generation_cost_usd(
+    input_tokens: Optional[int],
+    output_tokens: Optional[int],
+    input_price_per_m: Optional[float],
+    output_price_per_m: Optional[float],
+) -> Optional[float]:
+    """Compute USD cost from token counts and per-million prices. Returns None if any value missing."""
+    if None in (input_tokens, output_tokens, input_price_per_m, output_price_per_m):
+        return None
+    return (input_tokens * input_price_per_m + output_tokens * output_price_per_m) / 1_000_000
 
 def create_user(email: str, name: str, password: str) -> User:
     with Session(engine) as session:

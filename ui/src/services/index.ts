@@ -120,4 +120,21 @@ export const putRequest = async (url: string, data: any) => {
     }
 };
 
+export const patchRequest = async (url: string, data: any) => {
+    try {
+        const response = await api.patch(url, data);
+        return { success: true, data: response.data };
+    } catch (error: any) {
+        if (error?.response?.status !== 401) {
+            console.error(error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: formatApiError(error),
+            });
+        }
+        return { success: false, error };
+    }
+};
+
 export default api;

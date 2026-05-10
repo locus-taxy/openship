@@ -10,7 +10,7 @@ prompt the user to configure their settings.
 import hashlib
 import logging
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import instructor
 from prompts import chapter as chapter_prompts
@@ -377,6 +377,34 @@ def get_user_model(user) -> Optional[str]:
     model = get_provider_model(user.id, user.llm_provider_id)
     return model or DEFAULT_MODELS.get(provider.name)
 
+# ── Token extraction ──────────────────────────────────────────────────────────
+
+def extract_token_counts(
+    raw_response: Any, provider_name: str
+) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Extract (input_tokens, output_tokens) from a raw provider API response.
+    Returns (None, None) if unavailable or extraction fails — never raises.
+    """
+    if raw_response is None:
+        return None, None
+    try:
+        if provider_name == "anthropic":
+            usage = getattr(raw_response, "usage", None)
+            return getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None)
+        if provider_name in ("openai", "mistral"):
+            usage = getattr(raw_response, "usage", None)
+            return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+        if provider_name == "gemini":
+            meta = getattr(raw_response, "usage_metadata", None)
+            return (
+                getattr(meta, "prompt_token_count", None),
+                getattr(meta, "candidates_token_count", None),
+            )
+    except Exception as e:
+        logger.warning("Token extraction failed [provider=%s]: %s", provider_name, e)
+    return None, None
+
 # ── Public functions ──────────────────────────────────────────────────────────
 
 def generate_syllabus_json(
@@ -471,14 +499,18 @@ def generate_chapter_html(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
-) -> Optional[str]:
-    """Generate chapter HTML content using Instructor. Returns HTML string or None."""
+) -> Tuple[Optional[str], Optional[int], Optional[int]]:
+    """
+    Generate chapter HTML content using Instructor.
+    Returns (html, input_tokens, output_tokens).
+    html is None on failure; token counts are None if unavailable.
+    """
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
     try:
         client = _build_client(provider, api_key)
-        response: ChapterContent = client.chat.completions.create(
+        response, raw = client.chat.completions.create_with_completion(
             model=model,
             response_model=ChapterContent,
             messages=[
@@ -491,10 +523,11 @@ def generate_chapter_html(
             **_token_kwargs(provider, 8192),
             max_retries=1,
         )
-        return response.html
+        input_tokens, output_tokens = extract_token_counts(raw, provider)
+        return response.html, input_tokens, output_tokens
     except HTTPException:
         raise
     except Exception as e:
         _raise_if_provider_error(provider, e)
         logger.error("Chapter generation failed [provider=%s]: %s", provider, e)
-        return None
+        return None, None, None

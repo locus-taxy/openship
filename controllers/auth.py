@@ -21,7 +21,10 @@ from services.user import (
     get_provider_by_name,
     get_provider_by_id,
     get_all_saved_provider_ids,
+    update_currency_settings,
+    get_currency_settings,
 )
+from services.pricing import lookup_model_price, lookup_model_info
 from services.password import verify_password
 from services.jwt import create_access_token, create_refresh_token, decode_token
 
@@ -141,12 +144,16 @@ def get_settings(current_user: User):
         p: (row.id in saved_ids if row else False) for p, row in all_provider_rows.items()
     }
 
+    currency, rate = get_currency_settings(current_user.id)
+
     return {
         "llm_provider": active_name,
         "llm_model": active_model or DEFAULT_MODELS.get(active_name or ""),
         "provider_keys": provider_keys,
         "supported_providers": supported_providers,
         "provider_models": PROVIDER_MODELS,
+        "display_currency": currency,
+        "currency_exchange_rate": rate,
     }
 
 def save_settings(
@@ -171,6 +178,19 @@ def save_settings(
         "llm_model": m or DEFAULT_MODELS.get(p or ""),
         "has_key": has_key,
     }
+
+def get_model_pricing(provider: str, model: str):
+    """Return auto-fetched pricing for the given provider+model from the pricing API."""
+    info = lookup_model_info(provider, model)
+    return {"provider": provider, "model": model, **info}
+
+def save_currency(current_user: User, payload):
+    update_currency_settings(
+        current_user.id,
+        payload.display_currency,
+        payload.currency_exchange_rate,
+    )
+    return {"status": "success"}
 
 def list_models(current_user: User, provider: str):
     """Return available models for the given provider using the user's stored key."""
