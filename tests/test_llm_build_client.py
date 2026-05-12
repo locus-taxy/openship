@@ -183,7 +183,7 @@ class TestUserServiceModelUpdate:
             email="test@example.com",
             name="Test",
             is_active=True,
-            hashed_password="$2b$hash",
+            hashed_password="$2b$hash",  # noqa: S106
             llm_provider_id=1,
         )
         existing_record = MagicMock(spec=UserApiKey)
