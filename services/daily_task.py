@@ -1,3 +1,4 @@
+import json
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
 import bleach
@@ -71,6 +72,8 @@ def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
             "hours": t.hours,
             "completed": t.completed,
             "newsletter": t.newsletter,
+            "content_blocks": t.content_blocks,
+            "has_content": bool(t.content_blocks) or bool(t.newsletter),
         }
 
 def get_tasks_based_on_skill_id(skill_id: int) -> List[Dict[str, Any]]:
@@ -104,6 +107,7 @@ def get_tasks_for_generating_newsletter(skill_id: int) -> List[Dict[str, Any]]:
                 DailyTask.skill_id == skill_id,
                 DailyTask.completed == False,
                 DailyTask.newsletter == None,
+                DailyTask.content_blocks == None,
             )
             .order_by(DailyTask.day)
             .limit(90)
@@ -133,6 +137,62 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
             return True
     except Exception as e:
         print(f"Error in add_content_to_db: {e}")
+        return False
+
+def _clean_mermaid(content: str) -> str:
+    """
+    Fix common LLM-generated mermaid syntax issues that cause parse failures.
+    - Unescape HTML entities (&lt; → <)
+    - In sequence diagram message labels (after the arrow+colon), replace
+      special characters that break mermaid's parser with safe alternatives.
+    """
+    import re
+    from html import unescape
+
+    content = unescape(content)
+
+    # Characters that break mermaid's sequence-diagram label parser.
+    # Replace / with a space (so "success/failure" → "success failure"),
+    # then strip remaining punctuation mermaid can't handle.
+    _REPLACE_WITH_SPACE = re.compile(r"[/|]")
+    _STRIP_CHARS = re.compile(r"[()[\]{}<>*?=,;!@#$%^&+~`\"'\\]")
+
+    def _clean_label(m: re.Match) -> str:
+        prefix = m.group(1)  # e.g. "A->>B: "
+        label = m.group(2)
+        label = _REPLACE_WITH_SPACE.sub(" ", label)
+        label = _STRIP_CHARS.sub("", label)
+        label = re.sub(r"\s{2,}", " ", label).strip()
+        return prefix + label
+
+    # Match any mermaid sequence diagram arrow line and clean its label.
+    content = re.sub(
+        r"((?:-->>?|->>?|->)\s*[^:\n]+:\s*)(.+)",
+        _clean_label,
+        content,
+    )
+    return content
+
+def _sanitize_block(block_dict: dict) -> dict:
+    if block_dict.get("type") == "diagram" and block_dict.get("content"):
+        block_dict["content"] = _clean_mermaid(block_dict["content"])
+    return block_dict
+
+def add_blocks_to_db(blocks: list, task_id: int) -> bool:
+    try:
+        with Session(engine) as session:
+            task = session.get(DailyTask, task_id)
+            if task is None:
+                return False
+            sanitized = [_sanitize_block(b.model_dump()) for b in blocks]
+            if not sanitized:
+                return True
+            task.content_blocks = json.dumps(sanitized)
+            session.add(task)
+            session.commit()
+            return True
+    except Exception as e:
+        print(f"Error in add_blocks_to_db: {e}")
         return False
 
 def mark_task_completed(task_id: int) -> bool:
