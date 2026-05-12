@@ -89,11 +89,13 @@ class TestSearchSyllabi:
         with patch("controllers.syllabus.get_all_syllabi", return_value=[]) as mock_all:
             response = auth_client.get("/syllabi/search?q=")
         assert response.status_code == 200
+        mock_all.assert_called_once()
 
     def test_with_query_calls_search(self, auth_client, test_user):
         with patch("controllers.syllabus.search_syllabi", return_value=[]) as mock_search:
             response = auth_client.get("/syllabi/search?q=python")
         assert response.status_code == 200
+        mock_search.assert_called_once()
 
 class TestPublicSyllabus:
     def test_not_found_returns_404(self, anon_client):

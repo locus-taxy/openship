@@ -16,7 +16,7 @@ class TestCleanMermaid:
     def test_replaces_pipe_with_space_in_sequence_label(self):
         content = "sequenceDiagram\n  A->>B: read|write"
         result = _clean_mermaid(content)
-        assert "/" not in result.split("A->>B:")[-1]
+        assert "|" not in result.split("A->>B:")[-1]
 
     def test_strips_parentheses_from_sequence_label(self):
         content = "sequenceDiagram\n  A->>B: call(func)"

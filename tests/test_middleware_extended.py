@@ -26,7 +26,7 @@ class TestAuthMiddlewareDispatch:
         client = TestClient(app, raise_server_exceptions=False)
         with patch("middleware.auth.get_user_by_id"):
             response = client.options("/protected")
-        assert response.status_code != 401
+        assert response.status_code in (200, 204)
 
     def test_invalid_token_returns_401(self):
         app = _make_app_with_auth()

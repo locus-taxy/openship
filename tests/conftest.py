@@ -40,15 +40,26 @@ def auth_client(app, test_user):
 
     token = create_access_token(test_user.id)
     with patch("middleware.auth.get_user_by_id", return_value=test_user):
-        with TestClient(app, raise_server_exceptions=False) as client:
+        with TestClient(app) as client:
             client.cookies.set("access_token", token)
             yield client
 
 @pytest.fixture
 def anon_client(app):
     """TestClient with no auth cookie."""
-    with TestClient(app, raise_server_exceptions=False) as client:
+    with TestClient(app) as client:
         yield client
+
+@pytest.fixture
+def non_strict_client(app, test_user):
+    """TestClient that does not raise on server errors — use only when asserting 5xx from crashes."""
+    from services.jwt import create_access_token
+
+    token = create_access_token(test_user.id)
+    with patch("middleware.auth.get_user_by_id", return_value=test_user):
+        with TestClient(app, raise_server_exceptions=False) as client:
+            client.cookies.set("access_token", token)
+            yield client
 
 def make_mock_session(get_return=None, exec_first=None, exec_all=None):
     """Helper to build a mock SQLModel session."""

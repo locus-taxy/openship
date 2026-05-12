@@ -108,11 +108,15 @@ class TestContentBlockValidatorBranches:
 
 class TestQuizOptionValidation:
     def test_raises_on_invalid_label(self):
-        with pytest.raises(Exception):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="A/B/C/D"):
             QuizOption(label="E", text="Invalid option")
 
     def test_raises_on_empty_text(self):
-        with pytest.raises(Exception):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="not be empty"):
             QuizOption(label="A", text="   ")
 
     def test_normalizes_label_to_uppercase(self):
@@ -129,23 +133,29 @@ class TestGeneratedQuestionValidation:
         ]
 
     def test_raises_when_fewer_than_4_options(self):
+        from pydantic import ValidationError
+
         opts = self._make_opts()[:3]
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError, match="exactly 4 options"):
             GeneratedQuestion(question="Q?", options=opts, correct_option="A", explanation="exp")
 
     def test_raises_when_duplicate_labels(self):
+        from pydantic import ValidationError
+
         opts = [
             QuizOption(label="A", text="Option A"),
             QuizOption(label="A", text="Option A2"),
             QuizOption(label="C", text="Option C"),
             QuizOption(label="D", text="Option D"),
         ]
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError, match="unique"):
             GeneratedQuestion(question="Q?", options=opts, correct_option="A", explanation="exp")
 
 class TestStructuredChapterContentValidation:
     def test_raises_when_all_blocks_empty(self):
-        with pytest.raises(Exception):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="empty"):
             StructuredChapterContent(
                 blocks=[
                     ContentBlock(type=BlockType.PARAGRAPH, content=""),

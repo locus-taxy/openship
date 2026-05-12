@@ -51,5 +51,7 @@ class TestDecryptApiKey:
         key = "sk-abcde||ENC||notanencryptedtoken"
         # rsplit on the LAST occurrence means prefix = "sk-abcde", enc = "notanencryptedtoken"
         # This would fail to decrypt — just verify it raises, not silently corrupts.
-        with pytest.raises(Exception):
+        from cryptography.fernet import InvalidToken
+
+        with pytest.raises(InvalidToken):
             decrypt_api_key(key)

@@ -9,11 +9,11 @@ class TestSyllabusPrompts:
 
     def test_system_prompt_contains_days(self):
         result = syllabus_prompts.system_prompt(days=45, hours=3)
-        assert "45" in result
+        assert "45 days" in result
 
     def test_system_prompt_contains_hours(self):
         result = syllabus_prompts.system_prompt(days=30, hours=2)
-        assert "2" in result
+        assert "2 hours" in result
 
     def test_user_prompt_contains_skill(self):
         result = syllabus_prompts.user_prompt("Python Programming", 30, 2)
