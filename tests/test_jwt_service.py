@@ -56,3 +56,15 @@ class TestDecodeToken:
         with pytest.raises(HTTPException) as exc:
             decode_token(tampered)
         assert exc.value.status_code == 401
+
+    def test_expired_token_raises_401_with_expired_detail(self):
+        import jwt as pyjwt
+        from datetime import datetime, timezone
+        from config import JWT_SECRET_KEY, JWT_ALGORITHM
+
+        expired_payload = {"sub": "1", "exp": datetime(2020, 1, 1, tzinfo=timezone.utc)}
+        expired_token = pyjwt.encode(expired_payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+        with pytest.raises(HTTPException) as exc:
+            decode_token(expired_token)
+        assert exc.value.status_code == 401
+        assert "expired" in exc.value.detail.lower()
