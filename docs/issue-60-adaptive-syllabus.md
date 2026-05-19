@@ -167,6 +167,27 @@ POST /quiz/{skill_id}/generate  (existing endpoint, untouched)
 
 ---
 
+## Gating Logic
+
+```
+Can generate week 1?
+  → always yes (no prior quiz needed)
+
+Can generate week N (N > 1)?
+  → quiz for week N-1 exists
+  AND at least one attempt has been submitted for that quiz
+
+The user does NOT need to pass — just submit.
+The weak topics from the attempt drive the adaptation.
+If weak topics changed since the last attempt → regenerate week N content.
+If no new weak topics since last attempt → keep already-generated content.
+```
+
+The background thread triggered by `submit_quiz()` owns this logic — not the generate
+endpoint itself.
+
+---
+
 ## Mastery Score Formula
 
 ```python
@@ -310,17 +331,30 @@ def get_generation_progress(skill_id: int) -> dict: ...
 
 ---
 
-## Open Questions
+## Decisions
 
-1. **Is quiz required to unlock next week?** Or can the user skip the week quiz and still
-   get next week's content generated?
+1. **Quiz is mandatory before next week is generated.**
+   The next week's content will not be generated until the user submits the current week's
+   quiz. This ensures the mastery data always exists before the LLM prompt is built.
 
-2. **What if user fails the week quiz multiple times?** Do we regenerate the same week's
-   content with even more reinforcement, or always move forward?
+2. **Multiple quiz attempts — regenerate only on new weak topics.**
+   If the user retakes a week's quiz and fails again, we compare the new weak topics against
+   the ones from the previous attempt. Only if there are **new** weak topics do we regenerate
+   the next week's content with the updated prompt. If the same topics fail again with no new
+   additions, we do not regenerate — the already-generated week 2 content stands.
 
-3. **Week definition** — `ceil(days / 7)` for a 90-day plan = 13 weeks. Should the
-   per-week quiz fire every 7 `DailyTask` rows, or every calendar week?
+   ```
+   Attempt 1 weak topics: [Loops]           → generate week 2 with Loops reinforcement
+   Attempt 2 weak topics: [Loops, Functions] → Functions is new → regenerate week 2
+   Attempt 3 weak topics: [Loops, Functions] → no new topics   → do nothing
+   ```
 
-4. **Who triggers week 2 generation?** Two options:
-   - Automatic: background thread fires as soon as week 1 quiz is submitted
-   - Manual: user sees a "Generate Week 2" button after quiz
+3. **Week definition — already resolved by the existing data model.**
+   A "week" is the set of `DailyTask` rows sharing the same `week` value (e.g. all tasks
+   where `week = 1`). For a 90-day plan this means 13 weeks. The per-week quiz fires after
+   all tasks in that `week` bucket exist — no calendar dependency.
+
+4. **Next week generation is fully automatic.**
+   As soon as the user submits the week quiz, a background thread fires to generate the
+   next week's content (same pattern as today's `_auto_generate_quiz` thread). The user
+   gets their quiz result immediately; the next week's tasks appear in the background.
