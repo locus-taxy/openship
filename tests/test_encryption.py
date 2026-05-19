@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 from services.encryption import encrypt_api_key, decrypt_api_key, _SEPARATOR
 
 class TestEncryptApiKey:
@@ -36,6 +37,16 @@ class TestEncryptApiKey:
 
     def test_different_keys_produce_different_ciphertexts(self):
         assert encrypt_api_key("key-one-xxxxx") != encrypt_api_key("key-two-xxxxx")
+
+class TestGetFernet:
+    def test_raises_when_env_key_missing(self):
+        import services.encryption as enc_mod
+        from services.encryption import _get_fernet
+
+        with patch.object(enc_mod, "_fernet", None):
+            with patch.dict("os.environ", {"LLM_ENCRYPTION_KEY": ""}):
+                with pytest.raises(RuntimeError, match="LLM_ENCRYPTION_KEY"):
+                    _get_fernet()
 
 class TestDecryptApiKey:
     def test_legacy_plaintext_returned_as_is(self):

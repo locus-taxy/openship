@@ -106,6 +106,11 @@ class TestContentBlockValidatorBranches:
         assert b.format == "mermaid"
         assert b.content == ""
 
+    def test_code_block_with_no_content_defaults_empty(self):
+        b = ContentBlock(type=BlockType.CODE, content="")
+        assert b.content == ""
+        assert b.language == ""
+
 class TestQuizOptionValidation:
     def test_raises_on_invalid_label(self):
         from pydantic import ValidationError

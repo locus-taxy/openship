@@ -185,7 +185,7 @@ info "Step 5/6 — Installing dependencies & running migrations"
 
 "$PYTHON_BIN" -m venv "$VENV"
 "$VENV/bin/pip" install --upgrade pip -q
-"$VENV/bin/pip" install -r "$ROOT/requirements.txt" -r "$ROOT/requirements-dev.txt" -q
+"$VENV/bin/pip" install -r "$ROOT/requirements.txt" -r "$ROOT/requirements-dev.txt" -r "$ROOT/requirements-test.txt" -q
 success "Python dependencies installed."
 
 cd "$ROOT/ui" && npm install --silent
