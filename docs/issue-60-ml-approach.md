@@ -1,5 +1,19 @@
 # ML Approach — Adaptive Syllabus Without Historical Data
 
+## Overview
+
+**What this doc proposes:** Instead of generating the full syllabus upfront, generate one week at a time. After each week the user takes a short quiz. Three ML algorithms assess the results and automatically adapt what gets taught next week, at what pace, and in which style. The final course quiz is also personalised to the user's weak topics — not based on enrollment settings.
+
+**What changes:**
+- 2 new DB tables (`topic_knowledge`, `content_style_arms`)
+- 1 new column on `quiz_questions` (topic tag per question)
+- Small additions to `skills` and `quizzes` tables
+- Difficulty removed from enrollment — the ML figures this out automatically
+
+**What stays the same:** auth, LLM provider setup, daily content structure, streaks, public sharing — none of this is touched.
+
+---
+
 ## The Problem
 
 Most ML systems need thousands of data points before they start working. We have zero — a brand new user has no history at all.
