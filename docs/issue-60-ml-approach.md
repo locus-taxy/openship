@@ -333,41 +333,74 @@ The forgetting curve state lives on the same `topic_knowledge` table as BKT. We 
 
 This is the full flow every time a user submits a weekly quiz:
 
-```
-STEP 1 — BKT
-  For every question answered in the quiz:
-    → find question.topic
-    → find the TopicKnowledge row for that topic
-    → update p_known using BKT formula
-    → update last_studied_at and stability_days
-  ✓ Result: know which topics are weak (p_known < 0.95)
+**Step 1 — BKT (run immediately after quiz submission)**
 
-STEP 2 — FORGETTING CURVE
-  For all topics from previous weeks (not just this week):
-    → compute R(days since last studied)
-    → if R < 0.70, add to "needs review" list
-  ✓ Result: know which old topics the user is forgetting
+For every question the user answered:
+- Look up `question.topic`
+- Find the `topic_knowledge` row for that topic
+- Run the BKT formula → update `p_known`
+- Update `last_studied_at` and `stability_days`
 
-STEP 3 — BANDIT
-  → compare current quiz score with previous week's score
-  → update alpha or beta for the style used this week
-  → Thompson-sample all arms → pick style for next week
-  ✓ Result: know which teaching style to use
+Result: we know exactly which topics are weak (`p_known < 0.95`)
 
-STEP 4 — BUILD LLM PROMPT
-  → weak topics from BKT         → "reinforce these"
-  → forgotten topics from curve  → "add short review tasks for these"
-  → style from bandit            → "teach in this style"
-  → new topics for next week     → "introduce these"
-  → send to LLM → generate next week's content
+---
 
-FINAL QUIZ (week=0, generated after the last week's quiz is submitted)
-  → collect all topics where p_known < 0.95 across ALL weeks
-  → also include topics where forgetting curve R < 0.70
-  → send to LLM → generate final quiz questions targeting those weak/forgotten topics
-  ✓ The final quiz is personalised to what this specific user struggled with
-    (not based on enrollment topics)
-```
+**Step 2 — Forgetting Curve (run for all previous weeks)**
+
+For every topic the user has ever studied (not just this week):
+- Compute `R = e^(-days_since_last_studied / stability_days)`
+- If `R < 0.70` → add to "needs review" list
+
+Result: we know which old topics the user is about to forget
+
+---
+
+**Step 3 — Bandit (run after score is known)**
+
+- Compare this week's quiz score with last week's score
+- If score improved → `alpha + 1` for the style used this week
+- If score dropped → `beta + 1` for the style used this week
+- Thompson-sample all 4 arms → pick the style for next week
+
+Result: we know which teaching style to use next week
+
+---
+
+**Step 4 — Generate next week's content**
+
+All three results are combined into one LLM prompt:
+
+| Input | Instruction to LLM |
+|---|---|
+| Weak topics (BKT) | "Reinforce these topics next week" |
+| Forgotten topics (Curve) | "Add a short review task for each of these at the start" |
+| Chosen style (Bandit) | "Teach in this style: theory-first / example-heavy / etc." |
+| New topics for next week | "Also introduce these new topics" |
+
+---
+
+**Final Quiz — generated after the last weekly quiz, based entirely on ML**
+
+Once the user completes all weeks and submits the final weekly quiz:
+- Collect every topic where `p_known < 0.95` across all weeks (BKT)
+- Also include topics where forgetting curve `R < 0.70`
+- Send those weak/forgotten topics to the LLM
+- LLM generates final quiz questions targeting exactly what this user struggled with
+
+> The final quiz is **not** generated from enrollment topics. It is completely personalised by what BKT and the Forgetting Curve found across the entire course.
+
+---
+
+## Enrollment Change — Difficulty Removed
+
+Currently during enrollment the user selects a **difficulty level** (beginner / intermediate / advanced). This was used to set the quiz pass score and influence content generation.
+
+With the ML approach, difficulty becomes unnecessary:
+- The **Bandit** automatically discovers the right teaching style for the user — there is no need to ask them upfront
+- The **BKT** tracks per-topic mastery and adapts content accordingly — a "beginner" label adds no information the ML doesn't already capture
+- The **final quiz** is personalised by ML, not by a difficulty setting
+
+**Decision:** remove the `difficulty` field from the enrollment flow. The `quiz_difficulty` column on the `skills` table and the `difficulty` column on the `quizzes` table will be removed as part of this implementation.
 
 ---
 
@@ -387,45 +420,71 @@ One row per topic per user per skill. Owned by BKT + Forgetting Curve.
 
 Four rows per user per skill (one per style). Owned by the Bandit.
 
-### `skills` — two new columns
+### `skills` — changes
 
-| Column | Type | Purpose |
-|---|---|---|
-| generated_weeks | int | how many weeks have been generated so far |
-| total_weeks | int | total weeks in this plan (set on first generation) |
+| Change | Detail |
+|---|---|
+| Add `generated_weeks` (int) | how many weeks have been generated so far |
+| Add `total_weeks` (int) | total weeks in this plan (set on first generation) |
+| Remove `quiz_difficulty` | no longer needed — Bandit replaces this |
 
-### `quizzes` — one new column + constraint change
+### `quizzes` — changes
 
-| Column | Type | Purpose |
-|---|---|---|
-| week | int | `0` = full course quiz, `1–N` = per-week quiz |
-
-Unique constraint changes from `UNIQUE(skill_id)` → `UNIQUE(skill_id, week)` so each week can have its own quiz.
-
-**Final quiz generation (week=0):**  
-Previously generated from enrollment topics. Now generated by BKT — the LLM is given all topics where `p_known < 0.95` or forgetting curve `R < 0.70` across all weeks, and generates questions that target exactly what this user struggled with.
+| Change | Detail |
+|---|---|
+| Add `week` (int) | `0` = final quiz, `1–N` = per-week quiz |
+| Remove `difficulty` | no longer needed |
+| Constraint | `UNIQUE(skill_id)` → `UNIQUE(skill_id, week)` |
 
 ---
 
-## Complete Picture
+## Complete Picture — End to End Flow
 
 ```
-skills
+USER ENROLLS
+  → picks skill, days, hours/day
+  → difficulty NO LONGER ASKED (removed)
   │
-  ├── daily_tasks (week, topic, task …)
-  │       │
-  │       └── topic name ─────────────────────────────────┐
-  │                                                        │
-  ├── quizzes                                              │
-  │   (week=0  → full course quiz)                         │
-  │   (week=1+ → per-week quiz)                            │
-  │       │                                                │
-  │       └── quiz_questions                               │
-  │           (+ topic column) ────────────────────────────┘
-  │               │
-  │               └── answer result ──► topic_knowledge
-  │                                     (BKT + forgetting curve state)
+  ▼
+WEEK 1 CONTENT GENERATED
+  → LLM generates daily tasks for week 1
+  → style defaults to "balanced" (first week, bandit has no data yet)
   │
-  └── content_style_arms
-        (bandit state — which style works for this user)
+  ▼
+USER STUDIES WEEK 1
+  → reads daily content, marks tasks complete, builds streak
+  │
+  ▼
+WEEK 1 QUIZ
+  → quiz generated from week 1 topics (each question tagged with topic)
+  → user submits answers
+  │
+  ├──► BKT runs per question
+  │      → updates p_known for each topic
+  │      → topics with p_known < 0.95 = WEAK
+  │
+  ├──► FORGETTING CURVE runs for all studied topics
+  │      → topics with R < 0.70 = FORGOTTEN
+  │
+  ├──► BANDIT updates
+  │      → score improved? alpha+1 for "balanced"
+  │      → score dropped? beta+1 for "balanced"
+  │      → samples all 4 arms → picks style for week 2
+  │
+  ▼
+WEEK 2 CONTENT GENERATED
+  → weak topics   → reinforced in week 2
+  → forgotten topics → short review tasks added at start
+  → new topics    → introduced as normal
+  → style         → picked by bandit (e.g. "theory_first")
+  │
+  ▼
+  ... (repeats every week) ...
+  │
+  ▼
+FINAL QUIZ (after last weekly quiz is submitted)
+  → collect ALL topics with p_known < 0.95 (BKT, across all weeks)
+  → collect ALL topics with R < 0.70 (Forgetting Curve)
+  → LLM generates questions targeting only those weak/forgotten topics
+  → user gets a quiz that is 100% personalised to their gaps
 ```
