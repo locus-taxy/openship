@@ -82,7 +82,7 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
                     "task": t.task,
                     "hours": t.hours,
                     "completed": t.completed,
-                    "has_content": t.newsletter is not None,
+                    "has_content": t.content_blocks is not None or t.newsletter is not None,
                 }
             )
 
@@ -184,7 +184,9 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
 
         user_skill_ids = select(Skill.id).where(Skill.email == email, Skill.stop_sending == False)
         topic_match = DailyTask.topic.ilike(q)
-        content_match = (DailyTask.newsletter != None) & (DailyTask.newsletter.ilike(q))
+        content_match = ((DailyTask.newsletter != None) & (DailyTask.newsletter.ilike(q))) | (
+            (DailyTask.content_blocks != None) & (DailyTask.content_blocks.ilike(q))
+        )
         task_rows = session.exec(
             select(DailyTask).where(
                 DailyTask.skill_id.in_(user_skill_ids),

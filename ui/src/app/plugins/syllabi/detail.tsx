@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
+import mermaid from "mermaid"
+
+mermaid.initialize({ startOnLoad: false, theme: "dark" })
 import { LlmBar } from "@/components/llm-bar"
 import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
@@ -23,6 +26,23 @@ import { sanitizeHtml } from "@/lib/sanitize"
 import { useSidebar } from "@/components/ui/sidebar"
 import hljs from "highlight.js"
 import "highlight.js/styles/atom-one-dark.css"
+
+type BlockType =
+    | "heading" | "paragraph" | "code"
+    | "bullet_list" | "numbered_list"
+    | "table" | "note" | "quote" | "divider"
+    | "diagram"
+
+interface ContentBlock {
+    type: BlockType
+    content?: string
+    level?: number
+    language?: string
+    items?: string[]
+    headers?: string[]
+    rows?: string[][]
+    format?: string
+}
 
 interface Chapter {
     id: number
@@ -56,6 +76,187 @@ interface SyllabusDetail {
     months: Month[]
 }
 
+// ─── Inline Markdown parser (backtick code, bold, italic) ────────────────────
+
+function InlineText({ text }: { text: string }) {
+    // Split on backtick spans: `code`
+    const parts = text.split(/(`[^`]+`)/g)
+    return (
+        <>
+            {parts.map((part, i) => {
+                if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
+                    return (
+                        <code key={i} className="bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-[0.82em] font-mono">
+                            {part.slice(1, -1)}
+                        </code>
+                    )
+                }
+                // Bold: **text**
+                const boldParts = part.split(/(\*\*[^*]+\*\*)/g)
+                if (boldParts.length > 1) {
+                    return boldParts.map((bp, j) =>
+                        bp.startsWith("**") && bp.endsWith("**") && bp.length > 4
+                            ? <strong key={`${i}-${j}`}>{bp.slice(2, -2)}</strong>
+                            : <span key={`${i}-${j}`}>{bp}</span>
+                    )
+                }
+                return <span key={i}>{part}</span>
+            })}
+        </>
+    )
+}
+
+// ─── Block Renderer Components ───────────────────────────────────────────────
+
+function CodeBlock({ code, language }: { code: string; language: string }) {
+    const ref = useRef<HTMLElement>(null)
+
+    useEffect(() => {
+        if (!ref.current) return
+        ref.current.textContent = code
+        try {
+            if (language) {
+                ref.current.innerHTML = hljs.highlight(code, { language }).value
+            } else {
+                hljs.highlightElement(ref.current)
+            }
+        } catch {
+            // Unknown language — fall back to auto-detect
+            hljs.highlightElement(ref.current)
+        }
+        ref.current.classList.add("hljs")
+    }, [code, language])
+
+    const lines = code.split("\n")
+    if (lines[lines.length - 1] === "") lines.pop()
+
+    const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
+    const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+
+    const [copied, setCopied] = useState(false)
+
+    async function handleCopy() {
+        try {
+            await navigator.clipboard.writeText(code)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        } catch { /* clipboard denied */ }
+    }
+
+    return (
+        <div className="relative rounded-xl border border-white/10 bg-[#282c34] text-sm shadow-lg overflow-hidden">
+            <button
+                onClick={handleCopy}
+                title="Copy code"
+                dangerouslySetInnerHTML={{ __html: copied ? ICON_CHECK : ICON_COPY }}
+                style={{
+                    position: "absolute", top: 10, right: 10,
+                    background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 6, padding: "5px 8px", cursor: "pointer",
+                    color: copied ? "#4ade80" : "#9da5b4", display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                }}
+            />
+            <div className="flex overflow-x-auto">
+                <div className="flex flex-col shrink-0 select-none text-right px-3 py-4
+                                text-[#636d83] text-xs leading-[1.6]
+                                border-r border-white/[0.08] min-w-[2.5rem]">
+                    {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
+                </div>
+                <div className="flex-1 overflow-x-auto px-5 py-4 min-w-0">
+                    <code ref={ref} className="font-mono text-xs leading-[1.6] whitespace-pre block" />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function MermaidBlock({ code }: { code: string }) {
+    const id = useId()
+    const ref = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (!ref.current) return
+        let cancelled = false
+        const renderId = `mermaid-${id.replace(/[^a-zA-Z0-9]/g, "")}`
+
+        mermaid.render(renderId, code)
+            .then(({ svg }) => {
+                if (!cancelled && ref.current) ref.current.innerHTML = svg
+            })
+            .catch(() => {
+                if (!cancelled && ref.current) {
+                    const pre = document.createElement("pre")
+                    pre.className = "text-xs text-muted-foreground whitespace-pre-wrap p-4"
+                    pre.textContent = code
+                    ref.current.replaceChildren(pre)
+                }
+            })
+
+        return () => { cancelled = true }
+    }, [code, id])
+
+    return <div ref={ref} className="rounded-xl border border-border bg-muted/30 p-4 overflow-x-auto" />
+}
+
+function BlockRenderer({ blocks }: { blocks: ContentBlock[] }) {
+    return (
+        <div className="space-y-4">
+            {blocks.map((block, i) => <BlockItem key={i} block={block} />)}
+        </div>
+    )
+}
+
+function BlockItem({ block }: { block: ContentBlock }) {
+    switch (block.type) {
+        case "heading": {
+            const text = block.content ?? ""
+            if (block.level === 1) return <h1 className="text-2xl font-bold tracking-tight text-foreground mt-6 mb-3"><InlineText text={text} /></h1>
+            if (block.level === 3) return <h3 className="text-base font-semibold text-foreground mt-4 mb-1.5"><InlineText text={text} /></h3>
+            return <h2 className="text-xl font-semibold text-foreground mt-5 mb-2 border-b border-border/50 pb-2"><InlineText text={text} /></h2>
+        }
+        case "paragraph":
+            return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
+        case "code":
+            return <CodeBlock code={block.content ?? ""} language={block.language ?? ""} />
+        case "bullet_list":
+            return <ul className="list-disc pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
+        case "numbered_list":
+            return <ol className="list-decimal pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
+        case "table":
+            return (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full border-collapse text-sm">
+                        <thead className="bg-muted/50">
+                            <tr>{block.headers?.map((h, i) => <th key={i} className="border border-border px-4 py-2.5 text-left font-semibold text-foreground"><InlineText text={h} /></th>)}</tr>
+                        </thead>
+                        <tbody>
+                            {block.rows?.map((row, i) => (
+                                <tr key={i} className={i % 2 === 1 ? "bg-muted/20" : ""}>
+                                    {row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600"><InlineText text={cell} /></td>)}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )
+        case "note":
+            return (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                    <p className="text-sm text-foreground/80 leading-7"><InlineText text={block.content ?? ""} /></p>
+                </div>
+            )
+        case "quote":
+            return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 italic"><InlineText text={block.content ?? ""} /></blockquote>
+        case "divider":
+            return <hr className="border-border my-2" />
+        case "diagram":
+            return <MermaidBlock code={block.content ?? ""} />
+        default:
+            return null
+    }
+}
+
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
 function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGenerationEnd, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
@@ -69,6 +270,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
     hasNext: boolean
 }) {
     const [content, setContent] = useState<string | null>(null)
+    const [blocks, setBlocks] = useState<ContentBlock[] | null>(null)
     const [loading, setLoading] = useState(false)
     const generating = isGenerating
     // const [sending, setSending] = useState(false)
@@ -99,8 +301,8 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
     useEffect(() => {
         setHasContent(chapter.has_content)
         setCompleted(chapter.completed)
-        // setEmailSent(false)
         setContent(null)
+        setBlocks(null)
         if (chapter.has_content) loadContent()
     }, [chapter.id])
 
@@ -116,31 +318,14 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             const codeEl = pre.querySelector("code") as HTMLElement | null
             if (!codeEl) return
 
-            // — Syntax highlight —
-            hljs.highlightElement(codeEl)
-
-            // — Line numbers —
+            // — Capture raw text before highlight (used for copy + line count) —
             const rawText = codeEl.innerText
             const lines = rawText.split("\n")
-            // remove trailing empty line if present
             if (lines[lines.length - 1] === "") lines.pop()
+            const lineCount = lines.length
 
-            // rebuild innerHTML: wrap each line in a span, add gutter
-            const highlighted = codeEl.innerHTML
-            const lineSpans = highlighted.split("\n")
-            if (lineSpans[lineSpans.length - 1] === "") lineSpans.pop()
-
-            codeEl.innerHTML = lineSpans
-                .map((line, i) =>
-                    `<span class="hljs-line" style="display:table-row">`
-                    + `<span style="display:table-cell;user-select:none;padding-right:16px;min-width:2.5rem;text-align:right;color:#636d83;font-size:0.75rem;line-height:1.6">${i + 1}</span>`
-                    + `<span style="display:table-cell;width:100%;line-height:1.6">${line}</span>`
-                    + `</span>`
-                )
-                .join("\n")
-
-            codeEl.style.display = "table"
-            codeEl.style.width = "100%"
+            // — Syntax highlight (operates on codeEl innerHTML, never split) —
+            hljs.highlightElement(codeEl)
 
             // — Pre styles —
             Object.assign(pre.style, {
@@ -150,10 +335,36 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                 overflow: "hidden",
                 background: "transparent",
             })
-            // wrap code in scrollable inner div
+
+            // — Flex container: gutter | scrollable code —
+            const flexWrap = document.createElement("div")
+            flexWrap.style.cssText = "display:flex;overflow-x:auto"
+
+            // Gutter: one <span> per line, derived from raw text count (never from HTML split)
+            const gutter = document.createElement("div")
+            gutter.style.cssText = [
+                "display:flex", "flex-direction:column", "user-select:none",
+                "padding:1rem 0.75rem 1rem 1rem", "text-align:right",
+                "color:#636d83", "font-size:0.75rem", "line-height:1.6",
+                "min-width:2.5rem", "border-right:1px solid rgba(255,255,255,0.08)",
+                "flex-shrink:0",
+            ].join(";")
+            for (let i = 1; i <= lineCount; i++) {
+                const span = document.createElement("span")
+                span.textContent = String(i)
+                gutter.appendChild(span)
+            }
+
+            // Code scroll area
             const scrollWrap = document.createElement("div")
-            scrollWrap.style.cssText = "overflow-x:auto;padding:1rem 1.25rem"
-            pre.insertBefore(scrollWrap, codeEl)
+            scrollWrap.style.cssText = "flex:1;overflow-x:auto;padding:1rem 1.25rem;min-width:0"
+            codeEl.style.display = "block"
+            codeEl.style.whiteSpace = "pre"
+            codeEl.style.lineHeight = "1.6"
+
+            pre.insertBefore(flexWrap, codeEl)
+            flexWrap.appendChild(gutter)
+            flexWrap.appendChild(scrollWrap)
             scrollWrap.appendChild(codeEl)
 
             // — Copy button —
@@ -186,14 +397,29 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
 
     async function loadContent() {
         setLoading(true)
+        setBlocks(null)
+        setContent(null)
         const { success, data } = await getRequest(`/py/chapter/${chapter.id}`)
         if (success) {
-            setContent(data.newsletter)
             setChapterCost({
                 input_tokens: data.input_tokens ?? null,
                 output_tokens: data.output_tokens ?? null,
                 generation_cost_usd: data.generation_cost_usd ?? null,
             })
+            if (data.content_blocks) {
+                try {
+                    const parsed = JSON.parse(data.content_blocks)
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        setBlocks(parsed)
+                    } else {
+                        setContent(data.newsletter)
+                    }
+                } catch {
+                    setContent(data.newsletter)
+                }
+            } else {
+                setContent(data.newsletter)
+            }
         }
         setLoading(false)
     }
@@ -290,7 +516,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                                     <div key={i} className={`h-3 bg-muted rounded animate-pulse ${i % 3 === 0 ? "w-3/4" : i % 3 === 1 ? "w-full" : "w-5/6"}`} />
                                 ))}
                             </div>
-                        ) : content ? (
+                        ) : (blocks || content) ? (
                             <div className="space-y-4">
                                 {/* Toolbar */}
                                 <div className="flex items-center justify-between">
@@ -305,36 +531,41 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                                     </Button>
                                 </div>
 
-                                {/* Prose content */}
-                                <div
-                                    ref={proseRef}
-                                    className="prose prose-sm sm:prose-base max-w-none break-words
-                                        prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
-                                        prose-h1:text-lg sm:prose-h1:text-2xl prose-h1:mt-6 sm:prose-h1:mt-8 prose-h1:mb-3 sm:prose-h1:mb-4
-                                        prose-h2:text-base sm:prose-h2:text-xl prose-h2:mt-5 sm:prose-h2:mt-6 prose-h2:mb-2 sm:prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
-                                        prose-h3:text-sm sm:prose-h3:text-base prose-h3:mt-4 sm:prose-h3:mt-5 prose-h3:mb-1.5 sm:prose-h3:mb-2
-                                        prose-h4:text-xs sm:prose-h4:text-sm prose-h4:mt-3 sm:prose-h4:mt-4 prose-h4:mb-1
-                                        prose-p:text-zinc-600 prose-p:leading-6 sm:prose-p:leading-7
-                                        prose-strong:text-foreground prose-strong:font-semibold
-                                        prose-em:text-zinc-600
-                                        prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
-                                        prose-ul:pl-5 prose-ol:pl-5 prose-ul:my-3 prose-ol:my-3
-                                        prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
-                                        [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
-                                        prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                                        [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm [&_pre]:max-w-full [&_pre]:overflow-x-auto
-                                        [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
-                                        prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
-                                        prose-hr:border-border prose-hr:my-6
-                                        prose-table:w-full prose-table:border-collapse prose-table:text-xs sm:prose-table:text-sm
-                                        prose-thead:bg-muted/50
-                                        prose-th:border prose-th:border-border prose-th:px-2 sm:prose-th:px-4 prose-th:py-2 sm:prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
-                                        prose-td:border prose-td:border-border prose-td:px-2 sm:prose-td:px-4 prose-td:py-1.5 sm:prose-td:py-2 prose-td:text-zinc-600
-                                        prose-tr:even:bg-muted/20
-                                        [&_table]:rounded-lg [&_table]:border [&_table]:border-border
-                                        [&_:where(table)]:block [&_:where(table)]:overflow-x-auto"
-                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }}
-                                />
+                                {/* Structured blocks (new chapters) */}
+                                {blocks ? (
+                                    <BlockRenderer blocks={blocks} />
+                                ) : content ? (
+                                    /* Legacy HTML path (old chapters) */
+                                    <div
+                                        ref={proseRef}
+                                        className="prose prose-sm sm:prose-base max-w-none break-words
+                                            prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
+                                            prose-h1:text-lg sm:prose-h1:text-2xl prose-h1:mt-6 sm:prose-h1:mt-8 prose-h1:mb-3 sm:prose-h1:mb-4
+                                            prose-h2:text-base sm:prose-h2:text-xl prose-h2:mt-5 sm:prose-h2:mt-6 prose-h2:mb-2 sm:prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
+                                            prose-h3:text-sm sm:prose-h3:text-base prose-h3:mt-4 sm:prose-h3:mt-5 prose-h3:mb-1.5 sm:prose-h3:mb-2
+                                            prose-h4:text-xs sm:prose-h4:text-sm prose-h4:mt-3 sm:prose-h4:mt-4 prose-h4:mb-1
+                                            prose-p:text-zinc-600 prose-p:leading-6 sm:prose-p:leading-7
+                                            prose-strong:text-foreground prose-strong:font-semibold
+                                            prose-em:text-zinc-600
+                                            prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
+                                            prose-ul:pl-5 prose-ol:pl-5 prose-ul:my-3 prose-ol:my-3
+                                            prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
+                                            [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
+                                            prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                                            [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm [&_pre]:max-w-full [&_pre]:overflow-x-auto
+                                            [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
+                                            prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
+                                            prose-hr:border-border prose-hr:my-6
+                                            prose-table:w-full prose-table:border-collapse prose-table:text-xs sm:prose-table:text-sm
+                                            prose-thead:bg-muted/50
+                                            prose-th:border prose-th:border-border prose-th:px-2 sm:prose-th:px-4 prose-th:py-2 sm:prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
+                                            prose-td:border prose-td:border-border prose-td:px-2 sm:prose-td:px-4 prose-td:py-1.5 sm:prose-td:py-2 prose-td:text-zinc-600
+                                            prose-tr:even:bg-muted/20
+                                            [&_table]:rounded-lg [&_table]:border [&_table]:border-border
+                                            [&_:where(table)]:block [&_:where(table)]:overflow-x-auto"
+                                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }}
+                                    />
+                                ) : null}
 
                                 {/* Footer */}
                                 <div className="pt-4 border-t border-border/50 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
@@ -352,14 +583,6 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                                             Next Chapter <ArrowRight className="h-4 w-4 ml-1.5" />
                                         </Button>
                                     )}
-                                    {/* Send Email — not yet implemented in backend
-                                    <Button size="sm" disabled={sending || emailSent} onClick={handleSendEmail} className={emailSent ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
-                                        {sending ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Sending…</>
-                                            : emailSent ? <><CheckCircle2 className="h-4 w-4 mr-1.5" />Email Sent</>
-                                            : <><Send className="h-4 w-4 mr-1.5" />Send Email</>
-                                        }
-                                    </Button>
-                                    */}
                                 </div>
                             </div>
                         ) : null
