@@ -20,7 +20,7 @@ def upgrade() -> None:
     op.create_table(
         "llm_usage_logs",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.String(), nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("call_type", sa.String(), nullable=False),
         sa.Column("ref_id", sa.Integer(), nullable=True),
         sa.Column("provider", sa.String(), nullable=False),
@@ -28,7 +28,8 @@ def upgrade() -> None:
         sa.Column("input_tokens", sa.Integer(), nullable=True),
         sa.Column("output_tokens", sa.Integer(), nullable=True),
         sa.Column("cost_usd", sa.Float(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=True),
+        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_llm_usage_logs_user_id", "llm_usage_logs", ["user_id"])

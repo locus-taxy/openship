@@ -32,8 +32,8 @@ class CompleteChapterBody(BaseModel):
 def _resolve_price(user: User, provider: str, model: str):
     """Return (input_per_1m, output_per_1m) using auto-pricing first, manual override second."""
     inp, out = lookup_model_price(provider, model)
-    if inp is None:
-        manual = get_user_model_price(str(user.id), provider, model)
+    if inp is None or out is None:
+        manual = get_user_model_price(user.id, provider, model)
         if manual:
             inp, out = manual
     return inp, out
@@ -56,7 +56,7 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
     failed_tasks = []
     for task in tasks:
         try:
-            html, input_tokens, output_tokens = generate_chapter_html(
+            _html_result = generate_chapter_html(
                 task_description=task["task"],
                 task_title=task["topic"],
                 skill=task["skill"],
@@ -64,6 +64,11 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 api_key=get_user_api_key(current_user),
                 model=get_user_model(current_user),
             )
+            if not _html_result or len(_html_result) != 3:
+                print(f"Failed to generate content for task {task['id']}")
+                failed_tasks.append(task["id"])
+                continue
+            html, input_tokens, output_tokens = _html_result
             if not html:
                 print(f"Failed to generate content for task {task['id']}")
                 failed_tasks.append(task["id"])
@@ -79,7 +84,7 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                     input_tokens, output_tokens, inp_price, out_price
                 )
             log_llm_usage(
-                user_id=str(current_user.id),
+                user_id=current_user.id,
                 call_type="chapter",
                 provider=provider_name or "",
                 model=model_name or "",
@@ -122,7 +127,7 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
     provider_name = get_user_provider_name(current_user)
     model_name = get_user_model(current_user)
 
-    result, input_tokens, output_tokens = generate_chapter_content(
+    _content_result = generate_chapter_content(
         task_description=chapter["task"],
         task_title=chapter["topic"],
         skill=chapter["skill"],
@@ -130,6 +135,11 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         api_key=get_user_api_key(current_user),
         model=model_name,
     )
+    if not _content_result or not isinstance(_content_result, tuple) or len(_content_result) != 3:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate content for task {payload.task_id}"
+        )
+    result, input_tokens, output_tokens = _content_result
     if not result:
         raise HTTPException(
             status_code=500, detail=f"Failed to generate content for task {payload.task_id}"
@@ -204,7 +214,7 @@ def get_chapter_cost_view(task_id: int, current_user: User):
     }
 
 def get_user_usage_cost_view(current_user: User):
-    data = get_user_usage_cost(str(current_user.id))
+    data = get_user_usage_cost(current_user.id)
     currency, rate = get_currency_settings(current_user.id)
     return {
         **data,

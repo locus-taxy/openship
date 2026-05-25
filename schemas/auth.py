@@ -16,5 +16,5 @@ class SaveSettingsRequest(BaseModel):
     api_key: Optional[str] = Field(default=None, max_length=512)
 
 class SaveCurrencyRequest(BaseModel):
-    display_currency: str = Field(..., min_length=3, max_length=8)
+    display_currency: str = Field(..., pattern=r"^[A-Za-z]{3}$")
     currency_exchange_rate: float = Field(..., gt=0)

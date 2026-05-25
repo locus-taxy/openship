@@ -1,3 +1,4 @@
+import math
 from typing import Optional
 from fastapi import HTTPException, Response
 from config import JWT_ACCESS_TOKEN_EXPIRE_MINUTES, JWT_REFRESH_TOKEN_EXPIRE_HOURS
@@ -187,7 +188,7 @@ def save_settings(
 def get_model_pricing(provider: str, model: str, current_user: User):
     """Return auto-fetched pricing, falling back to the user's saved manual override."""
     info = lookup_model_info(provider, model)
-    manual = get_user_model_price(str(current_user.id), provider, model)
+    manual = get_user_model_price(current_user.id, provider, model)
     return {
         "provider": provider,
         "model": model,
@@ -199,9 +200,11 @@ def get_model_pricing(provider: str, model: str, current_user: User):
 def save_manual_pricing(
     current_user: User, provider: str, model: str, input_per_1m_usd: float, output_per_1m_usd: float
 ):
-    save_user_model_price(
-        str(current_user.id), provider, model, input_per_1m_usd, output_per_1m_usd
-    )
+    if not (math.isfinite(input_per_1m_usd) and math.isfinite(output_per_1m_usd)):
+        raise HTTPException(status_code=422, detail="Prices must be finite numbers")
+    if input_per_1m_usd < 0 or output_per_1m_usd < 0:
+        raise HTTPException(status_code=422, detail="Prices must be non-negative")
+    save_user_model_price(current_user.id, provider, model, input_per_1m_usd, output_per_1m_usd)
     return {"status": "success"}
 
 def save_currency(current_user: User, payload):

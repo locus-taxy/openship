@@ -1,10 +1,16 @@
+import logging
 from typing import Any, Dict, Optional
-from sqlmodel import Session, select, func, col
+
+from sqlalchemy.exc import SQLAlchemyError
+from sqlmodel import Session, select
+
 from database import engine
 from models.llm_usage_log import LlmUsageLog
 
+logger = logging.getLogger(__name__)
+
 def log_llm_usage(
-    user_id: str,
+    user_id: int,
     call_type: str,
     provider: str,
     model: str,
@@ -27,10 +33,8 @@ def log_llm_usage(
             )
             session.add(row)
             session.commit()
-    except Exception as e:
-        import logging
-
-        logging.getLogger(__name__).warning("Failed to write llm_usage_log: %s", e)
+    except SQLAlchemyError as e:
+        logger.warning("Failed to write llm_usage_log: %s", e)
 
 def get_chapter_cost(task_id: int) -> Dict[str, Any]:
     with Session(engine) as session:
@@ -57,7 +61,7 @@ def get_chapter_cost(task_id: int) -> Dict[str, Any]:
             ],
         }
 
-def get_user_usage_cost(user_id: str) -> Dict[str, Any]:
+def get_user_usage_cost(user_id: int) -> Dict[str, Any]:
     with Session(engine) as session:
         rows = session.exec(select(LlmUsageLog).where(LlmUsageLog.user_id == user_id)).all()
 
@@ -69,7 +73,10 @@ def get_user_usage_cost(user_id: str) -> Dict[str, Any]:
         for r in rows:
             entry = by_type.setdefault(r.call_type, {"calls": 0, "cost_usd": 0.0})
             entry["calls"] += 1
-            entry["cost_usd"] = round(entry["cost_usd"] + (r.cost_usd or 0.0), 6)
+            entry["cost_usd"] += r.cost_usd or 0.0
+
+        for entry in by_type.values():
+            entry["cost_usd"] = round(entry["cost_usd"], 6)
 
         return {
             "total_cost_usd": round(total_cost, 6),

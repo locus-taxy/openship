@@ -140,6 +140,10 @@ def add_content_to_db(
             task = session.get(DailyTask, task_id)
             if task is None:
                 return False
+            if any(
+                v is not None and v < 0 for v in (input_tokens, output_tokens, generation_cost_usd)
+            ):
+                return False
             task.newsletter = _sanitize_html(newsletter)
             if input_tokens is not None:
                 task.input_tokens = input_tokens

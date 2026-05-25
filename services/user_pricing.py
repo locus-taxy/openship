@@ -1,9 +1,11 @@
 from typing import Optional, Tuple
+
 from sqlmodel import Session, select
+
 from database import engine
 from models.user_model_price import UserModelPrice
 
-def get_user_model_price(user_id: str, provider: str, model: str) -> Optional[Tuple[float, float]]:
+def get_user_model_price(user_id: int, provider: str, model: str) -> Optional[Tuple[float, float]]:
     with Session(engine) as session:
         row = session.exec(
             select(UserModelPrice).where(
@@ -17,12 +19,14 @@ def get_user_model_price(user_id: str, provider: str, model: str) -> Optional[Tu
     return None
 
 def save_user_model_price(
-    user_id: str,
+    user_id: int,
     provider: str,
     model: str,
     input_per_1m_usd: float,
     output_per_1m_usd: float,
 ) -> None:
+    if input_per_1m_usd < 0 or output_per_1m_usd < 0:
+        raise ValueError("Model prices must be non-negative")
     with Session(engine) as session:
         row = session.exec(
             select(UserModelPrice).where(

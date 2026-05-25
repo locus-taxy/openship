@@ -175,6 +175,5 @@ def lookup_model_info(provider: str, model: str) -> Dict:
     }
 
 def invalidate_cache() -> None:
-    global _cache, _cache_fetched_at
+    global _cache
     _cache = None
-    _cache_fetched_at = 0

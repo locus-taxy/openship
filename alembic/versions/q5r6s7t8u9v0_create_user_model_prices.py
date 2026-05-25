@@ -20,11 +20,12 @@ def upgrade() -> None:
     op.create_table(
         "user_model_prices",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.String(), nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("provider", sa.String(), nullable=False),
         sa.Column("model", sa.String(), nullable=False),
         sa.Column("input_per_1m_usd", sa.Float(), nullable=False),
         sa.Column("output_per_1m_usd", sa.Float(), nullable=False),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id", "provider", "model", name="uq_user_model_price"),
     )

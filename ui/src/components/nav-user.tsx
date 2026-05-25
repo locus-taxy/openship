@@ -73,10 +73,15 @@ function PricingDisplay({ provider, activeModel }: {
 
     async function handleRefresh() {
         setRefreshing(true)
-        await postRequest("/py/auth/me/pricing/refresh", {})
-        setRefreshing(false)
-        fetchPricing()
-        toast({ title: "Pricing refreshed" })
+        try {
+            await postRequest("/py/auth/me/pricing/refresh", {})
+            fetchPricing()
+            toast({ title: "Pricing refreshed" })
+        } catch {
+            toast({ variant: "destructive", title: "Refresh failed", description: "Could not refresh pricing data." })
+        } finally {
+            setRefreshing(false)
+        }
     }
 
     async function handleSaveManual() {
@@ -372,7 +377,10 @@ export function NavUser() {
 
     async function handleSaveCurrency() {
         const rate = parseFloat(exchangeRate);
-        if (!rate || rate <= 0) return;
+        if (!rate || rate <= 0) {
+            toast({ variant: "destructive", title: "Invalid exchange rate", description: "Enter a valid positive exchange rate." });
+            return;
+        }
         setSavingCurrency(true);
         const { success } = await patchRequest("/py/auth/me/settings/currency", {
             display_currency: displayCurrency.toUpperCase(),

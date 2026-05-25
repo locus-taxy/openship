@@ -161,6 +161,8 @@ def update_currency_settings(
     currency_exchange_rate: float,
 ) -> None:
     """Save display currency and exchange rate on the users row."""
+    if currency_exchange_rate <= 0:
+        raise ValueError("currency_exchange_rate must be positive")
     with Session(engine) as session:
         user = session.get(User, user_id)
         if not user:
@@ -186,6 +188,8 @@ def compute_generation_cost_usd(
 ) -> Optional[float]:
     """Compute USD cost from token counts and per-million prices. Returns None if any value missing."""
     if None in (input_tokens, output_tokens, input_price_per_m, output_price_per_m):
+        return None
+    if any(v < 0 for v in (input_tokens, output_tokens, input_price_per_m, output_price_per_m)):
         return None
     return (input_tokens * input_price_per_m + output_tokens * output_price_per_m) / 1_000_000
 
