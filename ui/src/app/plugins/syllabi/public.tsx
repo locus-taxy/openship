@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { useParams } from "react-router"
 import {
     BookOpen, ChevronDown, ChevronRight, FileText,
@@ -9,8 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import axios from "axios"
 import { sanitizeHtml } from "@/lib/sanitize"
-import hljs from "highlight.js"
-import "highlight.js/styles/atom-one-dark.css"
+import { BlockRenderer, type ContentBlock } from "./block-renderer"
 
 interface PublicTask {
     id: number
@@ -19,6 +18,7 @@ interface PublicTask {
     task: string
     hours: number
     newsletter: string | null
+    content_blocks: string | null
 }
 
 interface PublicWeek {
@@ -43,73 +43,12 @@ interface PublicSyllabus {
 // ─── Content Panel (right) ────────────────────────────────────────────────────
 
 function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
-    const proseRef = useRef<HTMLDivElement>(null)
+    const blocks: ContentBlock[] | null = (() => {
+        if (!chapter.content_blocks) return null
+        try { return JSON.parse(chapter.content_blocks) } catch { return null }
+    })()
 
-    useEffect(() => {
-        const container = proseRef.current
-        if (!container || !chapter.newsletter) return
-
-        container.querySelectorAll("pre").forEach((pre) => {
-            if (pre.dataset.processed) return
-            pre.dataset.processed = "true"
-
-            const codeEl = pre.querySelector("code") as HTMLElement | null
-            if (!codeEl) return
-
-            hljs.highlightElement(codeEl)
-
-            const rawText = codeEl.innerText
-            const lineSpans = codeEl.innerHTML.split("\n")
-            if (lineSpans[lineSpans.length - 1] === "") lineSpans.pop()
-
-            codeEl.innerHTML = lineSpans
-                .map((line, i) =>
-                    `<span class="hljs-line" style="display:table-row">`
-                    + `<span style="display:table-cell;user-select:none;padding-right:16px;min-width:2.5rem;text-align:right;color:#636d83;font-size:0.75rem;line-height:1.6">${i + 1}</span>`
-                    + `<span style="display:table-cell;width:100%;line-height:1.6">${line}</span>`
-                    + `</span>`
-                )
-                .join("\n")
-
-            codeEl.style.display = "table"
-            codeEl.style.width = "100%"
-
-            Object.assign(pre.style, {
-                position: "relative", borderRadius: "10px",
-                padding: "0", overflow: "hidden", background: "transparent",
-            })
-
-            const scrollWrap = document.createElement("div")
-            scrollWrap.style.cssText = "overflow-x:auto;padding:1rem 1.25rem"
-            pre.insertBefore(scrollWrap, codeEl)
-            scrollWrap.appendChild(codeEl)
-
-            const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
-            const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
-
-            const btn = document.createElement("button")
-            btn.title = "Copy code"
-            btn.innerHTML = ICON_COPY
-            Object.assign(btn.style, {
-                position: "absolute", top: "10px", right: "10px",
-                background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: "6px", padding: "5px 8px", cursor: "pointer",
-                color: "#9da5b4", display: "flex", alignItems: "center",
-                justifyContent: "center", transition: "all 0.15s",
-            })
-            btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(255,255,255,0.15)"; btn.style.color = "#fff" })
-            btn.addEventListener("mouseleave", () => { btn.style.background = "rgba(255,255,255,0.08)"; btn.style.color = "#9da5b4" })
-            btn.addEventListener("click", async () => {
-                try {
-                    await navigator.clipboard.writeText(rawText)
-                    btn.innerHTML = ICON_CHECK
-                    btn.style.color = "#4ade80"
-                    setTimeout(() => { btn.innerHTML = ICON_COPY; btn.style.color = "#9da5b4" }, 2000)
-                } catch { /* clipboard denied */ }
-            })
-            pre.appendChild(btn)
-        })
-    }, [chapter.id])
+    const hasContent = !!chapter.newsletter || !!blocks
 
     return (
         <div className="flex flex-col h-full">
@@ -129,39 +68,42 @@ function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
                         <p className="text-sm text-muted-foreground leading-relaxed">{chapter.task}</p>
                     </div>
 
-                    {chapter.newsletter ? (
+                    {hasContent ? (
                         <div className="space-y-4">
                             <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                 <FileText className="h-3 w-3" /> Content
                             </div>
-                            <div
-                                ref={proseRef}
-                                className="prose prose-base max-w-none
-                                    prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
-                                    prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
-                                    prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
-                                    prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2
-                                    prose-h4:text-sm prose-h4:mt-4 prose-h4:mb-1
-                                    prose-p:text-zinc-600 prose-p:leading-7
-                                    prose-strong:text-foreground prose-strong:font-semibold
-                                    prose-em:text-zinc-600
-                                    prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
-                                    prose-ul:pl-5 prose-ol:pl-5 prose-ul:my-3 prose-ol:my-3
-                                    prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
-                                    [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
-                                    prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                                    [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm
-                                    [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
-                                    prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
-                                    prose-hr:border-border prose-hr:my-6
-                                    prose-table:w-full prose-table:border-collapse prose-table:text-sm
-                                    prose-thead:bg-muted/50
-                                    prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
-                                    prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
-                                    prose-tr:even:bg-muted/20
-                                    [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
-                                dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.newsletter) }}
-                            />
+                            {blocks ? (
+                                <BlockRenderer blocks={blocks} />
+                            ) : (
+                                <div
+                                    className="prose prose-base max-w-none
+                                        prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
+                                        prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
+                                        prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
+                                        prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2
+                                        prose-h4:text-sm prose-h4:mt-4 prose-h4:mb-1
+                                        prose-p:text-zinc-600 prose-p:leading-7
+                                        prose-strong:text-foreground prose-strong:font-semibold
+                                        prose-em:text-zinc-600
+                                        prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
+                                        prose-ul:pl-5 prose-ol:pl-5 prose-ul:my-3 prose-ol:my-3
+                                        prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
+                                        [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
+                                        prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                                        [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm
+                                        [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
+                                        prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
+                                        prose-hr:border-border prose-hr:my-6
+                                        prose-table:w-full prose-table:border-collapse prose-table:text-sm
+                                        prose-thead:bg-muted/50
+                                        prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
+                                        prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
+                                        prose-tr:even:bg-muted/20
+                                        [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
+                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.newsletter!) }}
+                                />
+                            )}
                         </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center py-24 text-center rounded-lg border border-dashed">
@@ -224,7 +166,7 @@ function ChapterNav({ syllabus, activeChapterId, onSelectChapter }: {
                                     }`}
                                 >
                                     <span className={`mt-1.5 h-2 w-2 rounded-full flex-shrink-0 ${
-                                        chapter.newsletter ? "bg-indigo-400" : "bg-muted-foreground/30"
+                                        (chapter.newsletter || chapter.content_blocks) ? "bg-indigo-400" : "bg-muted-foreground/30"
                                     }`} />
                                     <span className="leading-snug">
                                         <span className="text-xs text-muted-foreground mr-1">D{chapter.day}.</span>
