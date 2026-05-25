@@ -1,15 +1,15 @@
 import { useEffect, useId, useRef, useState } from "react"
 import mermaid from "mermaid"
 
-mermaid.initialize({ startOnLoad: false, theme: "dark" })
+mermaid.initialize({ startOnLoad: false, theme: "dark", suppressErrorRendering: true })
 import { LlmBar } from "@/components/llm-bar"
 import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
     ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
-    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap,
+    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap, Brain, Lock,
 } from "lucide-react"
-import { QuizPanel } from "./quiz"
+import { QuizPanel, WeeklyQuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -70,8 +70,10 @@ interface SyllabusDetail {
     days: number
     hours: number
     share_enabled: boolean
-    quiz_difficulty: string
     quiz_status: string   // "not_generated" | "available" | "passed"
+    weekly_quiz_statuses: Record<number, string>  // week → status
+    generated_weeks: number  // weeks 1..N accessible
+    total_weeks: number      // total weeks in syllabus
     created_at: string
     months: Month[]
 }
@@ -410,7 +412,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             await api.post("/py/generate-content/chapter", { task_id: chapter.id })
             setHasContent(true)
             onContentGenerated(chapter.id)
-            loadContent()
+            await loadContent()
         } catch (err: any) {
             const status = err?.response?.status
             const detail = err?.response?.data?.detail ?? ""
@@ -586,12 +588,14 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
 
 // ─── Chapter Nav (left panel) ─────────────────────────────────────────────────
 
-function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus }: {
+function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, onSelectWeeklyQuiz, activeWeek, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus, generatedWeeks, totalWeeks, generatingWeek }: {
     detail: SyllabusDetail
     activeChapterId: number | null
     onSelectChapter: (chapter: Chapter) => void
     onSelectQuiz: () => void
     isQuizActive: boolean
+    onSelectWeeklyQuiz: (week: number) => void
+    activeWeek: number | null
     overallProgress: number
     completedCount: number
     totalCount: number
@@ -603,6 +607,9 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
     onToggleShare: () => void
     onCopyLink: () => void
     quizStatus: string
+    generatedWeeks: number
+    totalWeeks: number
+    generatingWeek: number | null
 }) {
     const [openMonths, setOpenMonths] = useState<Set<number>>(
         () => new Set(detail.months.map((m) => m.month))
@@ -616,6 +623,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
             return next
         })
     }
+
+    const canAccessFinalQuiz = completedCount === totalCount && generatedWeeks > totalWeeks
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -690,10 +699,27 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                                 : <ChevronRight className="h-3 w-3 text-muted-foreground" />
                             }
                         </button>
-                        {openMonths.has(month.month) && month.weeks.map((week) => (
+                        {openMonths.has(month.month) && <>
+                        {month.weeks.map((week) => {
+                            const weekLocked = week.week > generatedWeeks
+                            const weekAllComplete = !weekLocked && week.tasks.length > 0 && week.tasks.every((t) => t.completed)
+                            const weekQuizStatus = detail.weekly_quiz_statuses?.[week.week] ?? "not_generated"
+                            const isThisWeekQuizActive = activeWeek === week.week
+
+                            return (
                             <div key={week.week} className="mb-1">
-                                <p className="px-4 py-1 text-xs text-muted-foreground/60 font-medium">Week {week.week}</p>
-                                {week.tasks.map((chapter) => (
+                                <div className="flex items-center gap-1 px-4 py-1">
+                                    <p className="text-xs text-muted-foreground/60 font-medium flex-1">Week {week.week}</p>
+                                    {weekLocked && <Lock className="h-2.5 w-2.5 text-muted-foreground/40" />}
+                                </div>
+                                {weekLocked ? (
+                                    <div className="w-full flex items-center gap-2 px-4 py-1.5 opacity-35 cursor-not-allowed select-none">
+                                        <Lock className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                                        <span className="text-xs text-muted-foreground">
+                                            {week.tasks.length} chapter{week.tasks.length !== 1 ? "s" : ""} · pass Week {week.week - 1} quiz to unlock
+                                        </span>
+                                    </div>
+                                ) : week.tasks.map((chapter) => (
                                     <button
                                         key={chapter.id}
                                         onClick={() => onSelectChapter(chapter)}
@@ -712,15 +738,77 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                                         </span>
                                     </button>
                                 ))}
+                                {/* Weekly Quiz button — hidden for locked weeks */}
+                                {!weekLocked && (weekAllComplete ? (
+                                    <button
+                                        onClick={() => onSelectWeeklyQuiz(week.week)}
+                                        className={`w-full flex items-center gap-2 px-4 py-2 text-left text-sm transition-colors ${
+                                            isThisWeekQuizActive
+                                                ? "bg-primary/10 text-primary border-r-2 border-primary"
+                                                : "hover:bg-muted/50 text-foreground/80"
+                                        }`}
+                                    >
+                                        <Brain className={`h-3.5 w-3.5 shrink-0 ${
+                                            weekQuizStatus === "passed" ? "text-emerald-500"
+                                            : isThisWeekQuizActive ? "text-primary"
+                                            : "text-muted-foreground"
+                                        }`} />
+                                        <span className="flex-1 min-w-0 text-xs font-medium truncate">Week {week.week} Quiz</span>
+                                        {weekQuizStatus === "passed" && <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />}
+                                    </button>
+                                ) : (
+                                    <div className="w-full flex items-center gap-2 px-4 py-2 opacity-35 cursor-not-allowed select-none">
+                                        <Brain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                        <span className="text-xs text-muted-foreground">Week {week.week} Quiz</span>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
+                            )
+                        })}
+                        {/* Generating week placeholder — appears while background task runs */}
+                        {generatingWeek !== null &&
+                            Math.floor((generatingWeek - 1) / 4) + 1 === month.month &&
+                            !month.weeks.some((w) => w.week === generatingWeek) && (
+                            <div className="mb-1">
+                                <div className="flex items-center gap-1 px-4 py-1">
+                                    <p className="text-xs text-muted-foreground/60 font-medium flex-1">Week {generatingWeek}</p>
+                                    <Loader2 className="h-2.5 w-2.5 text-muted-foreground/40 animate-spin" />
+                                </div>
+                                <div className="w-full flex items-center gap-2 px-4 py-1.5 opacity-60 select-none">
+                                    <Loader2 className="h-3 w-3 flex-shrink-0 text-muted-foreground animate-spin" />
+                                    <span className="text-xs text-muted-foreground">Preparing personalised content…</span>
+                                </div>
+                            </div>
+                        )}
+                        </>}
                     </div>
                 ))}
+                {/* Generating week in a month not yet in the data */}
+                {generatingWeek !== null &&
+                    !detail.months.some((m) => m.month === Math.floor((generatingWeek - 1) / 4) + 1) && (
+                    <div>
+                        <div className="flex w-full items-center justify-between px-4 py-2.5">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Month {Math.floor((generatingWeek - 1) / 4) + 1}
+                            </span>
+                        </div>
+                        <div className="mb-1">
+                            <div className="flex items-center gap-1 px-4 py-1">
+                                <p className="text-xs text-muted-foreground/60 font-medium flex-1">Week {generatingWeek}</p>
+                                <Loader2 className="h-2.5 w-2.5 text-muted-foreground/40 animate-spin" />
+                            </div>
+                            <div className="w-full flex items-center gap-2 px-4 py-1.5 opacity-60 select-none">
+                                <Loader2 className="h-3 w-3 flex-shrink-0 text-muted-foreground animate-spin" />
+                                <span className="text-xs text-muted-foreground">Preparing personalised content…</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Final Quiz — always shown at end of chapter list */}
                 {totalCount > 0 && (
                     <div className="border-t mt-1">
-                        {completedCount === totalCount ? (
+                        {canAccessFinalQuiz ? (
                             <button
                                 onClick={onSelectQuiz}
                                 className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
@@ -753,7 +841,9 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                                 <GraduationCap className="h-4 w-4 shrink-0 text-muted-foreground" />
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium text-foreground/80">Final Quiz</p>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Complete all chapters to attempt</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Complete all weekly quizzes to unlock
+                                    </p>
                                 </div>
                             </div>
                         )}
@@ -800,8 +890,10 @@ export default function SyllabusDetailPage() {
     const [copied, setCopied] = useState(false)
     const [copyFailed, setCopyFailed] = useState(false)
     const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
-    const [activeView, setActiveView] = useState<"chapter" | "quiz">("chapter")
+    const [activeView, setActiveView] = useState<"chapter" | "quiz" | "weekly-quiz">("chapter")
+    const [activeWeek, setActiveWeek] = useState<number | null>(null)
     const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set())
+    const [generatingWeek, setGeneratingWeek] = useState<number | null>(null)
     const [navCollapsed, setNavCollapsed] = useState(false)
     const [navWidth, setNavWidth] = useState(350)
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -853,6 +945,7 @@ export default function SyllabusDetailPage() {
 
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length
+    const hasWeeklyQuizData = detail ? detail.generated_weeks > detail.total_weeks : false
     const quizPassed = detail?.quiz_status === "passed"
     // Quiz counts as one extra step — chapters + quiz = total course
     const totalSteps = allTasks.length + 1
@@ -872,7 +965,21 @@ export default function SyllabusDetailPage() {
     const nextChapter = activeIndex >= 0 && activeIndex < allTasks.length - 1 ? allTasks[activeIndex + 1] : null
 
     function goToNextChapter() {
-        if (!nextChapter) return
+        if (!nextChapter || !detail) return
+        const generatedWeeks = detail.generated_weeks
+        const totalWeeks = detail.total_weeks
+        const allWeeks = detail.months.flatMap((m) => m.weeks)
+        const nextWeek = allWeeks.find((w) => w.tasks.some((t) => t.id === nextChapter.id))
+        const nextIsLocked = (nextWeek?.week ?? 0) > generatedWeeks
+        if (nextIsLocked) {
+            // End of an unlocked week — go to that week's quiz instead
+            const currentWeek = allWeeks.find((w) => w.tasks.some((t) => t.id === activeChapterId))
+            if (currentWeek) {
+                setActiveView("weekly-quiz")
+                setActiveWeek(currentWeek.week)
+            }
+            return
+        }
         setActiveChapterId(nextChapter.id)
         setSearchParams({ chapter: String(nextChapter.id) })
     }
@@ -895,6 +1002,42 @@ export default function SyllabusDetailPage() {
 
     function handleQuizStatusChange(status: string) {
         setDetail((prev) => prev ? { ...prev, quiz_status: status } : prev)
+    }
+
+    function handleWeeklyQuizStatusChange(week: number, status: string) {
+        setDetail((prev) => prev ? {
+            ...prev,
+            weekly_quiz_statuses: { ...prev.weekly_quiz_statuses, [week]: status },
+        } : prev)
+    }
+
+    async function handleWeekUnlocked(newGeneratedWeeks: number) {
+        setDetail((prev) => prev ? { ...prev, generated_weeks: newGeneratedWeeks } : prev)
+        setGeneratingWeek(newGeneratedWeeks)
+
+        // Poll until the ML-generated week's tasks appear in DB (background task completes)
+        // 15 attempts × 2 s = 30 s max wait; stops early once the week is ready
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 2000))
+            const { success, data } = await getRequest(`/py/syllabi/${skillId}`)
+            if (!success) break
+            const presentWeeks = new Set<number>(
+                data.months.flatMap((m: any) => m.weeks.map((w: any) => w.week as number))
+            )
+            if (presentWeeks.has(newGeneratedWeeks)) {
+                setDetail(data)
+                setShareEnabled(data.share_enabled ?? false)
+                setGeneratingWeek(null)
+                return
+            }
+        }
+        // Timed out — sync whatever state exists and clear spinner
+        const { success, data } = await getRequest(`/py/syllabi/${skillId}`)
+        if (success) {
+            setDetail(data)
+            setShareEnabled(data.share_enabled ?? false)
+        }
+        setGeneratingWeek(null)
     }
 
     function handleGenerationStart(taskId: number) {
@@ -1014,8 +1157,13 @@ export default function SyllabusDetailPage() {
                         onToggleShare={handleToggleShare}
                         onCopyLink={handleCopyLink}
                         quizStatus={detail.quiz_status}
-                        onSelectQuiz={() => { setActiveView("quiz"); setMobileSidebarOpen(false) }}
+                        onSelectQuiz={() => { setActiveView("quiz"); setActiveWeek(null); setMobileSidebarOpen(false) }}
                         isQuizActive={activeView === "quiz"}
+                        onSelectWeeklyQuiz={(week) => { setActiveView("weekly-quiz"); setActiveWeek(week); setMobileSidebarOpen(false) }}
+                        activeWeek={activeWeek}
+                        generatedWeeks={detail.generated_weeks}
+                        totalWeeks={detail.total_weeks}
+                        generatingWeek={generatingWeek}
                     />
                     {/* Resize handle */}
                     <div
@@ -1044,7 +1192,9 @@ export default function SyllabusDetailPage() {
                             </Button>
                             <span className="text-sm font-semibold text-foreground/80 truncate">{detail.skill}</span>
                             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
-                            {activeView === "quiz" ? (
+                            {activeView === "weekly-quiz" && activeWeek !== null ? (
+                                <span className="text-sm text-muted-foreground truncate hidden sm:block">Week {activeWeek} Quiz</span>
+                            ) : activeView === "quiz" ? (
                                 <span className="text-sm text-muted-foreground truncate hidden sm:block">Final Quiz</span>
                             ) : activeChapter && (
                                 <span className="text-sm text-muted-foreground truncate hidden sm:block">
@@ -1054,7 +1204,9 @@ export default function SyllabusDetailPage() {
                         </>
                     )}
                     {!navCollapsed && (
-                        activeView === "quiz" ? (
+                        activeView === "weekly-quiz" && activeWeek !== null ? (
+                            <span className="text-sm text-muted-foreground truncate">Week {activeWeek} Quiz</span>
+                        ) : activeView === "quiz" ? (
                             <span className="text-sm text-muted-foreground truncate">Final Quiz</span>
                         ) : activeChapter ? (
                             <span className="text-sm text-muted-foreground truncate">
@@ -1065,11 +1217,21 @@ export default function SyllabusDetailPage() {
                 </div>
 
                 <div className="flex-1 overflow-hidden">
-                    {activeView === "quiz" ? (
+                    {activeView === "weekly-quiz" && activeWeek !== null ? (
+                        <WeeklyQuizPanel
+                            key={`weekly-${activeWeek}`}
+                            skillId={skillId!}
+                            week={activeWeek}
+                            onBack={() => setActiveView("chapter")}
+                            onQuizStatusChange={(status) => handleWeeklyQuizStatusChange(activeWeek, status)}
+                            onWeekUnlocked={handleWeekUnlocked}
+                        />
+                    ) : activeView === "quiz" ? (
                         <QuizPanel
                             skillId={skillId!}
                             onBack={() => setActiveView("chapter")}
                             onQuizStatusChange={handleQuizStatusChange}
+                            hasAllWeeklyData={hasWeeklyQuizData}
                         />
                     ) : activeChapter ? (
                         <ChapterContentPanel

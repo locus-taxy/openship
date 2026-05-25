@@ -11,19 +11,13 @@ def skill_exists(email: str, skill: str) -> bool:
         statement = select(Skill).where(Skill.email == email, Skill.skill == skill)
         return session.exec(statement).first() is not None
 
-_VALID_DIFFICULTIES = {"beginner", "intermediate", "advanced"}
-
 def create_skill(
     user_id: str,
     email: str,
     skill: str,
     days: int,
     hours: int,
-    quiz_difficulty: str = "beginner",
 ) -> Optional[int]:
-    normalized = quiz_difficulty.strip().lower() if quiz_difficulty else "beginner"
-    if normalized not in _VALID_DIFFICULTIES:
-        normalized = "beginner"
     try:
         with Session(engine) as session:
             db_skill = Skill(
@@ -32,7 +26,6 @@ def create_skill(
                 skill=skill,
                 days=days,
                 hours=hours,
-                quiz_difficulty=normalized,
             )
             session.add(db_skill)
             session.commit()
@@ -52,7 +45,6 @@ def get_skill(email: str, skill: str) -> Optional[Dict[str, Any]]:
             "user_id": result.user_id,
             "days": result.days,
             "hours": result.hours,
-            "quiz_difficulty": result.quiz_difficulty,
         }
 
 def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
@@ -61,7 +53,16 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
         if skill_row is None:
             return None
 
-        quiz_row = session.exec(select(Quiz).where(Quiz.skill_id == skill_id)).first()
+        # Final quiz (week=0) determines overall quiz_status
+        final_quiz = session.exec(
+            select(Quiz).where(Quiz.skill_id == skill_id, Quiz.week == 0)
+        ).first()
+
+        # Weekly quizzes (week >= 1) — return their statuses keyed by week number
+        weekly_quizzes = session.exec(
+            select(Quiz).where(Quiz.skill_id == skill_id, Quiz.week > 0).order_by(Quiz.week)
+        ).all()
+        weekly_quiz_statuses = {q.week: q.status for q in weekly_quizzes}
 
         statement = (
             select(DailyTask)
@@ -93,8 +94,10 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
             "days": skill_row.days,
             "hours": skill_row.hours,
             "share_enabled": skill_row.share_enabled,
-            "quiz_difficulty": skill_row.quiz_difficulty,
-            "quiz_status": quiz_row.status if quiz_row else "not_generated",
+            "quiz_status": final_quiz.status if final_quiz else "not_generated",
+            "weekly_quiz_statuses": weekly_quiz_statuses,
+            "generated_weeks": skill_row.generated_weeks,
+            "total_weeks": skill_row.total_weeks,
             "created_at": str(skill_row.created_at) if skill_row.created_at else None,
             "months": [
                 {
@@ -124,7 +127,7 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
                 Quiz.status.label("quiz_status"),
             )
             .outerjoin(DailyTask, DailyTask.skill_id == Skill.id)
-            .outerjoin(Quiz, Quiz.skill_id == Skill.id)
+            .outerjoin(Quiz, (Quiz.skill_id == Skill.id) & (Quiz.week == 0))
             .where(Skill.stop_sending == False)
         )
         if email is not None:
@@ -144,6 +147,29 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
             }
             for row in rows
         ]
+
+def update_skill_weeks(skill_id: int, generated_weeks: int, total_weeks: int) -> None:
+    """Set generated_weeks and total_weeks on a skill (used during syllabus generation)."""
+    with Session(engine) as session:
+        skill = session.get(Skill, skill_id)
+        if skill:
+            skill.generated_weeks = generated_weeks
+            skill.total_weeks = total_weeks
+            session.add(skill)
+            session.commit()
+
+def unlock_next_week(skill_id: int, completed_week: int) -> int:
+    """Increment generated_weeks after a weekly quiz is submitted.
+    Only acts on progressive courses (total_weeks > 0).
+    Returns the new generated_weeks value."""
+    with Session(engine) as session:
+        skill = session.get(Skill, skill_id)
+        if skill and skill.total_weeks > 0 and skill.generated_weeks == completed_week:
+            skill.generated_weeks = completed_week + 1
+            session.add(skill)
+            session.commit()
+            return skill.generated_weeks
+        return skill.generated_weeks if skill else 0
 
 def get_list_of_skill_ids() -> List[int]:
     with Session(engine) as session:
@@ -215,7 +241,7 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
                 Quiz.status.label("quiz_status"),
             )
             .outerjoin(DailyTask, DailyTask.skill_id == Skill.id)
-            .outerjoin(Quiz, Quiz.skill_id == Skill.id)
+            .outerjoin(Quiz, (Quiz.skill_id == Skill.id) & (Quiz.week == 0))
             .where(Skill.id.in_(matching_skill_ids))
             .group_by(Skill.id, Quiz.status)
             .order_by(Skill.created_at.desc())

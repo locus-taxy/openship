@@ -68,32 +68,75 @@ class TestChapterPrompts:
         assert "For loops and while loops" in result
 
 class TestQuizPrompts:
-    def test_system_prompt_beginner(self):
-        result = quiz_prompts.system_prompt("Python", "beginner", 30)
-        assert isinstance(result, str) and len(result) > 50
+    def test_weekly_system_prompt_contains_skill(self):
+        result = quiz_prompts.weekly_system_prompt("Python", 1, 3)
+        assert "Python" in result and isinstance(result, str)
 
-    def test_system_prompt_contains_difficulty(self):
-        result = quiz_prompts.system_prompt("Python", "intermediate", 30)
-        assert "intermediate" in result
+    def test_weekly_system_prompt_contains_week(self):
+        result = quiz_prompts.weekly_system_prompt("Python", 2, 3)
+        assert "2" in result
 
-    def test_system_prompt_contains_skill(self):
-        result = quiz_prompts.system_prompt("SQL", "advanced", 15)
+    def test_weekly_system_prompt_contains_num_topics(self):
+        result = quiz_prompts.weekly_system_prompt("Python", 1, 5)
+        assert "5" in result
+
+    def test_weekly_user_prompt_contains_question_count(self):
+        result = quiz_prompts.weekly_user_prompt(["Variables", "Loops"], 5)
+        assert "5" in result
+
+    def test_weekly_user_prompt_contains_topics(self):
+        result = quiz_prompts.weekly_user_prompt(["Variables", "Loops"], 5)
+        assert "Variables" in result and "Loops" in result
+
+    def test_final_system_prompt_contains_skill(self):
+        result = quiz_prompts.final_system_prompt("SQL", 4)
         assert "SQL" in result
 
-    def test_system_prompt_contains_num_topics(self):
-        result = quiz_prompts.system_prompt("Python", "beginner", 30)
-        assert "30" in result
+    def test_final_user_prompt_contains_weak_topics(self):
+        result = quiz_prompts.final_user_prompt(["Loops"], ["Functions"], 10)
+        assert "Loops" in result and "Functions" in result
 
-    def test_user_prompt_contains_question_count(self):
-        topics = ["Variables", "Loops", "Functions"]
-        result = quiz_prompts.user_prompt(topics, 10, "beginner")
-        assert "10" in result
+    def test_final_user_prompt_deduplicates_topics(self):
+        result = quiz_prompts.final_user_prompt(["Loops"], ["Loops"], 5)
+        assert result.count("Loops") == 1
 
-    def test_user_prompt_contains_difficulty(self):
-        result = quiz_prompts.user_prompt(["SELECT", "JOIN"], 12, "intermediate")
-        assert "intermediate" in result
+class TestWeekPlanPrompts:
+    def test_system_prompt_contains_skill(self):
+        result = syllabus_prompts.week_plan_system_prompt("Python", 2, 4, 7)
+        assert "Python" in result
 
-    def test_user_prompt_contains_topics(self):
-        topics = ["Variables", "Loops"]
-        result = quiz_prompts.user_prompt(topics, 10, "beginner")
+    def test_system_prompt_contains_week_number(self):
+        result = syllabus_prompts.week_plan_system_prompt("SQL", 3, 6, 5)
+        assert "3" in result and "6" in result
+
+    def test_system_prompt_contains_days_in_week(self):
+        result = syllabus_prompts.week_plan_system_prompt("Rust", 1, 4, 7)
+        assert "7" in result
+
+    def test_system_prompt_is_nonempty_string(self):
+        result = syllabus_prompts.week_plan_system_prompt("JavaScript", 1, 4, 5)
+        assert isinstance(result, str) and len(result) > 50
+
+    def test_user_prompt_contains_week_number(self):
+        result = syllabus_prompts.week_plan_user_prompt(2, 8, 7, [], [])
+        assert "2" in result
+
+    def test_user_prompt_contains_day_range(self):
+        result = syllabus_prompts.week_plan_user_prompt(2, 8, 7, [], [])
+        assert "8" in result and "14" in result
+
+    def test_user_prompt_mentions_weak_topics(self):
+        result = syllabus_prompts.week_plan_user_prompt(1, 1, 7, ["Variables", "Loops"], [])
         assert "Variables" in result and "Loops" in result
+
+    def test_user_prompt_mentions_forgotten_topics(self):
+        result = syllabus_prompts.week_plan_user_prompt(1, 1, 7, [], ["Functions"])
+        assert "Functions" in result
+
+    def test_user_prompt_no_weak_areas_message_when_empty(self):
+        result = syllabus_prompts.week_plan_user_prompt(1, 1, 7, [], [])
+        assert "No weak areas" in result
+
+    def test_user_prompt_contains_exact_days_count(self):
+        result = syllabus_prompts.week_plan_user_prompt(3, 15, 5, [], [])
+        assert "5" in result

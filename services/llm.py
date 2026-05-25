@@ -269,6 +269,14 @@ class StructuredChapterContent(BaseModel):
             raise ValueError("All blocks were empty — LLM did not fill content fields")
         return filtered
 
+class GeneratedDayPlan(BaseModel):
+    day: int
+    topic: str
+    task: str
+
+class GeneratedWeekPlan(BaseModel):
+    days: List[GeneratedDayPlan]
+
 _VALID_OPTIONS = {"A", "B", "C", "D"}
 
 class QuizOption(BaseModel):
@@ -445,7 +453,7 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
     if provider == "anthropic":
         return instructor.from_anthropic(Anthropic(api_key=api_key))
     if provider == "mistral":
-        return instructor.from_mistral(Mistral(api_key=api_key))
+        return instructor.from_mistral(Mistral(api_key=api_key, timeout_ms=90000))
     raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
 def _token_kwargs(provider: str, max_tokens: int) -> dict:
@@ -557,20 +565,68 @@ def generate_syllabus_json(
         logger.exception("Syllabus generation failed [provider=%s]", provider)
         return None
 
-def generate_quiz(
+def generate_weekly_quiz(
     skill: str,
+    week: int,
     topics: List[str],
-    difficulty: str,
     num_questions: int,
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
 ) -> Optional[GeneratedQuiz]:
-    """Generate a multiple-choice quiz using Instructor. Returns GeneratedQuiz or None."""
-    _VALID_DIFFICULTIES = {"beginner", "intermediate", "advanced"}
-    difficulty = difficulty.strip().lower() if difficulty else "beginner"
-    if difficulty not in _VALID_DIFFICULTIES:
-        difficulty = "beginner"
+    """Generate a per-week quiz. Returns GeneratedQuiz or None."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+
+    try:
+        client = _build_client(provider, api_key)
+        response: GeneratedQuiz = client.chat.completions.create(
+            model=model,
+            response_model=GeneratedQuiz,
+            messages=[
+                {
+                    "role": "system",
+                    "content": quiz_prompts.weekly_system_prompt(skill, week, len(topics)),
+                },
+                {
+                    "role": "user",
+                    "content": quiz_prompts.weekly_user_prompt(topics, num_questions),
+                },
+            ],
+            **_token_kwargs(provider, 8192),
+            max_retries=1,
+        )
+        if not response.questions:
+            logger.warning("Weekly quiz generation returned 0 questions [provider=%s]", provider)
+            return None
+        if len(response.questions) != num_questions:
+            logger.warning(
+                "Weekly quiz generation returned %d questions, expected %d — using partial result [provider=%s]",
+                len(response.questions),
+                num_questions,
+                provider,
+            )
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.exception("Weekly quiz generation failed [provider=%s]", provider)
+        return None
+
+def generate_final_quiz(
+    skill: str,
+    weak_topics: List[str],
+    forgotten_topics: List[str],
+    num_questions: int,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[GeneratedQuiz]:
+    """Generate the ML-personalised final quiz. Returns GeneratedQuiz or None."""
+    all_topics = list(dict.fromkeys(weak_topics + forgotten_topics))
+    if not all_topics:
+        return None
 
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
@@ -583,11 +639,13 @@ def generate_quiz(
             messages=[
                 {
                     "role": "system",
-                    "content": quiz_prompts.system_prompt(skill, difficulty, len(topics)),
+                    "content": quiz_prompts.final_system_prompt(skill, len(all_topics)),
                 },
                 {
                     "role": "user",
-                    "content": quiz_prompts.user_prompt(topics, num_questions, difficulty),
+                    "content": quiz_prompts.final_user_prompt(
+                        weak_topics, forgotten_topics, num_questions
+                    ),
                 },
             ],
             **_token_kwargs(provider, 8192),
@@ -595,7 +653,7 @@ def generate_quiz(
         )
         if not response.questions or len(response.questions) != num_questions:
             logger.warning(
-                "Quiz generation returned %d questions, expected %d [provider=%s]",
+                "Final quiz generation returned %d questions, expected %d [provider=%s]",
                 len(response.questions) if response.questions else 0,
                 num_questions,
                 provider,
@@ -606,7 +664,7 @@ def generate_quiz(
         raise
     except Exception as e:
         _raise_if_provider_error(provider, e)
-        logger.exception("Quiz generation failed [provider=%s]", provider)
+        logger.exception("Final quiz generation failed [provider=%s]", provider)
         return None
 
 def generate_chapter_content(
@@ -702,4 +760,51 @@ def generate_chapter_html(
     except Exception as e:
         _raise_if_provider_error(provider, e)
         logger.exception("Chapter (html) generation failed [provider=%s]", provider)
+        return None
+
+def generate_week_plan(
+    skill: str,
+    week: int,
+    total_weeks: int,
+    weak_topics: List[str],
+    forgotten_topics: List[str],
+    days_in_week: int,
+    start_day: int,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[List[dict]]:
+    """Generate ML-personalised daily plan for a specific week. Returns list of day dicts or None."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+    try:
+        client = _build_client(provider, api_key)
+        response: GeneratedWeekPlan = client.chat.completions.create(
+            model=model,
+            response_model=GeneratedWeekPlan,
+            messages=[
+                {
+                    "role": "system",
+                    "content": syllabus_prompts.week_plan_system_prompt(
+                        skill, week, total_weeks, days_in_week
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": syllabus_prompts.week_plan_user_prompt(
+                        week, start_day, days_in_week, weak_topics, forgotten_topics
+                    ),
+                },
+            ],
+            **_token_kwargs(provider, 4096),
+            max_retries=1,
+        )
+        if not response.days:
+            return None
+        return [d.model_dump() for d in response.days]
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.exception("Week plan generation failed [provider=%s]", provider)
         return None

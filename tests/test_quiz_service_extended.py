@@ -8,6 +8,8 @@ from services.quiz import (
     get_best_score,
     get_attempt_count,
     get_attempts_for_quiz,
+    clear_all_quizzes,
+    delete_final_quiz,
 )
 from models.quiz import Quiz
 from models.quiz_question import QuizQuestion
@@ -92,7 +94,7 @@ class TestGetTopicsForSkill:
 
 class TestGetQuizBySkill:
     def test_returns_quiz_when_found(self):
-        quiz = Quiz(id=1, skill_id=1, difficulty="beginner", pass_score=60)
+        quiz = Quiz(id=1, skill_id=1, pass_score=60)
         session = MagicMock()
         exec_mock = MagicMock()
         exec_mock.first.return_value = quiz
@@ -129,7 +131,7 @@ class TestGetQuizWithQuestions:
             patcher.stop()
 
     def test_returns_quiz_and_questions(self):
-        quiz = Quiz(id=1, skill_id=1, difficulty="beginner", pass_score=60)
+        quiz = Quiz(id=1, skill_id=1, pass_score=60)
         q1 = MagicMock(spec=QuizQuestion)
         q1.position = 1
 
@@ -220,5 +222,64 @@ class TestGetAttemptsForQuiz:
         try:
             result = get_attempts_for_quiz(999, 1)
             assert result == []
+        finally:
+            patcher.stop()
+
+class TestClearAllQuizzes:
+    def test_deletes_all_quizzes_for_skill(self):
+        quiz1 = MagicMock(spec=Quiz)
+        quiz2 = MagicMock(spec=Quiz)
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = [quiz1, quiz2]
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            clear_all_quizzes(skill_id=1)
+            session.delete.assert_any_call(quiz1)
+            session.delete.assert_any_call(quiz2)
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+    def test_commits_even_when_no_quizzes(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = []
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            clear_all_quizzes(skill_id=99)
+            session.delete.assert_not_called()
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+class TestDeleteFinalQuiz:
+    def test_returns_false_when_no_final_quiz(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.first.return_value = None
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            result = delete_final_quiz(skill_id=1)
+            assert result is False
+            session.delete.assert_not_called()
+        finally:
+            patcher.stop()
+
+    def test_returns_true_and_deletes_when_quiz_found(self):
+        quiz = MagicMock(spec=Quiz)
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.first.return_value = quiz
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            result = delete_final_quiz(skill_id=1)
+            assert result is True
+            session.delete.assert_called_once_with(quiz)
+            session.commit.assert_called_once()
         finally:
             patcher.stop()

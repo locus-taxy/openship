@@ -4,6 +4,9 @@ from services.daily_task import (
     get_tasks_based_on_skill_id,
     get_tasks_for_generating_newsletter,
     store_syllabus_tasks,
+    clear_syllabus_tasks,
+    delete_week_tasks,
+    store_week_tasks,
 )
 from models.daily_task import DailyTask
 
@@ -141,6 +144,102 @@ class TestStoreSyllabusTasks:
         patcher = _patch_session(session)
         try:
             result = store_syllabus_tasks("u1", "Python", [], hours=2, skill_id=1)
+            assert result is True
+            session.add.assert_not_called()
+        finally:
+            patcher.stop()
+
+    def test_only_week_filter_skips_other_weeks(self):
+        """Covers line 240 — only_week skips weeks that don't match."""
+        session = MagicMock()
+        patcher = _patch_session(session)
+        try:
+            syllabus_data = [
+                {
+                    "month": 1,
+                    "weeks": [
+                        {"week": 1, "daily_plan": [{"day": 1, "topic": "T1", "task": "Task1"}]},
+                        {"week": 2, "daily_plan": [{"day": 8, "topic": "T2", "task": "Task2"}]},
+                    ],
+                }
+            ]
+            result = store_syllabus_tasks(
+                "u1", "Python", syllabus_data, hours=2, skill_id=1, only_week=1
+            )
+            assert result is True
+            # Only week 1's task should be added
+            assert session.add.call_count == 1
+        finally:
+            patcher.stop()
+
+class TestClearSyllabusTasks:
+    def test_executes_and_commits(self):
+        """Covers lines 218-222 — clear_syllabus_tasks deletes all rows and commits."""
+        session = MagicMock()
+        patcher = _patch_session(session)
+        try:
+            clear_syllabus_tasks(skill_id=1)
+            session.exec.assert_called_once()
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+class TestDeleteWeekTasks:
+    def test_executes_delete_and_commits(self):
+        """Covers lines 262-268 — delete_week_tasks deletes rows for a specific week."""
+        session = MagicMock()
+        patcher = _patch_session(session)
+        try:
+            delete_week_tasks(skill_id=1, week=2)
+            session.exec.assert_called_once()
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+class TestStoreWeekTasks:
+    def test_stores_tasks_and_returns_true(self):
+        """Covers lines 280-296 — store_week_tasks persists daily plan rows."""
+        session = MagicMock()
+        patcher = _patch_session(session)
+        try:
+            daily_plan = [
+                {"day": 8, "topic": "Classes", "task": "Learn OOP"},
+                {"day": 9, "topic": "Inheritance", "task": "Learn inheritance"},
+            ]
+            result = store_week_tasks(
+                "u1", "Python", 1, week=2, month=1, daily_plan=daily_plan, hours=2
+            )
+            assert result is True
+            assert session.add.call_count == 2
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+    def test_returns_false_on_db_error(self):
+        """Covers lines 297-299 — exception during store returns False."""
+        session = MagicMock()
+        session.commit.side_effect = Exception("DB failure")
+        patcher = _patch_session(session)
+        try:
+            result = store_week_tasks(
+                "u1",
+                "Python",
+                1,
+                week=2,
+                month=1,
+                daily_plan=[{"day": 8, "topic": "T", "task": "T"}],
+                hours=2,
+            )
+            assert result is False
+        finally:
+            patcher.stop()
+
+    def test_returns_true_for_empty_daily_plan(self):
+        """Empty daily plan still commits and returns True."""
+        session = MagicMock()
+        patcher = _patch_session(session)
+        try:
+            result = store_week_tasks("u1", "Python", 1, week=2, month=1, daily_plan=[], hours=2)
             assert result is True
             session.add.assert_not_called()
         finally:

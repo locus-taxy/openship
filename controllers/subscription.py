@@ -13,7 +13,6 @@ def subscribe_to_skill(payload: SubscribeRequest, current_user: User):
         payload.skill,
         payload.days,
         payload.hours,
-        payload.quiz_difficulty,
     )
     if skill_id is None:
         raise HTTPException(status_code=500, detail="Failed to create subscription")

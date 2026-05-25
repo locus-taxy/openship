@@ -11,7 +11,7 @@ from services.llm import (
     StructuredChapterContent,
     _build_client,
     generate_chapter_html,
-    generate_quiz,
+    generate_weekly_quiz,
 )
 
 class TestContentBlockLevelValidator:
@@ -172,7 +172,7 @@ class TestGenerateQuizQuotaError:
         mock_client.chat.completions.create.side_effect = Exception("rate_limit exceeded")
         with patch("services.llm._build_client", return_value=mock_client):
             with pytest.raises(HTTPException) as ei:
-                generate_quiz("Python", ["Vars"], "beginner", 10, "gemini", "key", "gemini-flash")
+                generate_weekly_quiz("Python", 1, ["Vars"], 5, "gemini", "key", "gemini-flash")
         assert ei.value.status_code == 429
 
 class TestGenerateChapterHtmlQuotaError:

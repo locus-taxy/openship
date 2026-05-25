@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class QuizGenerateResponse(BaseModel):
     quiz_id: int
+    week: int
     status: str
     question_count: int
     pass_score: int
@@ -20,7 +21,7 @@ class QuizQuestionOut(BaseModel):
 class QuizOut(BaseModel):
     quiz_id: int
     skill_id: int
-    difficulty: str
+    week: int
     pass_score: int
     status: str
     questions: List[QuizQuestionOut]
@@ -36,6 +37,17 @@ class QuizQuestionResult(BaseModel):
     correct: str
     is_correct: bool
     explanation: str
+
+class WeeklyQuizSubmitResponse(BaseModel):
+    attempt_id: int
+    score: int
+    passed: bool
+    pass_score: int
+    results: List[QuizQuestionResult]
+    next_week_style: Optional[str]  # teaching style the bandit picked for next week
+    next_week_unlocked: Optional[
+        int
+    ]  # generated_weeks value after unlock (None for legacy courses)
 
 class QuizSubmitResponse(BaseModel):
     attempt_id: int

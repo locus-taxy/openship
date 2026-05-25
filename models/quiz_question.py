@@ -1,6 +1,6 @@
 from typing import Optional
 from sqlmodel import SQLModel, Field, Column
-from sqlalchemy import Integer, ForeignKey, Text
+from sqlalchemy import Integer, ForeignKey, Text, String
 
 class QuizQuestion(SQLModel, table=True):
     __tablename__ = "quiz_questions"
@@ -17,3 +17,7 @@ class QuizQuestion(SQLModel, table=True):
     option_d: str = Field(sa_column=Column(Text))
     correct_option: str  # "A" | "B" | "C" | "D" — never sent to frontend before submission
     explanation: str = Field(sa_column=Column(Text))
+    topic: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String(255), nullable=True),
+    )  # DailyTask.topic this question tests

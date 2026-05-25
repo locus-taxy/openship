@@ -213,15 +213,31 @@ def mark_task_completed(task_id: int) -> bool:
         print(f"Error marking task completed: {e}")
         return False
 
+def clear_syllabus_tasks(skill_id: int) -> None:
+    """Delete all DailyTask rows for a skill before re-generating."""
+    from sqlalchemy import delete as sa_delete
+
+    with Session(engine) as session:
+        session.exec(sa_delete(DailyTask).where(DailyTask.skill_id == skill_id))
+        session.commit()
+
 def store_syllabus_tasks(
-    user_id: str, skill: str, syllabus_data: list, hours: int, skill_id: int
+    user_id: str,
+    skill: str,
+    syllabus_data: list,
+    hours: int,
+    skill_id: int,
+    only_week: Optional[int] = None,
 ) -> bool:
+    """Store DailyTask rows from a syllabus JSON. Pass only_week to store a single week only."""
     try:
         with Session(engine) as session:
             for month_obj in syllabus_data:
                 month = month_obj.get("month")
                 for week_obj in month_obj.get("weeks", []):
                     week = week_obj.get("week")
+                    if only_week is not None and week != only_week:
+                        continue
                     for day_obj in week_obj.get("daily_plan", []):
                         task = DailyTask(
                             user_id=user_id,
@@ -239,4 +255,45 @@ def store_syllabus_tasks(
             return True
     except Exception as e:
         print(f"Error storing syllabus tasks: {e}")
+        return False
+
+def delete_week_tasks(skill_id: int, week: int) -> None:
+    """Delete all DailyTask rows for a specific week (used before ML regeneration)."""
+    from sqlalchemy import delete as sa_delete
+
+    with Session(engine) as session:
+        session.exec(
+            sa_delete(DailyTask).where(DailyTask.skill_id == skill_id, DailyTask.week == week)
+        )
+        session.commit()
+
+def store_week_tasks(
+    user_id: str,
+    skill: str,
+    skill_id: int,
+    week: int,
+    month: int,
+    daily_plan: list,
+    hours: int,
+) -> bool:
+    """Store ML-generated DailyTask rows for a specific week."""
+    try:
+        with Session(engine) as session:
+            for day_obj in daily_plan:
+                task = DailyTask(
+                    user_id=user_id,
+                    skill=skill,
+                    skill_id=skill_id,
+                    month=month,
+                    week=week,
+                    day=day_obj.get("day"),
+                    topic=day_obj.get("topic"),
+                    task=day_obj.get("task"),
+                    hours=hours,
+                )
+                session.add(task)
+            session.commit()
+            return True
+    except Exception as e:
+        print(f"Error storing week tasks: {e}")
         return False

@@ -5,7 +5,7 @@ from models.quiz import Quiz
 from models.quiz_attempt import QuizAttempt
 from models.quiz_question import QuizQuestion
 
-def _make_skill(user_id="1", days=30, quiz_difficulty="beginner"):
+def _make_skill(user_id="1", days=30):
     return Skill(
         id=1,
         user_id=user_id,
@@ -13,11 +13,10 @@ def _make_skill(user_id="1", days=30, quiz_difficulty="beginner"):
         skill="Python",
         days=days,
         hours=2,
-        quiz_difficulty=quiz_difficulty,
     )
 
-def _make_quiz(id=1, skill_id=1, difficulty="beginner", pass_score=60, status="not_attempted"):
-    q = Quiz(id=id, skill_id=skill_id, difficulty=difficulty, pass_score=pass_score)
+def _make_quiz(id=1, skill_id=1, week=0, pass_score=60, status="available"):
+    q = Quiz(id=id, skill_id=skill_id, week=week, pass_score=pass_score)
     q.status = status
     return q
 
@@ -32,6 +31,7 @@ def _make_question(id=1, correct="A"):
     q.option_d = "Option D"
     q.correct_option = correct
     q.explanation = "Explanation"
+    q.topic = None
     return q
 
 def _patch_quiz_session(session_mock):
@@ -73,7 +73,7 @@ class TestGetQuiz:
         session.get.return_value = skill
         patcher = _patch_quiz_session(session)
         try:
-            with patch("controllers.quiz.quiz_service.get_quiz_by_skill", return_value=None):
+            with patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=None):
                 response = auth_client.get("/quiz/1")
         finally:
             patcher.stop()
@@ -88,7 +88,7 @@ class TestGetQuiz:
         patcher = _patch_quiz_session(session)
         try:
             with (
-                patch("controllers.quiz.quiz_service.get_quiz_by_skill", return_value=quiz),
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
                 patch(
                     "controllers.quiz.quiz_service.get_quiz_with_questions",
                     return_value=(quiz, questions),
@@ -123,7 +123,7 @@ class TestSubmitQuiz:
         patcher = _patch_quiz_session(session)
         try:
             with (
-                patch("controllers.quiz.quiz_service.get_quiz_by_skill", return_value=quiz),
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
                 patch(
                     "controllers.quiz.quiz_service.get_quiz_with_questions",
                     return_value=(quiz, [q1]),
@@ -147,7 +147,7 @@ class TestSubmitQuiz:
         patcher = _patch_quiz_session(session)
         try:
             with (
-                patch("controllers.quiz.quiz_service.get_quiz_by_skill", return_value=quiz),
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
                 patch(
                     "controllers.quiz.quiz_service.get_quiz_with_questions",
                     return_value=(quiz, [q1]),
@@ -171,7 +171,7 @@ class TestGetAttempts:
         patcher = _patch_quiz_session(session)
         try:
             with (
-                patch("controllers.quiz.quiz_service.get_quiz_by_skill", return_value=quiz),
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
                 patch("controllers.quiz.quiz_service.get_attempts_for_quiz", return_value=[]),
             ):
                 response = auth_client.get("/quiz/1/attempts")
@@ -204,7 +204,7 @@ class TestGenerateQuiz:
         patcher = _patch_quiz_session(session)
         try:
             with patch(
-                "controllers.quiz.quiz_service.get_quiz_by_skill", return_value=existing_quiz
+                "controllers.quiz.quiz_service.get_quiz_by_week", return_value=existing_quiz
             ):
                 response = auth_client.post("/quiz/1/generate")
         finally:
@@ -218,10 +218,42 @@ class TestGenerateQuiz:
         patcher = _patch_quiz_session(session)
         try:
             with (
-                patch("controllers.quiz.quiz_service.get_quiz_by_skill", return_value=None),
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=None),
+                patch("controllers.quiz.get_weak_topics", return_value=[]),
+                patch("controllers.quiz.get_forgotten_topics", return_value=[]),
                 patch("controllers.quiz.quiz_service.get_topics_for_skill", return_value=[]),
             ):
                 response = auth_client.post("/quiz/1/generate")
         finally:
             patcher.stop()
         assert response.status_code == 400
+
+class TestResetFinalQuizRoute:
+    def test_unauthenticated_returns_401(self, anon_client):
+        response = anon_client.delete("/quiz/1/final")
+        assert response.status_code == 401
+
+    def test_reset_final_quiz_not_found_returns_404(self, auth_client, test_user):
+        skill = _make_skill(user_id=str(test_user.id))
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_quiz_session(session)
+        try:
+            with patch("controllers.quiz.quiz_service.delete_final_quiz", return_value=False):
+                response = auth_client.delete("/quiz/1/final")
+        finally:
+            patcher.stop()
+        assert response.status_code == 404
+
+    def test_reset_final_quiz_success_returns_200(self, auth_client, test_user):
+        skill = _make_skill(user_id=str(test_user.id))
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_quiz_session(session)
+        try:
+            with patch("controllers.quiz.quiz_service.delete_final_quiz", return_value=True):
+                response = auth_client.delete("/quiz/1/final")
+        finally:
+            patcher.stop()
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
