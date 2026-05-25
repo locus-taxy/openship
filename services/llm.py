@@ -22,7 +22,7 @@ from fastapi import HTTPException
 from google import genai
 from mistralai import Mistral
 from openai import OpenAI
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -157,24 +157,24 @@ def fetch_provider_models(provider: str, api_key: str) -> List[str]:
 # ── Pydantic output schemas ───────────────────────────────────────────────────
 
 class DailyPlan(BaseModel):
-    day: int
-    topic: str
-    task: str
+    day: int = Field(description="Day number within the week")
+    topic: str = Field(description="Topic to study on this day")
+    task: str = Field(description="Specific actionable task to complete")
 
 class Week(BaseModel):
-    week: int
-    title: str
-    days_range: str
-    daily_plan: List[DailyPlan]
+    week: int = Field(description="Week number within the month")
+    title: str = Field(description="Theme or focus of this week")
+    days_range: str = Field(description="Day range covered, e.g. 'Days 1-7'")
+    daily_plan: List[DailyPlan] = Field(description="One entry per study day this week")
 
 class Month(BaseModel):
-    month: int
-    title: str
-    goal: str
-    weeks: List[Week]
+    month: int = Field(description="Month number, starting from 1")
+    title: str = Field(description="Theme or focus of this month")
+    goal: str = Field(description="What the learner will achieve by end of month")
+    weeks: List[Week] = Field(description="Weekly breakdown for this month")
 
 class SyllabusResponse(BaseModel):
-    months: List[Month]
+    months: List[Month] = Field(description="Complete month-by-month syllabus")
 
 class ChapterContent(BaseModel):
     html: str
