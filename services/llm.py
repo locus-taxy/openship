@@ -431,8 +431,11 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
                 # only the easiest block types.  instructor still validates the output
                 # against our Pydantic model via model_validate_json — same result,
                 # but the prompt now drives WHAT gets generated.
+                # Pair with response_mime_type so Gemini emits raw JSON instead of
+                # markdown-wrapped JSON (```json...```) which breaks model_validate_json.
                 if getattr(config, "response_schema", None) is not None:
                     update["response_schema"] = None
+                    update["response_mime_type"] = "application/json"
                 if update:
                     try:
                         kwargs["config"] = config.model_copy(update=update)

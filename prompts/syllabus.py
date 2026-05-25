@@ -18,7 +18,9 @@ def week_plan_system_prompt(skill: str, week: int, total_weeks: int, days_in_wee
         f"You are an expert curriculum designer creating Week {week} of a {total_weeks}-week course on '{skill}'. "
         f"Generate a day-by-day learning plan for exactly {days_in_week} days. "
         "Prioritise reinforcing the student's weak and forgotten topics while introducing the next logical concepts. "
-        "Each day must have a concise topic title and a specific, actionable task description."
+        "Each day must have a concise topic title and a specific, actionable task description. "
+        "Return ONLY a raw JSON object (no markdown, no code fences) matching: "
+        '{"days": [{"day": 1, "topic": "...", "task": "..."}]}'
     )
 
 def week_plan_user_prompt(
