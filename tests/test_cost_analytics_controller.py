@@ -232,3 +232,122 @@ class TestResolvePriceHelper:
                 inp, out = _resolve_price(user, "openai", "unknown-model")
         assert inp is None
         assert out is None
+
+class TestGenerateSkillContentCoveragePaths:
+    def _make_user(self):
+        return User(
+            id=1,
+            email="test@example.com",
+            name="Test",
+            is_active=True,
+            hashed_password="$2b$hash",
+            llm_provider_id=1,
+        )
+
+    def test_empty_html_adds_to_failed_tasks(self):
+        from controllers.content import generate_skill_content
+        from schemas.skill import GenerateContentRequest
+
+        user = self._make_user()
+        detail = {"_user_id": "1", "skill_id": 1, "skill": "Python", "months": []}
+        tasks = [{"id": 1, "topic": "Vars", "task": "Learn", "skill": "Python"}]
+        with (
+            patch("controllers.content.get_syllabus_detail", return_value=detail),
+            patch("controllers.content.get_tasks_for_generating_newsletter", return_value=tasks),
+            patch("controllers.content.generate_chapter_html", return_value=("", None, None)),
+            patch("controllers.content.get_user_provider_name", return_value="gemini"),
+            patch("controllers.content.get_user_api_key", return_value="key"),
+            patch("controllers.content.get_user_model", return_value="gemini-flash"),
+        ):
+            result = generate_skill_content(GenerateContentRequest(skill_id=1), user)
+        assert result["status"] == "partial"
+        assert 1 in result["failed_task_ids"]
+
+    def test_tokens_present_triggers_pricing_in_skill_loop(self):
+        from controllers.content import generate_skill_content
+        from schemas.skill import GenerateContentRequest
+
+        user = self._make_user()
+        detail = {"_user_id": "1", "skill_id": 1, "skill": "Python", "months": []}
+        tasks = [{"id": 1, "topic": "Vars", "task": "Learn", "skill": "Python"}]
+        with (
+            patch("controllers.content.get_syllabus_detail", return_value=detail),
+            patch("controllers.content.get_tasks_for_generating_newsletter", return_value=tasks),
+            patch(
+                "controllers.content.generate_chapter_html", return_value=("<p>html</p>", 100, 50)
+            ),
+            patch("controllers.content.get_user_provider_name", return_value="gemini"),
+            patch("controllers.content.get_user_api_key", return_value="key"),
+            patch("controllers.content.get_user_model", return_value="gemini-flash"),
+            patch("controllers.content.lookup_model_price", return_value=(1.0, 2.0)),
+            patch("controllers.content.get_user_model_price", return_value=None),
+            patch("controllers.content.compute_generation_cost_usd", return_value=0.0002),
+            patch("controllers.content.log_llm_usage"),
+            patch("controllers.content.add_content_to_db", return_value=True),
+            patch("controllers.content.time"),
+        ):
+            result = generate_skill_content(GenerateContentRequest(skill_id=1), user)
+        assert result["status"] == "success"
+
+class TestGenerateChapterCoveragePaths:
+    def _make_user(self):
+        return User(
+            id=1,
+            email="test@example.com",
+            name="Test",
+            is_active=True,
+            hashed_password="$2b$hash",
+            llm_provider_id=1,
+        )
+
+    def _make_chapter(self, user_id="1"):
+        return {
+            "_user_id": user_id,
+            "id": 1,
+            "skill": "Python",
+            "topic": "Vars",
+            "task": "Learn vars",
+        }
+
+    def test_none_result_raises_500(self):
+        from controllers.content import generate_chapter
+        from schemas.skill import GenerateChapterContentRequest
+
+        user = self._make_user()
+        chapter = self._make_chapter()
+        with (
+            patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.generate_chapter_content", return_value=None),
+            patch("controllers.content.get_user_provider_name", return_value="gemini"),
+            patch("controllers.content.get_user_api_key", return_value="key"),
+            patch("controllers.content.get_user_model", return_value="gemini-flash"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                generate_chapter(GenerateChapterContentRequest(task_id=1), user)
+        assert exc_info.value.status_code == 500
+
+    def test_tokens_present_triggers_pricing(self):
+        from controllers.content import generate_chapter
+        from schemas.skill import GenerateChapterContentRequest
+
+        user = self._make_user()
+        chapter = self._make_chapter()
+        mock_result = MagicMock()
+        mock_result.blocks = []
+        with (
+            patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch(
+                "controllers.content.generate_chapter_content",
+                return_value=(mock_result, 200, 100),
+            ),
+            patch("controllers.content.get_user_provider_name", return_value="gemini"),
+            patch("controllers.content.get_user_api_key", return_value="key"),
+            patch("controllers.content.get_user_model", return_value="gemini-flash"),
+            patch("controllers.content.lookup_model_price", return_value=(1.0, 2.0)),
+            patch("controllers.content.get_user_model_price", return_value=None),
+            patch("controllers.content.compute_generation_cost_usd", return_value=0.0005),
+            patch("controllers.content.log_llm_usage"),
+            patch("controllers.content.add_blocks_to_db", return_value=True),
+        ):
+            result = generate_chapter(GenerateChapterContentRequest(task_id=1), user)
+        assert result["status"] == "success"
