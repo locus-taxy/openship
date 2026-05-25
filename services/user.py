@@ -122,7 +122,7 @@ def update_llm_settings(
         session.commit()
 
 def get_provider_pricing(user_id: int, provider_id: int) -> Tuple[Optional[float], Optional[float]]:
-    """Return (input_price_per_m_usd, output_price_per_m_usd) for a user+provider pair."""
+    """Return (input_per_1m_usd, output_per_1m_usd) for a user+provider pair."""
     with Session(engine) as session:
         record = session.exec(
             select(UserApiKey).where(
@@ -132,13 +132,13 @@ def get_provider_pricing(user_id: int, provider_id: int) -> Tuple[Optional[float
         ).first()
         if not record:
             return None, None
-        return record.input_price_per_m_usd, record.output_price_per_m_usd
+        return record.input_per_1m_usd, record.output_per_1m_usd
 
 def update_llm_pricing(
     user_id: int,
     provider_id: int,
-    input_price_per_m_usd: Optional[float],
-    output_price_per_m_usd: Optional[float],
+    input_per_1m_usd: Optional[float],
+    output_per_1m_usd: Optional[float],
 ) -> None:
     """Save pricing fields on the existing user_api_keys row for a user+provider pair."""
     with Session(engine) as session:
@@ -150,8 +150,8 @@ def update_llm_pricing(
         ).first()
         if not record:
             return
-        record.input_price_per_m_usd = input_price_per_m_usd
-        record.output_price_per_m_usd = output_price_per_m_usd
+        record.input_per_1m_usd = input_per_1m_usd
+        record.output_per_1m_usd = output_per_1m_usd
         session.add(record)
         session.commit()
 

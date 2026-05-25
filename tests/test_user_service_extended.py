@@ -183,8 +183,8 @@ class TestUpdateLlmSettings:
 class TestGetProviderPricing:
     def test_returns_pricing_when_record_found(self):
         record = MagicMock(spec=UserApiKey)
-        record.input_price_per_m_usd = 1.5
-        record.output_price_per_m_usd = 3.0
+        record.input_per_1m_usd = 1.5
+        record.output_per_1m_usd = 3.0
         session = MagicMock()
         exec_mock = MagicMock()
         exec_mock.first.return_value = record
@@ -218,8 +218,8 @@ class TestUpdateLlmPricing:
         patcher = _patch_session(session)
         try:
             update_llm_pricing(1, 1, 2.5, 10.0)
-            assert record.input_price_per_m_usd == 2.5
-            assert record.output_price_per_m_usd == 10.0
+            assert record.input_per_1m_usd == 2.5
+            assert record.output_per_1m_usd == 10.0
             session.add.assert_called_once_with(record)
             session.commit.assert_called_once()
         finally:
