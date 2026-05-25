@@ -444,9 +444,15 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             onContentGenerated(chapter.id)
             loadContent()
         } catch (err: any) {
+            console.error("[handleGenerate] error:", err)
             const status = err?.response?.status
-            const detail = err?.response?.data?.detail ?? ""
-            if (status === 400 && typeof detail === "string" && detail.includes("LLM provider")) {
+            const rawDetail = err?.response?.data?.detail
+            const detail = typeof rawDetail === "string"
+                ? rawDetail
+                : Array.isArray(rawDetail)
+                    ? rawDetail.map((d: any) => d?.msg ?? JSON.stringify(d)).join("; ")
+                    : ""
+            if (status === 400 && detail.includes("LLM provider")) {
                 toast({
                     title: "LLM not configured",
                     description: "Add your provider and API key in Settings.",
@@ -459,7 +465,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             } else if (status === 429) {
                 toast({ variant: "destructive", title: "Quota exceeded", description: detail || "You've hit your LLM provider's rate limit. Wait a moment and try again." })
             } else {
-                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate content." })
+                toast({ variant: "destructive", title: "Error", description: detail || `Request failed${status ? ` (${status})` : " — check console for details"}` })
             }
         } finally {
             onGenerationEnd(chapter.id)
