@@ -25,6 +25,14 @@ def complete_chapter(task_id: int, body: CompleteChapterBody, request: Request):
 def get_streak(request: Request):
     return content_controller.get_streak(request.state.user)
 
+@router.get("/chapter/{task_id}/cost")
+def get_chapter_cost(task_id: int, request: Request):
+    return content_controller.get_chapter_cost_view(task_id, request.state.user)
+
 @router.get("/analytics/cost")
 def get_cost_analytics(request: Request):
     return content_controller.get_cost_analytics(request.state.user)
+
+@router.get("/me/usage-cost")
+def get_user_usage_cost(request: Request):
+    return content_controller.get_user_usage_cost_view(request.state.user)

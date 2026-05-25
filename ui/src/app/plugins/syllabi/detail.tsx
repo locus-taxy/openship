@@ -279,9 +279,10 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
     const [hasContent, setHasContent] = useState(chapter.has_content)
     const [confirmOpen, setConfirmOpen] = useState(false)
     const [chapterCost, setChapterCost] = useState<{
+        total_cost_usd: number | null
+        generation_count: number
         input_tokens: number | null
         output_tokens: number | null
-        generation_cost_usd: number | null
     } | null>(null)
     const [displayCurrency, setDisplayCurrency] = useState("USD")
     const [exchangeRate, setExchangeRate] = useState(1.0)
@@ -399,13 +400,23 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         setLoading(true)
         setBlocks(null)
         setContent(null)
-        const { success, data } = await getRequest(`/py/chapter/${chapter.id}`)
-        if (success) {
+        const [chapterRes, costRes] = await Promise.all([
+            getRequest(`/py/chapter/${chapter.id}`),
+            getRequest(`/py/chapter/${chapter.id}/cost`),
+        ])
+        if (costRes.success) {
+            const logs: { input_tokens: number | null; output_tokens: number | null }[] =
+                costRes.data.logs ?? []
+            const lastLog = logs[logs.length - 1] ?? {}
             setChapterCost({
-                input_tokens: data.input_tokens ?? null,
-                output_tokens: data.output_tokens ?? null,
-                generation_cost_usd: data.generation_cost_usd ?? null,
+                total_cost_usd: costRes.data.total_cost_usd ?? null,
+                generation_count: costRes.data.generation_count ?? 0,
+                input_tokens: lastLog.input_tokens ?? null,
+                output_tokens: lastLog.output_tokens ?? null,
             })
+        }
+        const { success, data } = chapterRes
+        if (success) {
             if (data.content_blocks) {
                 try {
                     const parsed = JSON.parse(data.content_blocks)
@@ -478,9 +489,12 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             <div className="border-b px-4 sm:px-8 py-5 bg-background shrink-0">
                 <p className="text-xs text-muted-foreground mb-1">
                     Day {chapter.day} · {chapter.hours}h
-                    {chapterCost?.generation_cost_usd != null && (
+                    {chapterCost?.total_cost_usd != null && chapterCost.total_cost_usd > 0 && (
                         <span className="ml-2 text-muted-foreground/60">
-                            · {(chapterCost.generation_cost_usd * exchangeRate).toFixed(4)}{displayCurrency !== "USD" ? ` ${displayCurrency}` : " USD"}
+                            · {(chapterCost.total_cost_usd * exchangeRate).toFixed(4)}{displayCurrency !== "USD" ? ` ${displayCurrency}` : " USD"}
+                            {chapterCost.generation_count > 1 && (
+                                <span className="ml-1">· {chapterCost.generation_count}×</span>
+                            )}
                         </span>
                     )}
                 </p>

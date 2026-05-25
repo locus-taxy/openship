@@ -644,8 +644,10 @@ def generate_chapter_content(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
-) -> Optional[StructuredChapterContent]:
-    """Generate structured chapter content using Instructor. Returns StructuredChapterContent or None."""
+) -> Tuple[Optional[StructuredChapterContent], Optional[int], Optional[int]]:
+    """Generate structured chapter content using Instructor.
+    Returns (StructuredChapterContent, input_tokens, output_tokens) or (None, None, None) on failure.
+    """
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
@@ -657,7 +659,7 @@ def generate_chapter_content(
 
     try:
         client = _build_client(provider, api_key)
-        response: StructuredChapterContent = client.chat.completions.create(
+        response, raw = client.chat.completions.create_with_completion(
             model=model,
             response_model=StructuredChapterContent,
             messages=[
@@ -670,7 +672,8 @@ def generate_chapter_content(
             **_token_kwargs(provider, chapter_max_tokens),
             max_retries=1,
         )
-        return response
+        input_tokens, output_tokens = extract_token_counts(raw, provider)
+        return response, input_tokens, output_tokens
     except HTTPException:
         raise
     except Exception as e:
@@ -695,7 +698,7 @@ def generate_chapter_content(
                 detail="The chapter was too long and the response was cut off. Try regenerating — it usually works on the next attempt.",
             )
         logger.exception("Chapter (blocks) generation failed [provider=%s]", provider)
-        return None
+        return None, None, None
 
 def generate_chapter_html(
     task_description: str,

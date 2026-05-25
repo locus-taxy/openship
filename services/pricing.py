@@ -1,9 +1,9 @@
 """
-Pricing service: fetches model prices from ai-model-pricing.com (cached 1 h).
+Pricing service: fetches model prices from ai-model-pricing.com once on first use,
+held in memory indefinitely. Refresh via invalidate_cache() (POST /auth/me/pricing/refresh).
 """
 
 import logging
-import time
 from typing import Dict, List, Optional, Tuple
 
 import httpx
@@ -11,10 +11,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _PRICING_URL = "https://ai-model-pricing.com/api/v1/pricing.json"
-_CACHE_TTL = 3600  # 1 hour
-
 _cache: Optional[List[Dict]] = None
-_cache_fetched_at: float = 0
 
 # Map our internal provider names → API provider names
 _PROVIDER_MAP: Dict[str, str] = {
@@ -57,15 +54,13 @@ _HARDCODED: Dict[Tuple[str, str], Tuple[float, float]] = {
 }
 
 def _get_models() -> List[Dict]:
-    global _cache, _cache_fetched_at
-    now = time.time()
-    if _cache is not None and (now - _cache_fetched_at) < _CACHE_TTL:
+    global _cache
+    if _cache is not None:
         return _cache
     try:
         resp = httpx.get(_PRICING_URL, timeout=10)
         resp.raise_for_status()
         _cache = resp.json().get("models", [])
-        _cache_fetched_at = now
         logger.info("Pricing data loaded: %d models", len(_cache))
     except Exception as exc:
         logger.warning("Could not fetch pricing data (%s) — falling back to hardcoded prices", exc)
@@ -178,3 +173,8 @@ def lookup_model_info(provider: str, model: str) -> Dict:
         "matched_model_id": matched,
         "found": inp is not None,
     }
+
+def invalidate_cache() -> None:
+    global _cache, _cache_fetched_at
+    _cache = None
+    _cache_fetched_at = 0

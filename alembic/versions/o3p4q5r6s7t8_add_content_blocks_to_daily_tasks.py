@@ -1,8 +1,8 @@
 """add_content_blocks_to_daily_tasks
 
-Revision ID: l0m1n2o3p4q5
-Revises: k9l0m1n2o3p4
-Create Date: 2026-05-06 10:00:00.000000
+Revision ID: o3p4q5r6s7t8
+Revises: n2o3p4q5r6s7
+Create Date: 2026-05-21 23:00:00.000000
 
 Adds content_blocks column to daily_tasks for structured chapter content.
 """
@@ -11,8 +11,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "l0m1n2o3p4q5"
-down_revision: Union[str, Sequence[str], None] = "k9l0m1n2o3p4"
+revision: str = "o3p4q5r6s7t8"
+down_revision: Union[str, Sequence[str], None] = "n2o3p4q5r6s7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

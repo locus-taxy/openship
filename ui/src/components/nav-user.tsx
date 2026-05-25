@@ -4,7 +4,7 @@ import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
 import { Button } from "./ui/button";
 import {
     LogOutIcon, UserCircle, Settings, Eye, EyeOff,
-    KeyRound, CheckCircle2, Loader2, X, ChevronDown, Pencil, Trash2, DollarSign,
+    KeyRound, CheckCircle2, Loader2, X, ChevronDown, Pencil, Trash2, RotateCcw,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -34,63 +34,152 @@ interface SettingsData {
     currency_exchange_rate: number;
 }
 
-function PricingDisplay({ provider, activeModel, providerLabel }: {
+function PricingDisplay({ provider, activeModel }: {
     provider: string
-    model: string
     activeModel: string
-    providerLabel: string
 }) {
-    const [pricing, setPricing] = useState<{
-        input: number | null
-        output: number | null
-        matchedModelId: string | null
-    } | null>(null)
     const [loading, setLoading] = useState(false)
+    const [autoInput, setAutoInput] = useState<number | null>(null)
+    const [autoOutput, setAutoOutput] = useState<number | null>(null)
+    const [matchedModelId, setMatchedModelId] = useState<string | null>(null)
+    const [manualInput, setManualInput] = useState("")
+    const [manualOutput, setManualOutput] = useState("")
+    const [saving, setSaving] = useState(false)
+    const [saved, setSaved] = useState(false)
+    const [refreshing, setRefreshing] = useState(false)
+    const { toast } = useToast()
 
-    useEffect(() => {
+    async function fetchPricing() {
         if (!provider || !activeModel) return
         setLoading(true)
-        setPricing(null)
-        getRequest(`/py/auth/me/pricing?provider=${provider}&model=${encodeURIComponent(activeModel)}`)
-            .then(({ success, data }) => {
-                if (success) setPricing({
-                    input: data.input_per_1m_usd,
-                    output: data.output_per_1m_usd,
-                    matchedModelId: data.matched_model_id ?? null,
-                })
-            })
-            .finally(() => setLoading(false))
-    }, [provider, activeModel])
+        setAutoInput(null)
+        setAutoOutput(null)
+        setMatchedModelId(null)
+        setManualInput("")
+        setManualOutput("")
+        setSaved(false)
+        const { success, data } = await getRequest(`/py/auth/me/pricing?provider=${provider}&model=${encodeURIComponent(activeModel)}`)
+        if (success) {
+            setAutoInput(data.input_per_1m_usd ?? null)
+            setAutoOutput(data.output_per_1m_usd ?? null)
+            setMatchedModelId(data.matched_model_id ?? null)
+            if (data.manual_input_per_1m_usd != null) setManualInput(String(data.manual_input_per_1m_usd))
+            if (data.manual_output_per_1m_usd != null) setManualOutput(String(data.manual_output_per_1m_usd))
+        }
+        setLoading(false)
+    }
+
+    useEffect(() => { fetchPricing() }, [provider, activeModel])
+
+    async function handleRefresh() {
+        setRefreshing(true)
+        await postRequest("/py/auth/me/pricing/refresh", {})
+        setRefreshing(false)
+        fetchPricing()
+        toast({ title: "Pricing refreshed" })
+    }
+
+    async function handleSaveManual() {
+        const inp = parseFloat(manualInput)
+        const out = parseFloat(manualOutput)
+        if (!inp || !out || inp <= 0 || out <= 0) {
+            toast({ variant: "destructive", title: "Invalid prices", description: "Enter positive numbers for both input and output." })
+            return
+        }
+        setSaving(true)
+        const { success } = await putRequest(
+            `/py/auth/me/pricing/manual?provider=${provider}&model=${encodeURIComponent(activeModel)}&input_per_1m_usd=${inp}&output_per_1m_usd=${out}`,
+            {}
+        )
+        setSaving(false)
+        if (success) { setSaved(true); toast({ title: "Pricing saved" }) }
+    }
+
+    if (!provider || !activeModel) return null
 
     return (
-        <div className="space-y-3">
+        <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-2.5">
             <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{providerLabel} Pricing</p>
-                <span className="text-[10px] text-muted-foreground/60">auto-fetched · ai-model-pricing.com</span>
-            </div>
-            {loading ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching prices…
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Pricing / 1M tokens</p>
+                <div className="flex items-center gap-2">
+                    {loading
+                        ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        : autoInput != null
+                            ? <span className="text-[10px] text-muted-foreground/60">auto · ai-model-pricing.com</span>
+                            : <span className="text-[10px] text-amber-500/80">not in pricing database</span>
+                    }
+                    <button
+                        type="button"
+                        onClick={handleRefresh}
+                        disabled={refreshing || loading}
+                        title="Refresh prices from ai-model-pricing.com"
+                        className="text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-40"
+                    >
+                        {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                    </button>
                 </div>
-            ) : pricing?.input != null ? (
-                <div className="space-y-2">
-                    <p className="text-xs font-mono text-muted-foreground">{pricing.matchedModelId}</p>
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-xl border border-border bg-muted/30 px-4 py-3">
-                            <p className="text-[10px] text-muted-foreground mb-1">Input / 1M tokens</p>
-                            <p className="text-sm font-semibold font-mono">${pricing.input}</p>
+            </div>
+
+            {!loading && autoInput != null ? (
+                <>
+                    {matchedModelId && matchedModelId !== activeModel && (
+                        <p className="text-[10px] text-muted-foreground/60 font-mono">matched: {matchedModelId}</p>
+                    )}
+                    <div className="flex gap-3">
+                        <div className="flex-1 rounded-lg border border-border bg-background px-3 py-2">
+                            <p className="text-[10px] text-muted-foreground mb-0.5">Input</p>
+                            <p className="text-sm font-semibold font-mono">${autoInput}</p>
                         </div>
-                        <div className="rounded-xl border border-border bg-muted/30 px-4 py-3">
-                            <p className="text-[10px] text-muted-foreground mb-1">Output / 1M tokens</p>
-                            <p className="text-sm font-semibold font-mono">${pricing.output ?? "—"}</p>
+                        <div className="flex-1 rounded-lg border border-border bg-background px-3 py-2">
+                            <p className="text-[10px] text-muted-foreground mb-0.5">Output</p>
+                            <p className="text-sm font-semibold font-mono">${autoOutput ?? "—"}</p>
+                        </div>
+                    </div>
+                </>
+            ) : !loading ? (
+                <div className="space-y-2">
+                    <p className="text-[10px] text-muted-foreground">
+                        No pricing found for <span className="font-mono">{activeModel}</span>. Enter manually to track costs:
+                    </p>
+                    <div className="flex gap-2">
+                        <div className="flex-1 space-y-1">
+                            <label className="text-[10px] text-muted-foreground">Input ($/1M)</label>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                placeholder="e.g. 0.30"
+                                value={manualInput}
+                                onChange={e => { setManualInput(e.target.value); setSaved(false) }}
+                                className="h-8 text-xs font-mono"
+                            />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                            <label className="text-[10px] text-muted-foreground">Output ($/1M)</label>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                placeholder="e.g. 2.50"
+                                value={manualOutput}
+                                onChange={e => { setManualOutput(e.target.value); setSaved(false) }}
+                                className="h-8 text-xs font-mono"
+                            />
+                        </div>
+                        <div className="flex items-end">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={saving || !manualInput || !manualOutput}
+                                onClick={handleSaveManual}
+                                className="h-8 text-xs"
+                            >
+                                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <CheckCircle2 className="h-3 w-3 text-emerald-500" /> : "Save"}
+                            </Button>
                         </div>
                     </div>
                 </div>
-            ) : (
-                <p className="text-xs text-muted-foreground">
-                    No pricing found for <span className="font-mono">{activeModel}</span>. Costs won't be tracked for this model.
-                </p>
-            )}
+            ) : null}
         </div>
     )
 }
@@ -274,11 +363,10 @@ export function NavUser() {
 
     const showKeyInput = !currentProviderHasKey || editingKey;
 
-    const [activeTab, setActiveTab] = useState<"llm" | "pricing" | "account">("llm");
+    const [activeTab, setActiveTab] = useState<"llm" | "account">("llm");
 
     const NAV_ITEMS = [
         { id: "llm" as const,     label: "Model Management", icon: Settings },
-        { id: "pricing" as const, label: "Cost Analysis",    icon: DollarSign },
         { id: "account" as const, label: "Account",          icon: UserCircle },
     ];
 
@@ -504,6 +592,14 @@ export function NavUser() {
                                                 </div>
                                             )}
 
+                                            {/* Inline pricing — shown as soon as a model is selected */}
+                                            {currentProviderHasKey && selectedModel && (
+                                                <PricingDisplay
+                                                    provider={selectedProvider}
+                                                    activeModel={selectedModel}
+                                                />
+                                            )}
+
                                             {/* API Key */}
                                             <div className="space-y-2">
                                                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">API Key</p>
@@ -573,80 +669,11 @@ export function NavUser() {
                                             <Button onClick={handleSave} disabled={saving || (!currentProviderHasKey && !apiKey.trim()) || (editingKey && !apiKey.trim())} className="w-full">
                                                 {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : editingKey ? "Update Key" : currentProviderHasKey ? "Save Model" : "Save Key & Model"}
                                             </Button>
+
                                         </>
                                     )}
-                                </div>
-                            )}
 
-                            {/* ── Cost Analysis tab ── */}
-                            {activeTab === "pricing" && (
-                                <div className="px-3 sm:px-8 py-4 sm:py-7 space-y-5">
-                                    <div>
-                                        <h2 className="text-sm sm:text-base font-semibold">Cost Analysis</h2>
-                                        <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Pricing is fetched automatically based on your active model.</p>
-                                    </div>
-
-                                    {/* Provider selector (reuses selectedProvider state) */}
-                                    <div className="space-y-1.5">
-                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Provider</p>
-                                        <div className="relative" ref={providerDropdownRef}>
-                                            <button
-                                                type="button"
-                                                onClick={() => { setProviderOpen(o => !o); setModelOpen(false); }}
-                                                className="w-full flex items-center justify-between rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:border-ring/50"
-                                            >
-                                                <span className={selectedProvider ? "text-foreground font-medium" : "text-muted-foreground"}>
-                                                    {selectedProvider ? providerLabel(selectedProvider) : "Select a provider"}
-                                                </span>
-                                                <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", providerOpen && "rotate-180")} />
-                                            </button>
-                                            {providerOpen && (
-                                                <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
-                                                    {(settings?.supported_providers ?? []).map(p => (
-                                                        <button
-                                                            key={p.value}
-                                                            type="button"
-                                                            onClick={() => { setSelectedProvider(p.value); setProviderOpen(false); }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-accent transition-colors",
-                                                                selectedProvider === p.value && "bg-accent/50 font-medium"
-                                                            )}
-                                                        >
-                                                            <span className="flex-1">{p.label}</span>
-                                                            {settings?.provider_keys?.[p.value]
-                                                                ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                                                                : <KeyRound className="h-3.5 w-3.5 text-muted-foreground/40" />
-                                                            }
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {selectedProvider && currentProviderHasKey && (
-                                        <PricingDisplay
-                                            provider={selectedProvider}
-                                            model={
-                                                liveModels[selectedProvider]?.[0]
-                                                ?? settings?.provider_models?.[selectedProvider]?.[0]
-                                                ?? ""
-                                            }
-                                            activeModel={
-                                                (settings?.llm_provider === selectedProvider ? settings?.llm_model : null)
-                                                ?? liveModels[selectedProvider]?.[0]
-                                                ?? settings?.provider_models?.[selectedProvider]?.[0]
-                                                ?? ""
-                                            }
-                                            providerLabel={providerLabel(selectedProvider)}
-                                        />
-                                    )}
-
-                                    {selectedProvider && !currentProviderHasKey && (
-                                        <p className="text-xs text-muted-foreground">Add an API key for {providerLabel(selectedProvider)} in Model Management first.</p>
-                                    )}
-
-                                    {/* Currency settings */}
+                                    {/* Currency settings — always visible in Model Management */}
                                     <div className="space-y-3 border-t pt-5">
                                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Display Currency</p>
                                         <p className="text-xs text-muted-foreground">Costs are stored in USD. Enter a rate to display them in your local currency.</p>

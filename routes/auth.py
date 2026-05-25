@@ -44,8 +44,20 @@ def verify_model(provider: str, model: str, request: Request):
     return auth_controller.verify_custom_model(request.state.user, provider, model)
 
 @router.get("/me/pricing")
-def get_model_pricing(provider: str, model: str):
-    return auth_controller.get_model_pricing(provider, model)
+def get_model_pricing(provider: str, model: str, request: Request):
+    return auth_controller.get_model_pricing(provider, model, request.state.user)
+
+@router.put("/me/pricing/manual")
+def save_manual_pricing(
+    provider: str, model: str, input_per_1m_usd: float, output_per_1m_usd: float, request: Request
+):
+    return auth_controller.save_manual_pricing(
+        request.state.user, provider, model, input_per_1m_usd, output_per_1m_usd
+    )
+
+@router.post("/me/pricing/refresh")
+def refresh_pricing(request: Request):
+    return auth_controller.refresh_pricing_cache()
 
 @router.patch("/me/settings/currency")
 def save_currency(payload: SaveCurrencyRequest, request: Request):

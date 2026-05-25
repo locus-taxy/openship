@@ -24,7 +24,12 @@ from services.user import (
     update_currency_settings,
     get_currency_settings,
 )
-from services.pricing import lookup_model_price, lookup_model_info
+from services.pricing import (
+    lookup_model_price,
+    lookup_model_info,
+    invalidate_cache as invalidate_pricing_cache,
+)
+from services.user_pricing import get_user_model_price, save_user_model_price
 from services.password import verify_password
 from services.jwt import create_access_token, create_refresh_token, decode_token
 
@@ -179,10 +184,25 @@ def save_settings(
         "has_key": has_key,
     }
 
-def get_model_pricing(provider: str, model: str):
-    """Return auto-fetched pricing for the given provider+model from the pricing API."""
+def get_model_pricing(provider: str, model: str, current_user: User):
+    """Return auto-fetched pricing, falling back to the user's saved manual override."""
     info = lookup_model_info(provider, model)
-    return {"provider": provider, "model": model, **info}
+    manual = get_user_model_price(str(current_user.id), provider, model)
+    return {
+        "provider": provider,
+        "model": model,
+        **info,
+        "manual_input_per_1m_usd": manual[0] if manual else None,
+        "manual_output_per_1m_usd": manual[1] if manual else None,
+    }
+
+def save_manual_pricing(
+    current_user: User, provider: str, model: str, input_per_1m_usd: float, output_per_1m_usd: float
+):
+    save_user_model_price(
+        str(current_user.id), provider, model, input_per_1m_usd, output_per_1m_usd
+    )
+    return {"status": "success"}
 
 def save_currency(current_user: User, payload):
     update_currency_settings(
@@ -191,6 +211,10 @@ def save_currency(current_user: User, payload):
         payload.currency_exchange_rate,
     )
     return {"status": "success"}
+
+def refresh_pricing_cache():
+    invalidate_pricing_cache()
+    return {"status": "success", "message": "Pricing cache cleared — next request will re-fetch"}
 
 def list_models(current_user: User, provider: str):
     """Return available models for the given provider using the user's stored key."""
