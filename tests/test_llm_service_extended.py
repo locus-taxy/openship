@@ -201,12 +201,14 @@ class TestGenerateSyllabusJson:
             result = generate_syllabus_json("Python", 30, 2, "gemini", "key", "gemini-flash")
         assert result == [{"month": 1, "weeks": []}]
 
-    def test_returns_none_on_generic_exception(self):
+    def test_raises_500_on_generic_exception(self):
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("network error")
         with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_syllabus_json("Python", 30, 2, "gemini", "key", "gemini-flash")
-        assert result is None
+            with pytest.raises(HTTPException) as ei:
+                generate_syllabus_json("Python", 30, 2, "gemini", "key", "gemini-flash")
+        assert ei.value.status_code == 500
+        assert "network error" in ei.value.detail
 
     def test_reraises_http_exception(self):
         mock_client = MagicMock()
