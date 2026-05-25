@@ -390,6 +390,8 @@ export function NavUser() {
         if (success) {
             await loadSettings();
             toast({ title: "Currency settings saved" });
+        } else {
+            toast({ variant: "destructive", title: "Failed to save currency settings" });
         }
     }
 

@@ -1,6 +1,9 @@
+import logging
 import time
 from datetime import date
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from models.user import User
 from schemas.skill import GenerateContentRequest, GenerateChapterContentRequest
@@ -100,13 +103,13 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 output_tokens=output_tokens,
                 generation_cost_usd=cost_usd,
             ):
-                print(f"Failed to save content for task {task['id']}")
+                logger.error("Failed to save content for task %s", task["id"])
                 failed_tasks.append(task["id"])
             time.sleep(5)
         except HTTPException:
             raise  # quota / auth errors surface immediately — stop the bulk loop
         except Exception as e:
-            print(f"Content generation error for task {task['id']}: {e}")
+            logger.error("Content generation error for task %s: %s", task["id"], e)
             failed_tasks.append(task["id"])
             continue
 
