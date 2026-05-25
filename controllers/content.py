@@ -151,7 +151,7 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         cost_usd = compute_generation_cost_usd(input_tokens, output_tokens, inp_price, out_price)
 
     log_llm_usage(
-        user_id=str(current_user.id),
+        user_id=current_user.id,
         call_type="chapter",
         provider=provider_name or "",
         model=model_name or "",

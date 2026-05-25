@@ -97,6 +97,20 @@ class TestSaveUserModelPrice:
         with pytest.raises(ValueError, match="non-negative"):
             save_user_model_price(1, "openai", "gpt-4o-mini", 1.0, -0.01)
 
+    def test_raises_on_infinite_input_price(self):
+        import math
+        from services.user_pricing import save_user_model_price
+
+        with pytest.raises(ValueError, match="finite"):
+            save_user_model_price(1, "openai", "gpt-4o-mini", math.inf, 2.0)
+
+    def test_raises_on_nan_output_price(self):
+        import math
+        from services.user_pricing import save_user_model_price
+
+        with pytest.raises(ValueError, match="finite"):
+            save_user_model_price(1, "openai", "gpt-4o-mini", 1.0, math.nan)
+
     def test_zero_prices_are_accepted(self):
         from services.user_pricing import save_user_model_price
 

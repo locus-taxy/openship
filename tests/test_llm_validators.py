@@ -1,5 +1,6 @@
 """Tests for uncovered branches in services/llm.py validators and _build_client."""
 
+import pydantic
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
@@ -17,7 +18,7 @@ from services.llm import (
 
 class TestContentBlockLevelValidator:
     def test_invalid_level_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             ContentBlock(type=BlockType.HEADING, content="Title", level=4)
 
     def test_note_block_with_empty_content(self):
@@ -44,7 +45,7 @@ class TestQuizOptionInvalidLabel:
             QuizOption(label="C", text="c"),
             QuizOption(label="D", text="d"),
         ]
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             GeneratedQuestion(
                 question="Q?",
                 options=opts,
@@ -59,7 +60,7 @@ class TestQuizOptionInvalidLabel:
             QuizOption(label="C", text="c"),
             QuizOption(label="D", text="d"),
         ]
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             GeneratedQuestion(
                 question="Q?",
                 options=opts,
@@ -187,7 +188,7 @@ class TestGeneratedQuestionCorrectOptionMismatch:
         # Line 313 requires all 4 unique labels but correct_option not in them.
         # That can't happen with current validators unless we bypass field_validator.
         # Simulate it by building with valid data, then check validator runs:
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             GeneratedQuestion(
                 question="Q?",
                 options=[

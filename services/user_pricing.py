@@ -1,3 +1,4 @@
+import math
 from typing import Optional, Tuple
 
 from sqlmodel import Session, select
@@ -25,6 +26,8 @@ def save_user_model_price(
     input_per_1m_usd: float,
     output_per_1m_usd: float,
 ) -> None:
+    if not (math.isfinite(input_per_1m_usd) and math.isfinite(output_per_1m_usd)):
+        raise ValueError("Model prices must be finite numbers")
     if input_per_1m_usd < 0 or output_per_1m_usd < 0:
         raise ValueError("Model prices must be non-negative")
     with Session(engine) as session:

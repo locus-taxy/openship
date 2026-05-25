@@ -75,7 +75,7 @@ function PricingDisplay({ provider, activeModel }: {
         setRefreshing(true)
         try {
             await postRequest("/py/auth/me/pricing/refresh", {})
-            fetchPricing()
+            await fetchPricing()
             toast({ title: "Pricing refreshed" })
         } catch {
             toast({ variant: "destructive", title: "Refresh failed", description: "Could not refresh pricing data." })
@@ -377,7 +377,7 @@ export function NavUser() {
 
     async function handleSaveCurrency() {
         const rate = parseFloat(exchangeRate);
-        if (!rate || rate <= 0) {
+        if (!Number.isFinite(rate) || rate <= 0) {
             toast({ variant: "destructive", title: "Invalid exchange rate", description: "Enter a valid positive exchange rate." });
             return;
         }
