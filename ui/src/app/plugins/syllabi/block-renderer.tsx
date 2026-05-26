@@ -84,8 +84,10 @@ export function CodeBlock({ code, language }: { code: string; language: string }
     return (
         <div className="relative rounded-xl border border-white/10 bg-[#282c34] text-sm shadow-lg overflow-hidden">
             <button
+                type="button"
                 onClick={handleCopy}
                 title="Copy code"
+                aria-label={copied ? "Copied code" : "Copy code"}
                 dangerouslySetInnerHTML={{ __html: copied ? ICON_CHECK : ICON_COPY }}
                 style={{
                     position: "absolute", top: 10, right: 10,
