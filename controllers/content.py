@@ -14,7 +14,6 @@ from services.daily_task import (
     add_content_to_db,
     add_blocks_to_db,
     mark_task_completed,
-    get_total_cost_for_user,
 )
 from services.llm import (
     generate_chapter_html,
@@ -193,7 +192,10 @@ def get_streak(current_user: User):
     return get_user_streak(str(current_user.id))
 
 def get_cost_analytics(current_user: User):
-    summary = get_total_cost_for_user(str(current_user.id))
+    # Use llm_usage_logs (the authoritative source) rather than the denormalised
+    # token columns on daily_tasks, which only reflect the first generation pass
+    # and miss re-generations, quiz calls, etc.
+    summary = get_user_usage_cost(current_user.id)
     currency, rate = get_currency_settings(current_user.id)
     return {
         **summary,

@@ -39,10 +39,12 @@ def log_llm_usage(
 def get_chapter_cost(task_id: int) -> Dict[str, Any]:
     with Session(engine) as session:
         rows = session.exec(
-            select(LlmUsageLog).where(
+            select(LlmUsageLog)
+            .where(
                 LlmUsageLog.call_type == "chapter",
                 LlmUsageLog.ref_id == task_id,
             )
+            .order_by(LlmUsageLog.created_at.asc())
         ).all()
         total = sum(r.cost_usd or 0.0 for r in rows)
         return {

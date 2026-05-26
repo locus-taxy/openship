@@ -102,6 +102,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         setCompleted(chapter.completed)
         setContent(null)
         setBlocks(null)
+        setChapterCost(null)
         if (chapter.has_content) loadContent()
     }, [chapter.id])
 

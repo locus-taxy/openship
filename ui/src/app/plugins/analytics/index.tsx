@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router"
+import { useEffect, useState } from "react"
+import { useNavigate, useLocation } from "react-router"
 import {
     BookOpen, Clock,
     Flame, Award, ChevronRight, Zap, BarChart2, CalendarDays, Sparkles, PlayCircle, TrendingUp,
@@ -73,16 +73,17 @@ export default function AnalyticsPage() {
         total_cost_display: number
         display_currency: string
     } | null>(null)
+    const [refreshTick, setRefreshTick] = useState(0)
     const { setPluginName } = useStore((state: any) => state)
     const { user } = useAuthStore()
-    const fetchedRef = useRef(false)
     const navigate = useNavigate()
+    const location = useLocation()
 
     useEffect(() => { setPluginName("Analytics") }, [setPluginName])
 
     useEffect(() => {
-        if (fetchedRef.current) return
-        fetchedRef.current = true
+        setLoading(true)
+        setCostData(null)
         getRequest("/py/syllabi")
             .then(({ success, data }) => {
                 if (success) setSyllabi(data)
@@ -93,10 +94,10 @@ export default function AnalyticsPage() {
         getRequest("/py/streak").then(({ success, data }) => {
             if (success) setStreak(data)
         })
-        getRequest("/py/analytics/cost").then(({ success, data }) => {
+        getRequest(`/py/analytics/cost?t=${Date.now()}`).then(({ success, data }) => {
             if (success) setCostData(data)
         })
-    }, [])
+    }, [location.key, refreshTick])
 
     const totalCourses = syllabi.length
     const inProgress = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks, s.quiz_status ?? "not_generated") === "in-progress")
@@ -311,12 +312,19 @@ export default function AnalyticsPage() {
                                 <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/10">
                                     <Cpu className="h-4 w-4 sm:h-5 sm:w-5 text-cyan-500" />
                                 </div>
-                                <div>
+                                <div className="flex-1">
                                     <p className="text-xl sm:text-2xl font-black">
                                         {((costData.total_input_tokens + costData.total_output_tokens) / 1000).toFixed(1)}K
                                     </p>
                                     <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">Tokens Used</p>
                                 </div>
+                                <button
+                                    onClick={() => setRefreshTick(t => t + 1)}
+                                    title="Refresh stats"
+                                    className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                >
+                                    <TrendingUp className="h-3.5 w-3.5 rotate-90" />
+                                </button>
                             </div>
                         )}
 

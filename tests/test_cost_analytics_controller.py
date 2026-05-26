@@ -194,7 +194,7 @@ class TestGetCostAnalytics:
             "total_output_tokens": 1000,
             "total_cost_usd": 0.1,
         }
-        with patch("controllers.content.get_total_cost_for_user", return_value=summary):
+        with patch("controllers.content.get_user_usage_cost", return_value=summary):
             with patch("controllers.content.get_currency_settings", return_value=("INR", 83.0)):
                 result = get_cost_analytics(current_user=user)
 
