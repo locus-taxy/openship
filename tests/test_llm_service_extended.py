@@ -208,7 +208,7 @@ class TestGenerateSyllabusJson:
             with pytest.raises(HTTPException) as ei:
                 generate_syllabus_json("Python", 30, 2, "gemini", "key", "gemini-flash")
         assert ei.value.status_code == 500
-        assert "network error" in ei.value.detail
+        assert ei.value.detail == "Syllabus generation failed"
 
     def test_reraises_http_exception(self):
         mock_client = MagicMock()

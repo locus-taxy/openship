@@ -581,21 +581,15 @@ def generate_syllabus_json(
     except HTTPException:
         raise
     except Exception as e:
-        print(
-            f"[llm] syllabus error provider={provider} type={type(e).__name__} msg={str(e)[:800]}",
-            flush=True,
-        )
         cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
-        if cause:
-            print(
-                f"[llm] caused by: type={type(cause).__name__} msg={str(cause)[:400]}", flush=True
-            )
-        _raise_if_provider_error(provider, e)
-        logger.exception("Syllabus generation failed [provider=%s]", provider)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Syllabus generation failed: {str(e)[:300]}",
+        logger.error(
+            "Syllabus generation error [provider=%s cause=%s]",
+            provider,
+            type(cause).__name__ if cause else "none",
+            exc_info=True,
         )
+        _raise_if_provider_error(provider, e)
+        raise HTTPException(status_code=500, detail="Syllabus generation failed")
 
 def generate_quiz(
     skill: str,
