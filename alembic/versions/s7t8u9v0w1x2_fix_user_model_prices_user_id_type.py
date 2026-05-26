@@ -81,14 +81,26 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Reverse: drop FK, cast back to VARCHAR, restore index and unique constraint.
     conn = op.get_bind()
-    fk_rows = conn.execute(
+    fk_row = conn.execute(
         sa.text(
-            "SELECT constraint_name FROM information_schema.table_constraints "
-            "WHERE table_name = 'user_model_prices' AND constraint_type = 'FOREIGN KEY'"
+            "SELECT tc.constraint_name "
+            "FROM information_schema.table_constraints tc "
+            "JOIN information_schema.key_column_usage kcu "
+            "  ON kcu.constraint_name = tc.constraint_name "
+            "  AND kcu.table_name = tc.table_name "
+            "JOIN information_schema.referential_constraints rc "
+            "  ON rc.constraint_name = tc.constraint_name "
+            "JOIN information_schema.key_column_usage ccu "
+            "  ON ccu.constraint_name = rc.unique_constraint_name "
+            "WHERE tc.table_name = 'user_model_prices' "
+            "  AND tc.constraint_type = 'FOREIGN KEY' "
+            "  AND kcu.column_name = 'user_id' "
+            "  AND ccu.table_name = 'users' "
+            "  AND ccu.column_name = 'id'"
         )
-    ).fetchall()
-    for row in fk_rows:
-        op.drop_constraint(row[0], "user_model_prices", type_="foreignkey")
+    ).fetchone()
+    if fk_row:
+        op.drop_constraint(fk_row[0], "user_model_prices", type_="foreignkey")
 
     op.drop_index("ix_user_model_prices_user_id", table_name="user_model_prices")
     op.drop_constraint("uq_user_model_price", "user_model_prices", type_="unique")
