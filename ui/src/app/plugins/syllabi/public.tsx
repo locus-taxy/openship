@@ -45,7 +45,10 @@ interface PublicSyllabus {
 function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
     const blocks: ContentBlock[] | null = (() => {
         if (!chapter.content_blocks) return null
-        try { return JSON.parse(chapter.content_blocks) } catch { return null }
+        try {
+            const parsed = JSON.parse(chapter.content_blocks)
+            return Array.isArray(parsed) && parsed.length > 0 ? parsed : null
+        } catch { return null }
     })()
 
     const hasContent = !!chapter.newsletter || !!blocks
