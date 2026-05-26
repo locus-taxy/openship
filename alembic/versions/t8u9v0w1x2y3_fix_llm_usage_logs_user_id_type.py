@@ -45,28 +45,50 @@ def upgrade() -> None:
 
     op.create_index("ix_llm_usage_logs_user_id", "llm_usage_logs", ["user_id"])
 
-    existing_fks = conn.execute(
+    fk_exists = conn.execute(
         sa.text(
-            "SELECT constraint_name FROM information_schema.table_constraints "
-            "WHERE table_name = 'llm_usage_logs' AND constraint_type = 'FOREIGN KEY'"
+            "SELECT 1 FROM information_schema.table_constraints tc "
+            "JOIN information_schema.key_column_usage kcu "
+            "  ON kcu.constraint_name = tc.constraint_name "
+            "  AND kcu.table_name = tc.table_name "
+            "JOIN information_schema.referential_constraints rc "
+            "  ON rc.constraint_name = tc.constraint_name "
+            "JOIN information_schema.key_column_usage ccu "
+            "  ON ccu.constraint_name = rc.unique_constraint_name "
+            "WHERE tc.table_name = 'llm_usage_logs' "
+            "  AND tc.constraint_type = 'FOREIGN KEY' "
+            "  AND kcu.column_name = 'user_id' "
+            "  AND ccu.table_name = 'users' "
+            "  AND ccu.column_name = 'id'"
         )
-    ).fetchall()
-    fk_names = {row[0] for row in existing_fks}
-    if not any("user" in n for n in fk_names):
+    ).fetchone()
+    if not fk_exists:
         op.create_foreign_key(
             None, "llm_usage_logs", "users", ["user_id"], ["id"], ondelete="CASCADE"
         )
 
 def downgrade() -> None:
     conn = op.get_bind()
-    fk_rows = conn.execute(
+    fk_row = conn.execute(
         sa.text(
-            "SELECT constraint_name FROM information_schema.table_constraints "
-            "WHERE table_name = 'llm_usage_logs' AND constraint_type = 'FOREIGN KEY'"
+            "SELECT tc.constraint_name "
+            "FROM information_schema.table_constraints tc "
+            "JOIN information_schema.key_column_usage kcu "
+            "  ON kcu.constraint_name = tc.constraint_name "
+            "  AND kcu.table_name = tc.table_name "
+            "JOIN information_schema.referential_constraints rc "
+            "  ON rc.constraint_name = tc.constraint_name "
+            "JOIN information_schema.key_column_usage ccu "
+            "  ON ccu.constraint_name = rc.unique_constraint_name "
+            "WHERE tc.table_name = 'llm_usage_logs' "
+            "  AND tc.constraint_type = 'FOREIGN KEY' "
+            "  AND kcu.column_name = 'user_id' "
+            "  AND ccu.table_name = 'users' "
+            "  AND ccu.column_name = 'id'"
         )
-    ).fetchall()
-    for row in fk_rows:
-        op.drop_constraint(row[0], "llm_usage_logs", type_="foreignkey")
+    ).fetchone()
+    if fk_row:
+        op.drop_constraint(fk_row[0], "llm_usage_logs", type_="foreignkey")
 
     op.drop_index("ix_llm_usage_logs_user_id", table_name="llm_usage_logs")
 
