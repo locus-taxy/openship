@@ -56,14 +56,24 @@ def upgrade() -> None:
     )
 
     # Add the foreign key to users.id if not already present.
-    existing_fks = conn.execute(
+    fk_exists = conn.execute(
         sa.text(
-            "SELECT constraint_name FROM information_schema.table_constraints "
-            "WHERE table_name = 'user_model_prices' AND constraint_type = 'FOREIGN KEY'"
+            "SELECT 1 FROM information_schema.table_constraints tc "
+            "JOIN information_schema.key_column_usage kcu "
+            "  ON kcu.constraint_name = tc.constraint_name "
+            "  AND kcu.table_name = tc.table_name "
+            "JOIN information_schema.referential_constraints rc "
+            "  ON rc.constraint_name = tc.constraint_name "
+            "JOIN information_schema.key_column_usage ccu "
+            "  ON ccu.constraint_name = rc.unique_constraint_name "
+            "WHERE tc.table_name = 'user_model_prices' "
+            "  AND tc.constraint_type = 'FOREIGN KEY' "
+            "  AND kcu.column_name = 'user_id' "
+            "  AND ccu.table_name = 'users' "
+            "  AND ccu.column_name = 'id'"
         )
-    ).fetchall()
-    fk_names = {row[0] for row in existing_fks}
-    if not any("user" in n for n in fk_names):
+    ).fetchone()
+    if not fk_exists:
         op.create_foreign_key(
             None, "user_model_prices", "users", ["user_id"], ["id"], ondelete="CASCADE"
         )
