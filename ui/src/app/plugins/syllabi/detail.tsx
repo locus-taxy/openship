@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import hljs from "highlight.js"
 import { LlmBar } from "@/components/llm-bar"
 import { BlockRenderer, type ContentBlock } from "./block-renderer"
 import { useParams, useNavigate, useSearchParams } from "react-router"
