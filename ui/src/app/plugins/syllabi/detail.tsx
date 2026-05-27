@@ -663,7 +663,7 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
         })
     }
 
-    const canAccessFinalQuiz = completedCount === totalCount && generatedWeeks > totalWeeks
+    const canAccessFinalQuiz = completedCount === totalCount && generatedWeeks >= totalWeeks
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -984,7 +984,7 @@ export default function SyllabusDetailPage() {
 
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length
-    const hasWeeklyQuizData = detail ? detail.generated_weeks > detail.total_weeks : false
+    const hasWeeklyQuizData = detail ? detail.generated_weeks >= detail.total_weeks : false
     const quizPassed = detail?.quiz_status === "passed"
     const weeklyQuizzesPassed = detail
         ? Object.values(detail.weekly_quiz_statuses as Record<string, string>).filter(s => s === "passed").length

@@ -1,7 +1,10 @@
+import logging
 import time
 from datetime import date
 from fastapi import HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 from models.user import User
 from schemas.skill import GenerateContentRequest, GenerateChapterContentRequest
 from services.skill import get_syllabus_detail
@@ -54,17 +57,17 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 model=get_user_model(current_user),
             )
             if not html:
-                print(f"Failed to generate content for task {task['id']}")
+                logger.warning("Failed to generate content for task %s", task["id"])
                 failed_tasks.append(task["id"])
                 continue
             if not add_content_to_db(newsletter=html, task_id=task["id"]):
-                print(f"Failed to save content for task {task['id']}")
+                logger.warning("Failed to save content for task %s", task["id"])
                 failed_tasks.append(task["id"])
             time.sleep(5)
         except HTTPException:
             raise  # quota / auth errors surface immediately — stop the bulk loop
         except Exception as e:
-            print(f"Content generation error for task {task['id']}: {e}")
+            logger.warning("Content generation error for task %s: %s", task["id"], e)
             failed_tasks.append(task["id"])
             continue
 
@@ -129,7 +132,7 @@ def complete_chapter(task_id: int, current_user: User, local_date: date):
         raise HTTPException(status_code=404, detail=f"Chapter {task_id} not found")
     _check_task_ownership(chapter, current_user)
     if not mark_task_completed(task_id):
-        print(f"Failed to mark task {task_id} as completed in DB")
+        logger.warning("Failed to mark task %s as completed in DB", task_id)
         raise HTTPException(status_code=500, detail="Failed to mark chapter as completed")
     record_activity(str(current_user.id), local_date)
     return {"status": "success"}

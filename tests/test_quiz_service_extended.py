@@ -5,6 +5,7 @@ from services.quiz import (
     get_topics_for_skill,
     get_quiz_by_skill,
     get_quiz_with_questions,
+    get_all_quiz_questions,
     get_best_score,
     get_attempt_count,
     get_attempts_for_quiz,
@@ -400,6 +401,24 @@ class TestGetLatestAttemptResults:
             result = get_latest_attempt_results(quiz_id=1, user_id=1)
             assert result["results"][0]["is_correct"] is False
             assert result["topic_scores"]["Loops"]["pct"] == 0
+        finally:
+            patcher.stop()
+
+class TestGetAllQuizQuestions:
+    def test_returns_all_questions_without_sampling(self):
+        q1 = MagicMock(spec=QuizQuestion)
+        q2 = MagicMock(spec=QuizQuestion)
+        q1.pool_group = 1
+        q2.pool_group = 1
+
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = [q1, q2]
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            result = get_all_quiz_questions(quiz_id=1)
+            assert result == [q1, q2]
         finally:
             patcher.stop()
 

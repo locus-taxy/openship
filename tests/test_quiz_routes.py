@@ -125,8 +125,8 @@ class TestSubmitQuiz:
             with (
                 patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
                 patch(
-                    "controllers.quiz.quiz_service.get_quiz_with_questions",
-                    return_value=(quiz, [q1]),
+                    "controllers.quiz.quiz_service.get_all_quiz_questions",
+                    return_value=[q1],
                 ),
                 patch("controllers.quiz.quiz_service.record_attempt", return_value=attempt),
             ):
@@ -149,8 +149,8 @@ class TestSubmitQuiz:
             with (
                 patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
                 patch(
-                    "controllers.quiz.quiz_service.get_quiz_with_questions",
-                    return_value=(quiz, [q1]),
+                    "controllers.quiz.quiz_service.get_all_quiz_questions",
+                    return_value=[q1],
                 ),
             ):
                 response = auth_client.post("/quiz/1/submit", json={"answers": {"999": "A"}})

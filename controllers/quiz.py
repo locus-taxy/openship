@@ -258,15 +258,17 @@ def submit_weekly_quiz(
 ) -> WeeklyQuizSubmitResponse:
     skill = _get_owned_skill(skill_id, current_user)
     quiz = _get_owned_quiz(skill_id, current_user, week=week)
-    _, questions = quiz_service.get_quiz_with_questions(quiz.id)
+    all_questions = quiz_service.get_all_quiz_questions(quiz.id)
 
-    question_ids = {q.id for q in questions}
+    all_question_ids = {q.id for q in all_questions}
     for qid in payload.answers:
-        if qid not in question_ids:
+        if qid not in all_question_ids:
             raise HTTPException(
                 status_code=400,
                 detail=f"Question ID {qid} does not belong to this quiz",
             )
+    question_map = {q.id: q for q in all_questions}
+    questions = [question_map[qid] for qid in payload.answers if qid in question_map]
 
     attempt = quiz_service.record_attempt(quiz, current_user.id, payload.answers, questions)
 
@@ -421,15 +423,17 @@ def submit_quiz(
     skill_id: int, payload: QuizSubmitRequest, current_user: User
 ) -> QuizSubmitResponse:
     quiz = _get_owned_quiz(skill_id, current_user, week=0)
-    _, questions = quiz_service.get_quiz_with_questions(quiz.id)
+    all_questions = quiz_service.get_all_quiz_questions(quiz.id)
 
-    question_ids = {q.id for q in questions}
+    all_question_ids = {q.id for q in all_questions}
     for qid in payload.answers:
-        if qid not in question_ids:
+        if qid not in all_question_ids:
             raise HTTPException(
                 status_code=400,
                 detail=f"Question ID {qid} does not belong to this quiz",
             )
+    question_map = {q.id: q for q in all_questions}
+    questions = [question_map[qid] for qid in payload.answers if qid in question_map]
 
     attempt = quiz_service.record_attempt(quiz, current_user.id, payload.answers, questions)
 

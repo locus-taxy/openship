@@ -146,6 +146,17 @@ def create_quiz(
         session.refresh(quiz)
         return quiz
 
+def get_all_quiz_questions(quiz_id: int) -> List[QuizQuestion]:
+    """Return every question for a quiz without sampling pool groups."""
+    with Session(engine) as session:
+        return list(
+            session.exec(
+                select(QuizQuestion)
+                .where(QuizQuestion.quiz_id == quiz_id)
+                .order_by(QuizQuestion.position)
+            ).all()
+        )
+
 def get_quiz_with_questions(quiz_id: int) -> Tuple[Optional[Quiz], List[QuizQuestion]]:
     with Session(engine) as session:
         quiz = session.get(Quiz, quiz_id)
