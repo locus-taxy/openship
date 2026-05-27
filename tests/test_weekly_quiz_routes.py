@@ -127,6 +127,7 @@ class TestSubmitWeeklyQuizRoute:
                 patch("controllers.quiz.quiz_service.record_attempt", return_value=attempt),
                 patch("controllers.quiz.update_topic_knowledge"),
                 patch("controllers.quiz.quiz_service.get_previous_best_score", return_value=None),
+                patch("controllers.quiz.get_week_content_style", return_value="balanced"),
                 patch("controllers.quiz.sample_style", return_value="balanced"),
                 patch("controllers.quiz.update_arm"),
                 patch("controllers.quiz.unlock_next_week", return_value=0),

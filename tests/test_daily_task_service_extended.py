@@ -302,26 +302,27 @@ class TestGetWeekContentStyle:
 
 class TestClaimWeekStyle:
     def test_writes_style_when_task_has_none(self):
-        task = _make_task(content_style=None)
+        # New impl: issues a batch UPDATE via session.exec + commit (not add)
+        task = _make_task(content_style=None, week=1)
         session = MagicMock()
         session.get.return_value = task
         patcher = _patch_session(session)
         try:
             claim_week_style(task_id=1, style="example_heavy")
-            assert task.content_style == "example_heavy"
-            session.add.assert_called_once_with(task)
+            session.exec.assert_called_once()
             session.commit.assert_called_once()
         finally:
             patcher.stop()
 
-    def test_skips_write_when_style_already_set(self):
-        task = _make_task(content_style="existing_style")
+    def test_skips_write_when_task_week_is_none(self):
+        # New impl: returns early when task.week is None (cannot scope the UPDATE)
+        task = _make_task(content_style=None)  # week defaults to None
         session = MagicMock()
         session.get.return_value = task
         patcher = _patch_session(session)
         try:
             claim_week_style(task_id=1, style="new_style")
-            session.add.assert_not_called()
+            session.exec.assert_not_called()
             session.commit.assert_not_called()
         finally:
             patcher.stop()
@@ -332,7 +333,7 @@ class TestClaimWeekStyle:
         patcher = _patch_session(session)
         try:
             claim_week_style(task_id=999, style="visual_heavy")
-            session.add.assert_not_called()
+            session.exec.assert_not_called()
         finally:
             patcher.stop()
 

@@ -105,7 +105,11 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
             detail="LLM returned an empty syllabus. Try again or shorten the plan (days).",
         )
 
-    # Clear old tasks and quizzes before storing new ones (prevents duplicates on re-generate)
+    # Clear old tasks and quizzes before storing new ones (prevents duplicates on re-generate).
+    # NOTE: these three calls are NOT atomic — if store_syllabus_tasks fails the DB is left empty.
+    # Making them transactional requires all three service functions to share a single Session,
+    # which is a larger refactor. Risk is low in practice (store failure would be a DB error after
+    # a successful LLM call) and the user can simply regenerate to recover.
     clear_syllabus_tasks(skill_id)
     clear_all_quizzes(skill_id)
 
@@ -127,6 +131,7 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     update_skill_weeks(skill_id, generated_weeks=1, total_weeks=total_weeks)
 
     # Pre-generate Week 1 quiz so it's ready when the user completes all Week 1 chapters
+    pool_size = 1 if provider == "mistral" else 2
     try:
         week1_topics = get_topics_for_week(skill_id, 1)
         if week1_topics:
@@ -138,13 +143,16 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
                 provider=provider,
                 api_key=api_key,
                 model=model,
+                pool_size=pool_size,
             )
             if generated:
                 topic_map = {
                     i: week1_topics[(i - 1) % len(week1_topics)]
                     for i in range(1, len(generated.questions) + 1)
                 }
-                create_quiz(skill_id, generated.questions, week=1, topic_map=topic_map)
+                create_quiz(
+                    skill_id, generated.questions, week=1, topic_map=topic_map, pool_size=pool_size
+                )
     except Exception as exc:
         logger.warning("Week 1 quiz pre-generation failed (non-fatal): %s", exc)
 

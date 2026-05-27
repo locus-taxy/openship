@@ -20,10 +20,14 @@ def _patch_session(session_mock):
 
 class TestAllWeeksComplete:
     def test_returns_true_when_no_incomplete_tasks_in_week(self):
+        # New impl: first exec checks any_task (must return non-None), second checks incomplete
+        any_task = DailyTask(id=1, user_id="u", skill="Python", skill_id=1, completed=True)
+        exec_any = MagicMock()
+        exec_any.first.return_value = any_task
+        exec_incomplete = MagicMock()
+        exec_incomplete.first.return_value = None  # no incomplete tasks
         session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.first.return_value = None
-        session.exec.return_value = exec_mock
+        session.exec.side_effect = [exec_any, exec_incomplete]
         patcher = _patch_session(session)
         try:
             result = all_weeks_complete(1, week=2)
@@ -31,12 +35,28 @@ class TestAllWeeksComplete:
         finally:
             patcher.stop()
 
-    def test_returns_false_when_incomplete_task_exists_in_week(self):
-        task = DailyTask(id=5, user_id="u", skill="Python", skill_id=1, completed=False)
+    def test_returns_false_when_no_tasks_exist(self):
+        # New impl: returns False when no tasks exist for the week
+        exec_any = MagicMock()
+        exec_any.first.return_value = None  # no tasks at all
         session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.first.return_value = task
-        session.exec.return_value = exec_mock
+        session.exec.return_value = exec_any
+        patcher = _patch_session(session)
+        try:
+            result = all_weeks_complete(1, week=2)
+            assert result is False
+        finally:
+            patcher.stop()
+
+    def test_returns_false_when_incomplete_task_exists_in_week(self):
+        any_task = DailyTask(id=1, user_id="u", skill="Python", skill_id=1, completed=True)
+        incomplete_task = DailyTask(id=5, user_id="u", skill="Python", skill_id=1, completed=False)
+        exec_any = MagicMock()
+        exec_any.first.return_value = any_task
+        exec_incomplete = MagicMock()
+        exec_incomplete.first.return_value = incomplete_task
+        session = MagicMock()
+        session.exec.side_effect = [exec_any, exec_incomplete]
         patcher = _patch_session(session)
         try:
             result = all_weeks_complete(1, week=2)

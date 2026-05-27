@@ -175,7 +175,7 @@ def unlock_next_week(skill_id: int, completed_week: int) -> int:
     with Session(engine) as session:
         skill = session.get(Skill, skill_id)
         if skill and skill.total_weeks > 0 and skill.generated_weeks == completed_week:
-            skill.generated_weeks = completed_week + 1
+            skill.generated_weeks = min(skill.total_weeks, completed_week + 1)
             session.add(skill)
             session.commit()
             return skill.generated_weeks

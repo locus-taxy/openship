@@ -1,5 +1,6 @@
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime
+from pydantic import model_validator
 from sqlmodel import SQLModel, Field, Column, DateTime, func
 from sqlalchemy import Integer, ForeignKey, UniqueConstraint
 
@@ -25,3 +26,11 @@ class Quiz(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now()),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_pass_score(cls, values: Any) -> Any:
+        if isinstance(values, dict) and "pass_score" not in values:
+            week = values.get("week", 0)
+            values["pass_score"] = WEEKLY_PASS_SCORE if week else FINAL_PASS_SCORE
+        return values

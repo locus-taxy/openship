@@ -202,7 +202,7 @@ export function QuizPanel({
         return (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
                 <p className="text-sm text-muted-foreground">Could not load quiz. Please try again.</p>
-                <Button variant="outline" size="sm" onClick={loadQuiz}>Retry</Button>
+                <Button variant="outline" size="sm" onClick={() => loadQuiz()}>Retry</Button>
             </div>
         )
     }
@@ -599,7 +599,7 @@ export function QuizPanel({
                         </p>
                     </div>
                     <div className="flex gap-2 mt-4">
-                        <Button variant="outline" size="sm" onClick={loadQuiz}>
+                        <Button variant="outline" size="sm" onClick={() => loadQuiz()}>
                             Quiz Overview
                         </Button>
                         <Button size="sm" onClick={handleRetry}>
@@ -708,10 +708,10 @@ interface WeeklySubmitResult {
 }
 
 const STYLE_INFO: Record<string, { label: string; description: string }> = {
-    balanced:      { label: "Balanced",       description: "A balanced mix of theory and practical examples" },
+    visual_heavy:  { label: "Visual-Heavy",   description: "Diagrams, charts, and visual aids to reinforce concepts" },
     example_heavy: { label: "Example-Heavy",  description: "Learning through hands-on examples and exercises" },
-    theory_first:  { label: "Theory-First",   description: "Building strong conceptual foundations first" },
-    reinforcement: { label: "Reinforcement",  description: "Spaced repetition and progressive practice" },
+    diagram_heavy: { label: "Diagram-Heavy",  description: "Flowcharts and structured diagrams to map relationships" },
+    story_driven:  { label: "Story-Driven",   description: "Concepts introduced through real-world narratives and scenarios" },
 }
 
 type WeeklyView = "loading" | "not_generated" | "generating" | "ready" | "taking" | "submitted" | "last_results" | "error"
@@ -740,17 +740,21 @@ export function WeeklyQuizPanel({
     const [loadingLastAttempt, setLoadingLastAttempt] = useState(false)
 
     useEffect(() => {
-        loadQuiz()
+        const controller = new AbortController()
+        loadQuiz(controller.signal)
+        return () => controller.abort()
     }, [skillId, week])
 
-    async function loadQuiz() {
+    async function loadQuiz(signal?: AbortSignal) {
         setView("loading")
         try {
-            const res = await api.get(`/py/quiz/${skillId}/week/${week}`)
+            const res = await api.get(`/py/quiz/${skillId}/week/${week}`, { signal })
+            if (signal?.aborted) return
             setQuiz(res.data)
             setView("ready")
             onQuizStatusChange?.(res.data.status === "passed" ? "passed" : "available")
         } catch (err: any) {
+            if (signal?.aborted || err?.code === "ERR_CANCELED") return
             if (err?.response?.status === 404) {
                 setView("not_generated")
             } else {
@@ -838,7 +842,7 @@ export function WeeklyQuizPanel({
         return (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
                 <p className="text-sm text-muted-foreground">Could not load quiz. Please try again.</p>
-                <Button variant="outline" size="sm" onClick={loadQuiz}>Retry</Button>
+                <Button variant="outline" size="sm" onClick={() => loadQuiz()}>Retry</Button>
             </div>
         )
     }
@@ -1036,53 +1040,56 @@ export function WeeklyQuizPanel({
                             </div>
                         )}
 
-                        {quiz.questions.map((q, i) => {
-                            const r = resultMap[q.id]
-                            if (!r) return null
-                            return (
-                                <div key={q.id} className={cn(
-                                    "rounded-xl border p-4 space-y-3",
-                                    r.is_correct ? "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20" : "border-red-200 bg-red-50/50 dark:bg-red-950/20"
-                                )}>
-                                    <div className="flex items-start gap-2">
-                                        {r.is_correct
-                                            ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                                            : <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-                                        }
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-medium text-foreground">
-                                                <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>
-                                                {q.question}
-                                            </p>
-                                            {r.topic && r.topic !== "General" && (
-                                                <span className="mt-1 inline-block text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5">{r.topic}</span>
-                                            )}
+                        {(() => {
+                            const questionMap = Object.fromEntries(quiz.questions.map((q) => [q.id, q]))
+                            return lastAttempt.results.map((r, i) => {
+                                const q = questionMap[r.question_id]
+                                if (!q) return null
+                                return (
+                                    <div key={r.question_id} className={cn(
+                                        "rounded-xl border p-4 space-y-3",
+                                        r.is_correct ? "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20" : "border-red-200 bg-red-50/50 dark:bg-red-950/20"
+                                    )}>
+                                        <div className="flex items-start gap-2">
+                                            {r.is_correct
+                                                ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                                                : <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                                            }
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-foreground">
+                                                    <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>
+                                                    {q.question}
+                                                </p>
+                                                {r.topic && r.topic !== "General" && (
+                                                    <span className="mt-1 inline-block text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5">{r.topic}</span>
+                                                )}
+                                            </div>
                                         </div>
+                                        <div className="grid grid-cols-1 gap-1.5 pl-6">
+                                            {OPTIONS.map((opt) => {
+                                                const text = getOptionText(q, opt)
+                                                const isCorrect = opt === r.correct
+                                                const isSelected = opt === r.selected
+                                                return (
+                                                    <div key={opt} className={cn(
+                                                        "flex items-center gap-2 px-3 py-2 rounded-lg text-sm border",
+                                                        isCorrect
+                                                            ? "border-emerald-300 bg-emerald-100 dark:bg-emerald-900/30 font-medium text-emerald-800 dark:text-emerald-300"
+                                                            : isSelected && !isCorrect
+                                                                ? "border-red-300 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                                                                : "border-transparent text-muted-foreground"
+                                                    )}>
+                                                        <span className="font-mono text-xs w-4 shrink-0">{opt}.</span>
+                                                        <span>{text}</span>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                        <p className="pl-6 text-xs text-muted-foreground italic">{r.explanation}</p>
                                     </div>
-                                    <div className="grid grid-cols-1 gap-1.5 pl-6">
-                                        {OPTIONS.map((opt) => {
-                                            const text = getOptionText(q, opt)
-                                            const isCorrect = opt === r.correct
-                                            const isSelected = opt === r.selected
-                                            return (
-                                                <div key={opt} className={cn(
-                                                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm border",
-                                                    isCorrect
-                                                        ? "border-emerald-300 bg-emerald-100 dark:bg-emerald-900/30 font-medium text-emerald-800 dark:text-emerald-300"
-                                                        : isSelected && !isCorrect
-                                                            ? "border-red-300 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
-                                                            : "border-transparent text-muted-foreground"
-                                                )}>
-                                                    <span className="font-mono text-xs w-4 shrink-0">{opt}.</span>
-                                                    <span>{text}</span>
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                    <p className="pl-6 text-xs text-muted-foreground italic">{r.explanation}</p>
-                                </div>
-                            )
-                        })}
+                                )
+                            })
+                        })()}
                     </div>
                 </div>
             </div>
@@ -1210,7 +1217,7 @@ export function WeeklyQuizPanel({
                     )}
 
                     <div className="flex gap-2 mt-4">
-                        <Button variant="outline" size="sm" onClick={loadQuiz}>Quiz Overview</Button>
+                        <Button variant="outline" size="sm" onClick={() => loadQuiz()}>Quiz Overview</Button>
                         <Button size="sm" onClick={startAttempt}>
                             <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
                         </Button>

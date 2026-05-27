@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
-from sqlalchemy import delete as sa_delete
+from sqlalchemy import delete as sa_delete, update as sa_update
 import bleach
 from database import engine
 from models.daily_task import DailyTask
@@ -203,16 +203,23 @@ def _clean_mermaid(content: str) -> str:
     return content
 
 def claim_week_style(task_id: int, style: str) -> None:
-    """Write content_style to the task row immediately (before the LLM call) so that
-    concurrent chapter-generation requests for the same week see a committed style and
-    don't independently re-sample the bandit."""
+    """Lock content_style for the whole week atomically before the LLM call.
+    A single UPDATE ensures only the first concurrent caller wins."""
     try:
         with Session(engine) as session:
             task = session.get(DailyTask, task_id)
-            if task and not task.content_style:
-                task.content_style = style
-                session.add(task)
-                session.commit()
+            if task is None or task.week is None:
+                return
+            session.exec(
+                sa_update(DailyTask)
+                .where(
+                    DailyTask.skill_id == task.skill_id,
+                    DailyTask.week == task.week,
+                    DailyTask.content_style == None,  # noqa: E711
+                )
+                .values(content_style=style)
+            )
+            session.commit()
     except Exception as e:
         logger.error("Error in claim_week_style: %s", e)
 

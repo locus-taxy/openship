@@ -34,7 +34,12 @@ from services.llm import (
     get_user_model,
     get_user_provider_name,
 )
-from services.daily_task import delete_week_tasks, store_week_tasks, get_max_day_for_skill
+from services.daily_task import (
+    delete_week_tasks,
+    store_week_tasks,
+    get_max_day_for_skill,
+    get_week_content_style,
+)
 from database import engine
 from sqlmodel import Session
 
@@ -276,8 +281,9 @@ def submit_weekly_quiz(
 
     prev_score = quiz_service.get_previous_best_score(skill_id, current_user.id, before_week=week)
     improved = prev_score is None or attempt.score > prev_score
-    style = sample_style(skill_id, current_user.id)
-    update_arm(skill_id, current_user.id, style, improved)
+    stored_style = get_week_content_style(skill_id, week)
+    if stored_style:
+        update_arm(skill_id, current_user.id, stored_style, improved)
     next_style = sample_style(skill_id, current_user.id)
     # ─────────────────────────────────────────────────────────────────────────
 

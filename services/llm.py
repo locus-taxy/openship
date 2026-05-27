@@ -841,6 +841,20 @@ def generate_week_plan(
         )
         if not response.days:
             return None
+        day_numbers = [d.day for d in response.days]
+        if (
+            len(day_numbers) != days_in_week
+            or len(set(day_numbers)) != days_in_week
+            or min(day_numbers) != start_day
+            or max(day_numbers) != start_day + days_in_week - 1
+        ):
+            logger.warning(
+                "generate_week_plan: malformed days [got=%s expected=%d..%d]",
+                sorted(day_numbers),
+                start_day,
+                start_day + days_in_week - 1,
+            )
+            return None
         return [d.model_dump() for d in response.days]
     except HTTPException:
         raise

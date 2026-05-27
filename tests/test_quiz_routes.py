@@ -15,8 +15,8 @@ def _make_skill(user_id="1", days=30):
         hours=2,
     )
 
-def _make_quiz(id=1, skill_id=1, week=0, pass_score=60, status="available"):
-    q = Quiz(id=id, skill_id=skill_id, week=week, pass_score=pass_score)
+def _make_quiz(quiz_id=1, skill_id=1, week=0, pass_score=60, status="available"):
+    q = Quiz(id=quiz_id, skill_id=skill_id, week=week, pass_score=pass_score)
     q.status = status
     return q
 

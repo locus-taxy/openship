@@ -25,8 +25,13 @@ def get_num_questions(days: int) -> int:
     return NUM_QUESTIONS[90]
 
 def all_weeks_complete(skill_id: int, week: int) -> bool:
-    """Return True if every chapter for this skill in the given week is marked complete."""
+    """Return True only if tasks exist for this week and all are complete."""
     with Session(engine) as session:
+        any_task = session.exec(
+            select(DailyTask).where(DailyTask.skill_id == skill_id, DailyTask.week == week)
+        ).first()
+        if any_task is None:
+            return False
         incomplete = session.exec(
             select(DailyTask).where(
                 DailyTask.skill_id == skill_id,
@@ -48,11 +53,17 @@ def all_chapters_complete(skill_id: int) -> bool:
         return incomplete is None
 
 def get_topic_week_map(skill_id: int, topics: List[str]) -> Dict[str, int]:
-    """Return {topic: week} for the given topic names so the quiz can group by week."""
+    """Return {topic: earliest_week} for the given topic names."""
     topic_set = set(topics)
     with Session(engine) as session:
-        tasks = session.exec(select(DailyTask).where(DailyTask.skill_id == skill_id)).all()
-        return {t.topic: t.week for t in tasks if t.topic and t.topic in topic_set and t.week}
+        tasks = session.exec(
+            select(DailyTask).where(DailyTask.skill_id == skill_id).order_by(DailyTask.week)
+        ).all()
+    result: Dict[str, int] = {}
+    for t in tasks:
+        if t.topic and t.topic in topic_set and t.week and t.topic not in result:
+            result[t.topic] = t.week
+    return result
 
 def get_topics_for_skill(skill_id: int) -> List[str]:
     """Return ordered list of topic strings across the whole course."""
@@ -256,8 +267,11 @@ def get_latest_attempt_results(quiz_id: int, user_id: int) -> Optional[Dict[str,
         ).all()
 
         results = []
+        served_ids = {int(k) for k in attempt.answers}
         topic_scores: Dict[str, Dict[str, int]] = {}
         for q in questions:
+            if q.pool_group is not None and q.id not in served_ids:
+                continue
             selected = attempt.answers.get(str(q.id), "")
             is_correct = bool(selected) and selected.upper() == q.correct_option.upper()
             topic = q.topic or "General"

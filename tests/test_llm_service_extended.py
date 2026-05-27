@@ -420,7 +420,7 @@ class TestGeneratedQuestionValidator:
     """Covers line 321 — correct_option not found among option labels."""
 
     def _make_options(self, labels=("A", "B", "C", "D")):
-        return [QuizOption(label=l, text=f"Option {l}") for l in labels]
+        return [QuizOption(label=label, text=f"Option {label}") for label in labels]
 
     def test_raises_when_correct_option_not_in_labels(self):
         """Directly invoke validate_options on a model_construct'd object to hit line 321."""
@@ -489,7 +489,7 @@ class TestPatchedGenerateFallback:
                 mock_instr.from_genai.return_value = MagicMock()
                 try:
                     llm_mod._build_client("gemini", "test-api-key")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
             # _patched_generate was set on the mock client
             patched_fn = google_client_mock.models.generate_content
@@ -530,14 +530,14 @@ class TestPatchedGenerateFallback:
                 mock_instr.from_genai.return_value = MagicMock()
                 try:
                     llm_mod._build_client("gemini", "key")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
             patched_fn = google_client_mock.models.generate_content
 
         # Should not raise even though setattr will fail on read-only properties
         try:
             patched_fn(config=ro_config)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # Real generate may raise; what matters is no crash in the fallback
 
 class TestGenerateWeeklyQuizPartialResult:
@@ -634,6 +634,7 @@ class TestGenerateWeekPlan:
 
     def test_returns_list_of_dicts_on_success(self):
         mock_day = MagicMock()
+        mock_day.day = 8  # required by new day-range validation
         mock_day.model_dump.return_value = {"day": 8, "topic": "Classes", "task": "Learn OOP"}
         mock_response = MagicMock()
         mock_response.days = [mock_day]
@@ -641,7 +642,7 @@ class TestGenerateWeekPlan:
         mock_client.chat.completions.create.return_value = mock_response
         with patch("services.llm._build_client", return_value=mock_client):
             result = generate_week_plan(
-                "Python", 2, 4, ["Variables"], [], 7, 8, "gemini", "key", "gemini-flash"
+                "Python", 2, 4, ["Variables"], [], 1, 8, "gemini", "key", "gemini-flash"
             )
         assert result == [{"day": 8, "topic": "Classes", "task": "Learn OOP"}]
 
