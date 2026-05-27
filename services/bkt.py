@@ -84,3 +84,23 @@ def get_weak_topics(skill_id: int, user_id: int) -> List[str]:
             )
         ).all()
     return [r.topic for r in sorted(rows, key=lambda r: r.p_known)]
+
+def calc_remediation_days(prev_score: int, days_in_week: int) -> int:
+    """Return how many days of next week to dedicate to remediation based on quiz score.
+
+    Score 0–39%  → heavy remediation (60% of days, min 1)
+    Score 40–69% → moderate remediation (30% of days, min 1)
+    Score 70–99% → light touch (1 day)
+    Score 100%   → no remediation
+    Always leaves at least 1 day for new topics.
+    """
+    if prev_score >= 100:
+        return 0
+    if prev_score >= 70:
+        remediation = 1
+    elif prev_score >= 40:
+        remediation = max(1, round(days_in_week * 0.30))
+    else:
+        remediation = max(1, round(days_in_week * 0.60))
+    # Never consume all days — reserve at least one for new topics
+    return min(remediation, days_in_week - 1)

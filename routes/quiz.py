@@ -45,6 +45,14 @@ def submit_quiz(skill_id: int, payload: QuizSubmitRequest, request: Request):
 def get_attempts(skill_id: int, request: Request):
     return quiz_controller.get_attempts(skill_id, request.state.user)
 
+@router.get("/{skill_id}/attempts/latest")
+def get_latest_attempt(skill_id: int, request: Request):
+    return quiz_controller.get_latest_attempt(skill_id, request.state.user)
+
+@router.get("/{skill_id}/week/{week}/attempts/latest")
+def get_weekly_latest_attempt(skill_id: int, week: int, request: Request):
+    return quiz_controller.get_weekly_latest_attempt(skill_id, week, request.state.user)
+
 @router.delete("/{skill_id}/final")
 def reset_final_quiz(skill_id: int, request: Request):
     return quiz_controller.reset_final_quiz(skill_id, request.state.user)

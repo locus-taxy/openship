@@ -201,11 +201,18 @@ class ContentBlock(BaseModel):
     rows: Optional[List[List[str]]] = None
     format: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def strip_key_whitespace(cls, values):
+        if isinstance(values, dict):
+            return {k.strip(): v for k, v in values.items()}
+        return values
+
     @field_validator("level")
     @classmethod
     def level_must_be_valid(cls, v):
-        if v is not None and v not in (1, 2, 3):
-            raise ValueError("Heading level must be 1, 2, or 3")
+        if v is not None:
+            return max(1, min(3, v))
         return v
 
     @model_validator(mode="after")
@@ -565,7 +572,9 @@ def generate_syllabus_json(
         raise
     except Exception as e:
         _raise_if_provider_error(provider, e)
-        logger.exception("Syllabus generation failed [provider=%s]", provider)
+        logger.exception(
+            "Syllabus generation failed [provider=%s model=%s]: %s", provider, model, e
+        )
         return None
 
 def generate_weekly_quiz(
@@ -576,10 +585,15 @@ def generate_weekly_quiz(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    pool_size: int = 1,
 ) -> Optional[GeneratedQuiz]:
-    """Generate a per-week quiz. Returns GeneratedQuiz or None."""
+    """Generate a per-week quiz. Returns GeneratedQuiz or None.
+
+    pool_size > 1 generates pool_size variants per unique question (num_questions * pool_size total).
+    """
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
+    total_questions = num_questions * pool_size
 
     try:
         client = _build_client(provider, api_key)
@@ -593,7 +607,7 @@ def generate_weekly_quiz(
                 },
                 {
                     "role": "user",
-                    "content": quiz_prompts.weekly_user_prompt(topics, num_questions),
+                    "content": quiz_prompts.weekly_user_prompt(topics, total_questions),
                 },
             ],
             **_token_kwargs(provider, 8192),
@@ -602,11 +616,11 @@ def generate_weekly_quiz(
         if not response.questions:
             logger.warning("Weekly quiz generation returned 0 questions [provider=%s]", provider)
             return None
-        if len(response.questions) != num_questions:
+        if len(response.questions) != total_questions:
             logger.warning(
                 "Weekly quiz generation returned %d questions, expected %d — using partial result [provider=%s]",
                 len(response.questions),
-                num_questions,
+                total_questions,
                 provider,
             )
         return response
@@ -625,14 +639,20 @@ def generate_final_quiz(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    topic_week_map: Optional[dict] = None,
+    pool_size: int = 1,
 ) -> Optional[GeneratedQuiz]:
-    """Generate the ML-personalised final quiz. Returns GeneratedQuiz or None."""
+    """Generate the ML-personalised final quiz. Returns GeneratedQuiz or None.
+
+    pool_size > 1 generates pool_size variants per unique question (num_questions * pool_size total).
+    """
     all_topics = list(dict.fromkeys(weak_topics + forgotten_topics))
     if not all_topics:
         return None
 
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
+    total_questions = num_questions * pool_size
 
     try:
         client = _build_client(provider, api_key)
@@ -647,18 +667,21 @@ def generate_final_quiz(
                 {
                     "role": "user",
                     "content": quiz_prompts.final_user_prompt(
-                        weak_topics, forgotten_topics, num_questions
+                        weak_topics,
+                        forgotten_topics,
+                        total_questions,
+                        topic_week_map=topic_week_map,
                     ),
                 },
             ],
             **_token_kwargs(provider, 8192),
             max_retries=1,
         )
-        if not response.questions or len(response.questions) != num_questions:
+        if not response.questions or len(response.questions) != total_questions:
             logger.warning(
                 "Final quiz generation returned %d questions, expected %d [provider=%s]",
                 len(response.questions) if response.questions else 0,
-                num_questions,
+                total_questions,
                 provider,
             )
             return None
@@ -677,6 +700,7 @@ def generate_chapter_content(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    style: Optional[str] = None,
 ) -> Optional[StructuredChapterContent]:
     """Generate structured chapter content using Instructor. Returns StructuredChapterContent or None."""
     provider, api_key = _require_settings(provider, api_key)
@@ -694,7 +718,12 @@ def generate_chapter_content(
             model=model,
             response_model=StructuredChapterContent,
             messages=[
-                {"role": "system", "content": chapter_prompts.system_prompt()},
+                {
+                    "role": "system",
+                    "content": chapter_prompts.system_prompt(
+                        concise=provider == "mistral", style=style
+                    ),
+                },
                 {
                     "role": "user",
                     "content": chapter_prompts.user_prompt(task_title, skill, task_description),
@@ -776,6 +805,8 @@ def generate_week_plan(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    prev_score: int = 100,
+    remediation_days: int = 0,
 ) -> Optional[List[dict]]:
     """Generate ML-personalised daily plan for a specific week. Returns list of day dicts or None."""
     provider, api_key = _require_settings(provider, api_key)
@@ -795,7 +826,13 @@ def generate_week_plan(
                 {
                     "role": "user",
                     "content": syllabus_prompts.week_plan_user_prompt(
-                        week, start_day, days_in_week, weak_topics, forgotten_topics
+                        week,
+                        start_day,
+                        days_in_week,
+                        weak_topics,
+                        forgotten_topics,
+                        prev_score=prev_score,
+                        remediation_days=remediation_days,
                     ),
                 },
             ],

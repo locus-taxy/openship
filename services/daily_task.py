@@ -1,9 +1,14 @@
 import json
+import logging
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
+from sqlalchemy import delete as sa_delete
 import bleach
 from database import engine
 from models.daily_task import DailyTask
+
+logger = logging.getLogger(__name__)
 
 # Tags and attributes produced by Gemini newsletter HTML that we want to keep.
 # Everything else (script, iframe, object, event handlers, javascript: URLs) is stripped.
@@ -69,10 +74,12 @@ def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
             "topic": t.topic,
             "task": t.task,
             "day": t.day,
+            "week": t.week,
             "hours": t.hours,
             "completed": t.completed,
             "newsletter": t.newsletter,
             "content_blocks": t.content_blocks,
+            "content_style": t.content_style,
             "has_content": bool(t.content_blocks) or bool(t.newsletter),
         }
 
@@ -125,6 +132,28 @@ def get_tasks_for_generating_newsletter(skill_id: int) -> List[Dict[str, Any]]:
             for t in tasks
         ]
 
+def get_max_day_for_skill(skill_id: int) -> int:
+    """Return the highest day number stored for a skill (0 if no tasks exist yet)."""
+    with Session(engine) as session:
+        from sqlalchemy import func
+
+        result = session.exec(
+            select(func.max(DailyTask.day)).where(DailyTask.skill_id == skill_id)
+        ).first()
+        return result or 0
+
+def get_week_content_style(skill_id: int, week: int) -> Optional[str]:
+    """Return the content_style already used for any chapter in this week, or None if none set yet."""
+    with Session(engine) as session:
+        task = session.exec(
+            select(DailyTask).where(
+                DailyTask.skill_id == skill_id,
+                DailyTask.week == week,
+                DailyTask.content_style.isnot(None),
+            )
+        ).first()
+        return task.content_style if task else None
+
 def add_content_to_db(newsletter: str, task_id: int) -> bool:
     try:
         with Session(engine) as session:
@@ -136,7 +165,7 @@ def add_content_to_db(newsletter: str, task_id: int) -> bool:
             session.commit()
             return True
     except Exception as e:
-        print(f"Error in add_content_to_db: {e}")
+        logger.error("Error in add_content_to_db: %s", e)
         return False
 
 def _clean_mermaid(content: str) -> str:
@@ -173,12 +202,26 @@ def _clean_mermaid(content: str) -> str:
     )
     return content
 
+def claim_week_style(task_id: int, style: str) -> None:
+    """Write content_style to the task row immediately (before the LLM call) so that
+    concurrent chapter-generation requests for the same week see a committed style and
+    don't independently re-sample the bandit."""
+    try:
+        with Session(engine) as session:
+            task = session.get(DailyTask, task_id)
+            if task and not task.content_style:
+                task.content_style = style
+                session.add(task)
+                session.commit()
+    except Exception as e:
+        logger.error("Error in claim_week_style: %s", e)
+
 def _sanitize_block(block_dict: dict) -> dict:
     if block_dict.get("type") == "diagram" and block_dict.get("content"):
         block_dict["content"] = _clean_mermaid(block_dict["content"])
     return block_dict
 
-def add_blocks_to_db(blocks: list, task_id: int) -> bool:
+def add_blocks_to_db(blocks: list, task_id: int, content_style: Optional[str] = None) -> bool:
     try:
         with Session(engine) as session:
             task = session.get(DailyTask, task_id)
@@ -188,17 +231,17 @@ def add_blocks_to_db(blocks: list, task_id: int) -> bool:
             if not sanitized:
                 return True
             task.content_blocks = json.dumps(sanitized)
+            if content_style:
+                task.content_style = content_style
             session.add(task)
             session.commit()
             return True
     except Exception as e:
-        print(f"Error in add_blocks_to_db: {e}")
+        logger.error("Error in add_blocks_to_db: %s", e)
         return False
 
 def mark_task_completed(task_id: int) -> bool:
     try:
-        from datetime import datetime, timezone
-
         with Session(engine) as session:
             task = session.get(DailyTask, task_id)
             if task is None:
@@ -210,13 +253,11 @@ def mark_task_completed(task_id: int) -> bool:
                 session.commit()
             return True
     except Exception as e:
-        print(f"Error marking task completed: {e}")
+        logger.error("Error marking task completed: %s", e)
         return False
 
 def clear_syllabus_tasks(skill_id: int) -> None:
     """Delete all DailyTask rows for a skill before re-generating."""
-    from sqlalchemy import delete as sa_delete
-
     with Session(engine) as session:
         session.exec(sa_delete(DailyTask).where(DailyTask.skill_id == skill_id))
         session.commit()
@@ -254,13 +295,11 @@ def store_syllabus_tasks(
             session.commit()
             return True
     except Exception as e:
-        print(f"Error storing syllabus tasks: {e}")
+        logger.error("Error storing syllabus tasks: %s", e)
         return False
 
 def delete_week_tasks(skill_id: int, week: int) -> None:
     """Delete all DailyTask rows for a specific week (used before ML regeneration)."""
-    from sqlalchemy import delete as sa_delete
-
     with Session(engine) as session:
         session.exec(
             sa_delete(DailyTask).where(DailyTask.skill_id == skill_id, DailyTask.week == week)
@@ -295,5 +334,5 @@ def store_week_tasks(
             session.commit()
             return True
     except Exception as e:
-        print(f"Error storing week tasks: {e}")
+        logger.error("Error storing week tasks: %s", e)
         return False

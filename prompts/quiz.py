@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List, Optional
 
 _QUIZ_JSON_SCHEMA = (
     '{"questions": [{'
@@ -36,12 +36,41 @@ def final_system_prompt(skill: str, num_topics: int) -> str:
     )
 
 def final_user_prompt(
-    weak_topics: List[str], forgotten_topics: List[str], num_questions: int
+    weak_topics: List[str],
+    forgotten_topics: List[str],
+    num_questions: int,
+    topic_week_map: Optional[Dict[str, int]] = None,
 ) -> str:
     all_topics = list(dict.fromkeys(weak_topics + forgotten_topics))
-    topics_list = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(all_topics))
+
+    if topic_week_map:
+        # Group topics by week so the LLM understands which belonged together
+        by_week: Dict[int, List[str]] = {}
+        ungrouped: List[str] = []
+        for t in all_topics:
+            w = topic_week_map.get(t)
+            if w:
+                by_week.setdefault(w, []).append(t)
+            else:
+                ungrouped.append(t)
+
+        sections: List[str] = []
+        for week in sorted(by_week):
+            items = ", ".join(by_week[week])
+            sections.append(f"Week {week}: {items}")
+        if ungrouped:
+            sections.append("Other: " + ", ".join(ungrouped))
+        topics_block = "\n".join(sections)
+        preamble = (
+            "The student struggled with or is forgetting these topics "
+            "(grouped by the week they were covered):\n" + topics_block
+        )
+    else:
+        topics_list = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(all_topics))
+        preamble = f"The student struggled with or is forgetting these topics:\n{topics_list}"
+
     return (
-        f"The student struggled with or is forgetting these topics:\n{topics_list}\n\n"
+        f"{preamble}\n\n"
         f"Generate exactly {num_questions} multiple-choice questions.\n"
         f"Rules:\n"
         f"- Each question must have exactly 4 options with labels A, B, C, D\n"

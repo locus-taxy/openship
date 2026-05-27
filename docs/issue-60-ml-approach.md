@@ -205,12 +205,18 @@ In our case:
 
 ### The 4 Arms (Content Styles)
 
-| Arm | Style | What the LLM generates |
-|---|---|---|
-| `balanced` | Equal mix of theory and examples | Default starting style |
-| `example_heavy` | Code examples first, theory after | For hands-on learners |
-| `theory_first` | Full explanation before any code | For conceptual learners |
-| `reinforcement` | Slower pace, more repetition | For struggling users |
+Each style injects **mandatory structural rules** into the LLM system prompt — not just a description, but hard ordering constraints that force the LLM to produce genuinely different output.
+
+| Arm | Structural rule enforced |
+|---|---|
+| `balanced` | Strict alternation: heading → paragraph (explain) → code (demonstrate). Equal paragraph/code count. Must include at least one `note` block for caveats. After every code block, a paragraph explains what it does and why. |
+| `example_heavy` | After every heading, the next block MUST be `code` — never a paragraph. Paragraph always follows code, never precedes it. At least 4 code blocks total. Code blocks must be more than 50% of all content blocks. |
+| `theory_first` | After every heading, the next block MUST be a `paragraph` with a precise definition — code blocks only appear after full explanation. Pattern enforced: heading → paragraph (definition) → paragraph (elaboration) → code (illustration). Must include at least one `table` block comparing related concepts. |
+| `reinforcement` | Mandatory `note` block after every major section (minimum 2 total). One `quote` block per chapter. A `bullet_list` recap mid-chapter (not just at end). The single most important concept appears twice — once in a paragraph, once in a code block — using different wording. |
+
+The style rules are placed at the **end** of the system prompt (after all block-type definitions), so they are the last thing the LLM reads before generating — this maximises compliance. The rules are injected via `prompts/chapter.py: system_prompt(style=style)`.
+
+`balanced` has explicit structural rules just like every other style — it is not a no-op default.
 
 ---
 
@@ -218,32 +224,45 @@ In our case:
 
 Each arm has two counters: `alpha` (wins) and `beta` (losses). Both start at `1`.
 
-**Before generating each week's content:**
-1. For each arm, draw a random number from `Beta(alpha, beta)`
-2. Pick the arm with the highest draw
-3. Generate the week's content in that style
-4. After the quiz: if score improved → `alpha + 1`, if not → `beta + 1`
+**The style is sampled once per week — not once per chapter.**
 
-The Beta distribution naturally balances **exploration** (trying new styles) and **exploitation** (using the style that's working). Arms with more wins produce higher draws more often — but occasionally an untried arm gets lucky and gets explored.
+This is a critical design decision: the bandit's reward signal is the weekly quiz score. If chapters within the same week used different styles, there would be no way to attribute a score improvement to any one style — the reward signal becomes noise. By locking the style for the entire week, every chapter the user reads that week has the same structural teaching approach, and the quiz result cleanly reflects whether that approach worked.
+
+**How one week works:**
+1. User generates the first chapter of week N
+2. `controllers/content.py: generate_chapter()` calls `get_week_content_style(skill_id, week)` — returns `None` (no chapters generated for this week yet)
+3. `sample_style()` runs Thompson Sampling across all 4 arms → picks e.g. `theory_first`
+4. Chapter is generated with `theory_first` structural rules and saved with `content_style = "theory_first"`
+5. User generates chapters 2, 3, 4… of week N
+6. `get_week_content_style()` finds that week N already has `content_style = "theory_first"` → reuses it, no re-sampling
+7. All chapters in week N are generated with `theory_first`
+8. User takes the weekly quiz → score determined → `update_arm("theory_first", improved)` runs
+9. Week N+1 first chapter → `get_week_content_style()` returns `None` again → fresh `sample_style()` with updated Beta distributions
+
+**Where this runs in code:**
+- `services/daily_task.py: get_week_content_style(skill_id, week)` — queries `daily_tasks` for the style already used this week
+- `services/bandit.py: sample_style()` — called only when `get_week_content_style` returns `None` (first chapter of the week)
+- `services/bandit.py: update_arm()` — called in `controllers/quiz.py: submit_weekly_quiz()` with the `improved` boolean
+- The reward signal is `improved = (attempt.score > prev_best_score)` — strict improvement, not just passing
+- The used style is persisted on `daily_tasks.content_style` and shown as a badge in the UI
 
 **Example: 5 weeks for one user**
 
 ```
-Week 1: all arms at Beta(1,1) → random pick → "balanced"
-        quiz score: 65%
+Week 1: all arms at Beta(1,1) → sample → "balanced" → ALL 7 chapters use balanced
+        quiz score: 65% → update_arm("balanced", improved=False) → balanced: beta=2
 
-Week 2: all arms still equal → random pick → "example_heavy"
-        quiz score: 72% (+7%, improved) → example_heavy: alpha=2, beta=1
+Week 2: balanced penalised → sample → "example_heavy" → ALL chapters use example_heavy
+        quiz score: 72% (+7%) → update_arm("example_heavy", improved=True) → alpha=2
 
-Week 3: example_heavy slightly favoured → "example_heavy" again
-        quiz score: 68% (-4%, dropped) → example_heavy: alpha=2, beta=2
+Week 3: example_heavy favoured → sample → "example_heavy" again
+        quiz score: 68% (-4%) → update_arm("example_heavy", improved=False) → beta=2
 
-Week 4: example_heavy and balanced now equal → "theory_first" not yet tried
-        exploration kicks in → picks "theory_first"
-        quiz score: 81% (+13%, improved) → theory_first: alpha=2, beta=1
+Week 4: example_heavy and others roughly equal → exploration → "theory_first"
+        quiz score: 81% (+13%) → update_arm("theory_first", improved=True) → alpha=2
 
-Week 5: theory_first now favoured → "theory_first"
-        quiz score: 85% (+4%, improved) → theory_first: alpha=3, beta=1
+Week 5: theory_first now favoured → sample → "theory_first"
+        quiz score: 85% (+4%) → update_arm("theory_first", improved=True) → alpha=3
 ```
 
 After 5 weeks the system has learned this user is a **theory-first learner**.
@@ -345,7 +364,54 @@ The forgetting curve state lives on the same `topic_knowledge` table as BKT. We 
 
 ## How All Three Work Together
 
-This is the full flow every time a user submits a weekly quiz:
+### Complete End-to-End Flow
+
+```
+USER GENERATES A CHAPTER
+  └─ controllers/content.py: generate_chapter()
+       ├─ get_week_content_style(skill_id, week)   ← reuse style if week already started
+       │    └─ if None (first chapter of this week):
+       │         └─ sample_style(skill_id, user_id) ← Bandit samples a new style
+       └─ generate_chapter_content(style=style)    ← LLM writes the chapter with that style
+            └─ prompts/chapter.py: system_prompt(style=style)
+                 ├─ Adds mandatory structural style rules at end of prompt
+                 └─ Adds "Key Takeaways" block at end
+
+USER READS CHAPTER AND TAKES WEEKLY QUIZ
+  └─ controllers/quiz.py: submit_weekly_quiz()
+       ├─ records the quiz attempt in DB
+       │
+       ├─ update_topic_knowledge(answers)           ← BKT updates p_known per topic
+       │    └─ Also sets stability_days and last_studied_at
+       │
+       ├─ improved = (score > prev_best_score)
+       ├─ sample_style() → get the style used for chapters THIS week
+       ├─ update_arm(style, improved)               ← Bandit learns: did that style help?
+       └─ sample_style() again → return next_week_style in API response
+            └─ This triggers ML week generation in background
+
+BACKGROUND: NEXT WEEK IS GENERATED
+  └─ controllers/quiz.py: _generate_next_week()
+       ├─ get_weak_topics(skill_id, user_id)        ← BKT: topics still not mastered
+       ├─ get_forgotten_topics(skill_id, user_id)   ← Forgetting curve: topics decaying
+       ├─ calc_remediation_days(prev_score)         ← BKT: how many days to spend reviewing
+       └─ generate_week_plan(weak_topics, forgotten_topics, remediation_days)
+            └─ LLM writes a personalised day-by-day plan for the next week
+
+USER FINISHES ALL WEEKS AND GENERATES FINAL QUIZ
+  └─ controllers/quiz.py: generate_quiz_for_skill()
+       ├─ get_weak_topics()                         ← BKT weak topics
+       ├─ get_forgotten_topics()                    ← Forgetting curve topics
+       ├─ get_topic_week_map()                      ← groups topics by which week they came from
+       └─ generate_final_quiz(weak, forgotten, topic_week_map)
+            └─ prompts/quiz.py: final_user_prompt() with clustered topics
+                 └─ LLM writes: "Week 2: Variables, Loops — Week 4: Recursion, Trees"
+                      └─ Knows exactly what the user struggled with and when
+```
+
+---
+
+This is the step-by-step breakdown of what runs at each stage:
 
 **Step 1 — BKT (run immediately after quiz submission)**
 
@@ -388,20 +454,35 @@ All three results are combined into one LLM prompt:
 |---|---|
 | Weak topics (BKT) | "Reinforce these topics next week" |
 | Forgotten topics (Curve) | "Add a short review task for each of these at the start" |
-| Chosen style (Bandit) | "Teach in this style: theory-first / example-heavy / etc." |
+| Remediation days (BKT) | "Spend N days revisiting before introducing new material" |
 | New topics for next week | "Also introduce these new topics" |
 
 ---
 
-**Final Quiz — generated after the last weekly quiz, based entirely on ML**
+**Step 5 — Chapter content style (Bandit, locked per week)**
 
-Once the user completes all weeks and submits the final weekly quiz:
+Every time the user requests a chapter to be generated:
+- `get_week_content_style(skill_id, week)` checks if any chapter this week already has a style set
+- If yes → reuse it (all chapters in the same week share one style)
+- If no (first chapter of the week) → `sample_style(skill_id, user_id)` samples all 4 Beta distributions and picks a winner
+- The winning style is injected into the chapter LLM prompt as **mandatory structural rules** (placed at the end of the prompt for recency bias)
+- The LLM writes the chapter body following those structural constraints
+- `content_style` is saved on `daily_tasks` and shown as a badge in the UI
+
+This is separate from week plan generation — the bandit influences both **what topics** are covered (via week plan) and **how each chapter is written** (via per-week style locking). Locking the style per week ensures the weekly quiz score can be cleanly attributed to a single teaching approach when updating the bandit's Beta distributions.
+
+---
+
+**Final Quiz — personalised by ML, grouped by course week**
+
+Once the user completes all weeks:
 - Collect every topic where `p_known < 0.95` across all weeks (BKT)
 - Also include topics where forgetting curve `R < 0.70`
-- Send those weak/forgotten topics to the LLM
-- LLM generates final quiz questions targeting exactly what this user struggled with
+- Map each topic to the week it was taught → `get_topic_week_map()`
+- Send grouped data to LLM: *"Week 1: Variables, Loops — Week 3: Recursion — Week 4: Trees"*
+- LLM generates questions knowing the course structure and which areas need the most work
 
-> The final quiz is **not** generated from enrollment topics. It is completely personalised by what BKT and the Forgetting Curve found across the entire course.
+> The final quiz is **not** generated from enrollment topics. It is completely personalised by what BKT and the Forgetting Curve found across the entire course. The week grouping gives the LLM context about topic relationships and course progression.
 
 ---
 
@@ -420,11 +501,12 @@ With the ML approach, difficulty becomes unnecessary:
 
 ## Summary of All DB Changes
 
-### `quiz_questions` — one new column
+### `quiz_questions` — two new columns
 
 | Column | Type | Purpose |
 |---|---|---|
-| topic | text | which `DailyTask.topic` this question tests |
+| `topic` | text | which `DailyTask.topic` this question tests — links wrong answers to BKT/forgetting curve |
+| `pool_group` | int (nullable) | variant group number — see Quiz Variant Pool below |
 
 ### `topic_knowledge` — new table
 
@@ -450,55 +532,74 @@ Four rows per user per skill (one per style). Owned by the Bandit.
 | Remove `difficulty` | no longer needed |
 | Constraint | `UNIQUE(skill_id)` → `UNIQUE(skill_id, week)` |
 
+
 ---
 
-## Complete Picture — End to End Flow
+## Additional Features
+
+### Key Takeaways Block
+
+Every chapter now ends with two mandatory blocks (enforced in `prompts/chapter.py`):
+
+1. A `heading` block (level 2) with content `"Key Takeaways"`
+2. A `bullet_list` block with 4–6 points summarising what the reader just learned
+
+This is hardcoded into the LLM system prompt — the LLM must include it or the Pydantic validator rejects the response. It gives students a consistent review section at the end of every chapter and reinforces learning through summarisation.
+
+---
+
+### Weak Topic Clustering for Final Quiz
+
+**Problem:** the old prompt passed weak topics as a flat numbered list. The LLM had no idea which week a topic came from or how topics related to each other.
+
+**Solution:** `services/quiz.py: get_topic_week_map(skill_id, topics)` queries the `daily_tasks` table to find which week each topic was taught. The final quiz prompt groups them:
 
 ```
-USER ENROLLS
-  → picks skill, days, hours/day
-  → difficulty NO LONGER ASKED (removed)
-  │
-  ▼
-WEEK 1 CONTENT GENERATED
-  → LLM generates daily tasks for week 1
-  → style defaults to "balanced" (first week, bandit has no data yet)
-  │
-  ▼
-USER STUDIES WEEK 1
-  → reads daily content, marks tasks complete, builds streak
-  │
-  ▼
-WEEK 1 QUIZ
-  → quiz generated from week 1 topics (each question tagged with topic)
-  → user submits answers
-  │
-  ├──► BKT runs per question
-  │      → updates p_known for each topic
-  │      → topics with p_known < 0.95 = WEAK
-  │
-  ├──► FORGETTING CURVE runs for all studied topics
-  │      → topics with R < 0.70 = FORGOTTEN
-  │
-  ├──► BANDIT updates
-  │      → score improved? alpha+1 for "balanced"
-  │      → score dropped? beta+1 for "balanced"
-  │      → samples all 4 arms → picks style for week 2
-  │
-  ▼
-WEEK 2 CONTENT GENERATED
-  → weak topics   → reinforced in week 2
-  → forgotten topics → short review tasks added at start
-  → new topics    → introduced as normal
-  → style         → picked by bandit (e.g. "theory_first")
-  │
-  ▼
-  ... (repeats every week) ...
-  │
-  ▼
-FINAL QUIZ (after last weekly quiz is submitted)
-  → collect ALL topics with p_known < 0.95 (BKT, across all weeks)
-  → collect ALL topics with R < 0.70 (Forgetting Curve)
-  → LLM generates questions targeting only those weak/forgotten topics
-  → user gets a quiz that is 100% personalised to their gaps
+# Before
+"The student struggled with: Variables, Loops, Recursion, Trees"
+
+# After
+"The student struggled with (grouped by week):
+ Week 1: Variables, Loops
+ Week 3: Recursion
+ Week 4: Trees, Binary Search"
 ```
+
+This tells the LLM three things it couldn't infer before:
+- Which topics are conceptually related (same week = same theme)
+- Which are foundational vs advanced (week 1 vs week 4)
+- How to weight difficulty — week 1 topics still not mastered are a bigger gap than week 4 topics
+
+**Files:** `services/quiz.py` (new `get_topic_week_map`), `prompts/quiz.py` (updated `final_user_prompt`), `services/llm.py` (new `topic_week_map` param), `controllers/quiz.py` (builds and passes the map)
+
+---
+
+### Quiz Question Variant Pool (Anti-Memorisation)
+
+**Problem:** when a user retakes a quiz, they see the exact same questions in the same order. After 2–3 attempts they can memorise answers without understanding the topic — which breaks BKT's accuracy (the model thinks they're improving when they're just memorising).
+
+**Solution:** for each unique question slot, the LLM now generates multiple variant phrasings of the same question. On every quiz attempt, `get_quiz_with_questions()` randomly picks one variant per slot. The student sees a fresh version each time.
+
+**How it works:**
+
+| Provider | `pool_size` | Questions generated | Questions shown per attempt |
+|---|---|---|---|
+| Gemini | `2` | 10 (for a 5-question quiz) | 5 (one from each variant pair) |
+| OpenAI | `2` | 10 | 5 |
+| Anthropic | `2` | 10 | 5 |
+| Mistral | `1` | 5 | 5 (no variants — hard token cap) |
+
+In the database, variants share the same `pool_group` integer on `quiz_questions`:
+
+```
+pool_group=1, question="What does a for loop do?"          ← variant A
+pool_group=1, question="Which statement repeats a block?"  ← variant B (same topic, different phrasing)
+pool_group=2, question="What is a function?"
+pool_group=2, question="Which keyword defines a function?"
+```
+
+`get_quiz_with_questions()` runs `random.choice(variants)` for each group → the student sees a different question every retake.
+
+**Why Mistral stays at pool_size=1:** Mistral Small has an 8 192 output token hard cap that it enforces strictly — exceeding it truncates the JSON mid-stream and triggers `IncompleteOutputException`. Quiz question JSON is short enough that Gemini, OpenAI, and Anthropic handle `N × 2` questions comfortably within their output limits (32 768 / 16 384 / 8 192 tokens respectively — quiz output is far smaller than chapter content).
+
+**Files:** `models/quiz_question.py` (new `pool_group` column), `alembic/versions/o3p4q5r6s7t8_add_pool_group_to_quiz_questions.py` (migration), `services/quiz.py` (`create_quiz` assigns pool groups, `get_quiz_with_questions` samples), `services/llm.py` (new `pool_size` param on both quiz generators), `controllers/quiz.py` (sets `pool_size` per provider, passes through)

@@ -128,6 +128,7 @@ class TestGenerateChapter:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
             patch("controllers.content.generate_chapter_content", return_value=mock_result),
             patch("controllers.content.add_blocks_to_db", return_value=False),
             patch("controllers.content.get_user_provider_name", return_value="gemini"),

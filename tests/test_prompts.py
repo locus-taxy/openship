@@ -100,6 +100,29 @@ class TestQuizPrompts:
         result = quiz_prompts.final_user_prompt(["Loops"], ["Loops"], 5)
         assert result.count("Loops") == 1
 
+    def test_final_user_prompt_with_topic_week_map_groups_by_week(self):
+        result = quiz_prompts.final_user_prompt(
+            ["Variables", "Loops"],
+            ["Functions"],
+            10,
+            topic_week_map={"Variables": 1, "Loops": 1, "Functions": 2},
+        )
+        assert "Week 1" in result
+        assert "Week 2" in result
+        assert "Variables" in result
+        assert "Functions" in result
+
+    def test_final_user_prompt_with_topic_week_map_ungrouped_topics(self):
+        result = quiz_prompts.final_user_prompt(
+            ["Variables"],
+            ["Loops"],
+            5,
+            topic_week_map={"Variables": 1},  # Loops has no week mapping
+        )
+        assert "Week 1" in result
+        assert "Other" in result
+        assert "Loops" in result
+
 class TestWeekPlanPrompts:
     def test_system_prompt_contains_skill(self):
         result = syllabus_prompts.week_plan_system_prompt("Python", 2, 4, 7)
@@ -133,10 +156,28 @@ class TestWeekPlanPrompts:
         result = syllabus_prompts.week_plan_user_prompt(1, 1, 7, [], ["Functions"])
         assert "Functions" in result
 
-    def test_user_prompt_no_weak_areas_message_when_empty(self):
+    def test_user_prompt_new_topics_message_when_no_weak_areas(self):
         result = syllabus_prompts.week_plan_user_prompt(1, 1, 7, [], [])
-        assert "No weak areas" in result
+        assert "new" in result.lower()
 
     def test_user_prompt_contains_exact_days_count(self):
         result = syllabus_prompts.week_plan_user_prompt(3, 15, 5, [], [])
         assert "5" in result
+
+    def test_user_prompt_remediation_mentions_score(self):
+        result = syllabus_prompts.week_plan_user_prompt(
+            2, 8, 7, ["Loops", "Functions"], [], prev_score=30, remediation_days=4
+        )
+        assert "30%" in result
+
+    def test_user_prompt_remediation_mentions_review_days(self):
+        result = syllabus_prompts.week_plan_user_prompt(
+            2, 8, 7, ["Loops"], ["Decorators"], prev_score=40, remediation_days=3
+        )
+        assert "Loops" in result and "Decorators" in result
+
+    def test_user_prompt_remediation_mentions_new_topics_for_remaining_days(self):
+        result = syllabus_prompts.week_plan_user_prompt(
+            2, 8, 7, [], [], prev_score=50, remediation_days=3
+        )
+        assert "new" in result.lower()

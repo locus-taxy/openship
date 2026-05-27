@@ -10,6 +10,7 @@ from services.bkt import (
     get_or_create_topic_knowledge,
     update_topic_knowledge,
     get_weak_topics,
+    calc_remediation_days,
 )
 from models.topic_knowledge import TopicKnowledge
 
@@ -187,3 +188,27 @@ class TestGetWeakTopics:
             assert result == []
         finally:
             patcher.stop()
+
+class TestCalcRemediationDays:
+    def test_perfect_score_returns_zero(self):
+        assert calc_remediation_days(100, 7) == 0
+
+    def test_high_score_returns_one(self):
+        assert calc_remediation_days(85, 7) == 1
+
+    def test_mid_score_returns_moderate_remediation(self):
+        result = calc_remediation_days(50, 7)
+        assert 1 <= result <= 3
+
+    def test_low_score_returns_heavy_remediation(self):
+        result = calc_remediation_days(20, 7)
+        assert result >= 3
+
+    def test_never_consumes_all_days(self):
+        for score in [0, 10, 30, 50, 70]:
+            result = calc_remediation_days(score, 7)
+            assert result < 7
+
+    def test_zero_score_leaves_at_least_one_new_day(self):
+        result = calc_remediation_days(0, 5)
+        assert result <= 4

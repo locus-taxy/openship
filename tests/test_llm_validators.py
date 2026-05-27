@@ -15,9 +15,22 @@ from services.llm import (
 )
 
 class TestContentBlockLevelValidator:
-    def test_invalid_level_raises(self):
-        with pytest.raises(Exception):
-            ContentBlock(type=BlockType.HEADING, content="Title", level=4)
+    def test_keys_with_trailing_spaces_are_normalised(self):
+        b = ContentBlock(**{"type ": "heading", "content": "Title", "level": 2})
+        assert b.type == BlockType.HEADING
+        assert b.level == 2
+
+    def test_level_above_3_is_clamped_to_3(self):
+        b = ContentBlock(type=BlockType.HEADING, content="Title", level=4)
+        assert b.level == 3
+
+    def test_level_below_1_is_clamped_to_1(self):
+        b = ContentBlock(type=BlockType.HEADING, content="Title", level=0)
+        assert b.level == 1
+
+    def test_valid_level_is_unchanged(self):
+        b = ContentBlock(type=BlockType.HEADING, content="Title", level=2)
+        assert b.level == 2
 
     def test_note_block_with_empty_content(self):
         b = ContentBlock(type=BlockType.NOTE, content="")

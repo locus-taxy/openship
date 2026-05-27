@@ -1,4 +1,13 @@
 import { useEffect, useState } from "react"
+
+function fisherYates<T>(arr: T[]): T[] {
+    const a = [...arr]
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]]
+    }
+    return a
+}
 import { CheckCircle2, XCircle, Loader2, BookCheck, RotateCcw, Sparkles, Brain } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -26,6 +35,7 @@ interface QuizData {
 
 interface QuestionResult {
     question_id: number
+    topic?: string
     selected: string
     correct: string
     is_correct: boolean
@@ -38,6 +48,23 @@ interface SubmitResult {
     passed: boolean
     pass_score: number
     results: QuestionResult[]
+    topic_scores: Record<string, TopicScore>
+}
+
+interface TopicScore {
+    correct: number
+    total: number
+    pct: number
+}
+
+interface LatestAttemptData {
+    attempt_id: number
+    score: number
+    passed: boolean
+    pass_score: number
+    created_at: string | null
+    results: (QuestionResult & { topic: string })[]
+    topic_scores: Record<string, TopicScore>
 }
 
 const OPTIONS = ["A", "B", "C", "D"] as const
@@ -46,7 +73,7 @@ function getOptionText(q: QuizQuestion, opt: string): string {
     return ({ A: q.option_a, B: q.option_b, C: q.option_c, D: q.option_d } as Record<string, string>)[opt] ?? ""
 }
 
-type View = "loading" | "not_generated" | "generating" | "ready" | "taking" | "submitted" | "error"
+type View = "loading" | "not_generated" | "generating" | "ready" | "taking" | "submitted" | "last_results" | "error"
 
 export function QuizPanel({
     skillId,
@@ -65,6 +92,8 @@ export function QuizPanel({
     const [answers, setAnswers] = useState<Record<number, string>>({})
     const [submitting, setSubmitting] = useState(false)
     const [result, setResult] = useState<SubmitResult | null>(null)
+    const [lastAttempt, setLastAttempt] = useState<LatestAttemptData | null>(null)
+    const [loadingLastAttempt, setLoadingLastAttempt] = useState(false)
 
     useEffect(() => {
         const controller = new AbortController()
@@ -131,9 +160,22 @@ export function QuizPanel({
         setSubmitting(false)
     }
 
+    async function loadLastAttempt() {
+        setLoadingLastAttempt(true)
+        try {
+            const res = await api.get(`/py/quiz/${skillId}/attempts/latest`)
+            setLastAttempt(res.data)
+            setView("last_results")
+        } catch {
+            // ignore — button only shown when attempts exist
+        } finally {
+            setLoadingLastAttempt(false)
+        }
+    }
+
     function startAttempt() {
         if (quiz) {
-            const shuffled = [...quiz.questions].sort(() => Math.random() - 0.5)
+            const shuffled = fisherYates(quiz.questions)
             setQuiz({ ...quiz, questions: shuffled })
         }
         setResult(null)
@@ -276,13 +318,26 @@ export function QuizPanel({
                     )}
 
                     {/* CTA */}
-                    <Button
-                        className="w-full h-11 rounded-xl"
-                        onClick={startAttempt}
-                    >
-                        <BookCheck className="h-4 w-4 mr-2" />
-                        {hasPrevAttempts ? "Retake Quiz" : "Start Quiz"}
-                    </Button>
+                    <div className="space-y-2">
+                        <Button className="w-full h-11 rounded-xl" onClick={startAttempt}>
+                            <BookCheck className="h-4 w-4 mr-2" />
+                            {hasPrevAttempts ? "Retake Quiz" : "Start Quiz"}
+                        </Button>
+                        {hasPrevAttempts && (
+                            <Button
+                                variant="outline"
+                                className="w-full h-10 rounded-xl"
+                                onClick={loadLastAttempt}
+                                disabled={loadingLastAttempt}
+                            >
+                                {loadingLastAttempt
+                                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    : <BookCheck className="h-4 w-4 mr-2" />
+                                }
+                                View Last Results
+                            </Button>
+                        )}
+                    </div>
 
                     {hasAllWeeklyData && (
                         <button
@@ -293,6 +348,127 @@ export function QuizPanel({
                             Regenerate with fresh ML data
                         </button>
                     )}
+                </div>
+            </div>
+        )
+    }
+
+    // ── Last Results ─────────────────────────────────────────────────────────
+
+    if (view === "last_results" && lastAttempt && quiz) {
+        const resultMap = Object.fromEntries(lastAttempt.results.map((r) => [r.question_id, r]))
+        const sortedTopics = Object.entries(lastAttempt.topic_scores).sort((a, b) => a[1].pct - b[1].pct)
+
+        return (
+            <div className="flex flex-col h-full overflow-hidden">
+                <div className={cn(
+                    "border-b px-4 sm:px-8 py-5 shrink-0",
+                    lastAttempt.passed ? "bg-emerald-50 dark:bg-emerald-950/20" : "bg-red-50 dark:bg-red-950/20"
+                )}>
+                    <div className="flex items-center gap-4">
+                        {lastAttempt.passed
+                            ? <CheckCircle2 className="h-8 w-8 text-emerald-500 shrink-0" />
+                            : <XCircle className="h-8 w-8 text-red-500 shrink-0" />
+                        }
+                        <div className="flex-1 min-w-0">
+                            <h2 className={cn("text-lg font-bold", lastAttempt.passed ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>
+                                Last Attempt {lastAttempt.passed ? "— Passed" : "— Not Passed"}
+                            </h2>
+                            <p className="text-sm text-muted-foreground">
+                                Score: <span className="font-semibold text-foreground">{lastAttempt.score}%</span>
+                                {lastAttempt.created_at && (
+                                    <> · {new Date(lastAttempt.created_at).toLocaleDateString()}</>
+                                )}
+                            </p>
+                        </div>
+                        <p className={cn("text-3xl font-black shrink-0", lastAttempt.passed ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                            {lastAttempt.score}%
+                        </p>
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                        <Button variant="outline" size="sm" onClick={() => setView("ready")}>Quiz Overview</Button>
+                        <Button size="sm" onClick={startAttempt}>
+                            <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retake
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                    <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6 space-y-6">
+                        {/* Topic breakdown */}
+                        {sortedTopics.length > 1 && (
+                            <div className="rounded-xl border bg-card p-4 space-y-3">
+                                <h3 className="text-sm font-semibold">Score by Topic</h3>
+                                <div className="space-y-2">
+                                    {sortedTopics.map(([topic, ts]) => (
+                                        <div key={topic} className="space-y-1">
+                                            <div className="flex justify-between text-xs">
+                                                <span className="text-muted-foreground truncate pr-2">{topic}</span>
+                                                <span className={cn("font-semibold shrink-0", ts.pct >= 70 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                                                    {ts.correct}/{ts.total} · {ts.pct}%
+                                                </span>
+                                            </div>
+                                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                                <div
+                                                    className={cn("h-full rounded-full", ts.pct >= 70 ? "bg-emerald-500" : "bg-red-400")}
+                                                    style={{ width: `${ts.pct}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Per-question breakdown */}
+                        {quiz.questions.map((q, i) => {
+                            const r = resultMap[q.id]
+                            if (!r) return null
+                            return (
+                                <div key={q.id} className={cn(
+                                    "rounded-xl border p-4 space-y-3",
+                                    r.is_correct ? "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20" : "border-red-200 bg-red-50/50 dark:bg-red-950/20"
+                                )}>
+                                    <div className="flex items-start gap-2">
+                                        {r.is_correct
+                                            ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                                            : <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                                        }
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-foreground">
+                                                <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>
+                                                {q.question}
+                                            </p>
+                                            {r.topic && r.topic !== "General" && (
+                                                <span className="mt-1 inline-block text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5">{r.topic}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-1.5 pl-6">
+                                        {OPTIONS.map((opt) => {
+                                            const text = getOptionText(q, opt)
+                                            const isCorrect = opt === r.correct
+                                            const isSelected = opt === r.selected
+                                            return (
+                                                <div key={opt} className={cn(
+                                                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm border",
+                                                    isCorrect
+                                                        ? "border-emerald-300 bg-emerald-100 dark:bg-emerald-900/30 font-medium text-emerald-800 dark:text-emerald-300"
+                                                        : isSelected && !isCorrect
+                                                            ? "border-red-300 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                                                            : "border-transparent text-muted-foreground"
+                                                )}>
+                                                    <span className="font-mono text-xs w-4 shrink-0">{opt}.</span>
+                                                    <span>{text}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                    <p className="pl-6 text-xs text-muted-foreground italic">{r.explanation}</p>
+                                </div>
+                            )
+                        })}
+                    </div>
                 </div>
             </div>
         )
@@ -386,6 +562,7 @@ export function QuizPanel({
 
     if (view === "submitted" && result && quiz) {
         const resultMap = Object.fromEntries(result.results.map((r) => [r.question_id, r]))
+        const sortedTopics = Object.entries(result.topic_scores ?? {}).sort((a, b) => a[1].pct - b[1].pct)
 
         return (
             <div className="flex flex-col h-full overflow-hidden">
@@ -434,6 +611,31 @@ export function QuizPanel({
                 {/* Per-question breakdown */}
                 <div className="flex-1 overflow-y-auto">
                     <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6 space-y-4">
+                        {/* Topic breakdown */}
+                        {sortedTopics.length > 1 && (
+                            <div className="rounded-xl border bg-card p-4 space-y-3">
+                                <h3 className="text-sm font-semibold">Score by Topic</h3>
+                                <div className="space-y-2">
+                                    {sortedTopics.map(([topic, ts]) => (
+                                        <div key={topic} className="space-y-1">
+                                            <div className="flex justify-between text-xs">
+                                                <span className="text-muted-foreground truncate pr-2">{topic}</span>
+                                                <span className={cn("font-semibold shrink-0", ts.pct >= 70 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                                                    {ts.correct}/{ts.total} · {ts.pct}%
+                                                </span>
+                                            </div>
+                                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                                <div
+                                                    className={cn("h-full rounded-full", ts.pct >= 70 ? "bg-emerald-500" : "bg-red-400")}
+                                                    style={{ width: `${ts.pct}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {quiz.questions.map((q, i) => {
                             const r = resultMap[q.id]
                             if (!r) return null
@@ -449,10 +651,15 @@ export function QuizPanel({
                                             ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
                                             : <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
                                         }
-                                        <p className="text-sm font-medium text-foreground">
-                                            <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>
-                                            {q.question}
-                                        </p>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-foreground">
+                                                <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>
+                                                {q.question}
+                                            </p>
+                                            {r.topic && r.topic !== "General" && (
+                                                <span className="mt-1 inline-block text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5">{r.topic}</span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-1 gap-1.5 pl-6">
                                         {OPTIONS.map((opt) => {
@@ -495,6 +702,7 @@ interface WeeklySubmitResult {
     passed: boolean
     pass_score: number
     results: QuestionResult[]
+    topic_scores: Record<string, TopicScore>
     next_week_style: string | null
     next_week_unlocked: number | null
 }
@@ -506,7 +714,7 @@ const STYLE_INFO: Record<string, { label: string; description: string }> = {
     reinforcement: { label: "Reinforcement",  description: "Spaced repetition and progressive practice" },
 }
 
-type WeeklyView = "loading" | "not_generated" | "generating" | "ready" | "taking" | "submitted" | "error"
+type WeeklyView = "loading" | "not_generated" | "generating" | "ready" | "taking" | "submitted" | "last_results" | "error"
 
 export function WeeklyQuizPanel({
     skillId,
@@ -528,6 +736,8 @@ export function WeeklyQuizPanel({
     const [submitError, setSubmitError] = useState("")
     const [result, setResult] = useState<WeeklySubmitResult | null>(null)
     const [generateError, setGenerateError] = useState("")
+    const [lastAttempt, setLastAttempt] = useState<LatestAttemptData | null>(null)
+    const [loadingLastAttempt, setLoadingLastAttempt] = useState(false)
 
     useEffect(() => {
         loadQuiz()
@@ -590,9 +800,22 @@ export function WeeklyQuizPanel({
         setSubmitting(false)
     }
 
+    async function loadLastAttemptWeekly() {
+        setLoadingLastAttempt(true)
+        try {
+            const res = await api.get(`/py/quiz/${skillId}/week/${week}/attempts/latest`)
+            setLastAttempt(res.data)
+            setView("last_results")
+        } catch {
+            // ignore
+        } finally {
+            setLoadingLastAttempt(false)
+        }
+    }
+
     function startAttempt() {
         if (quiz) {
-            const shuffled = [...quiz.questions].sort(() => Math.random() - 0.5)
+            const shuffled = fisherYates(quiz.questions)
             setQuiz({ ...quiz, questions: shuffled })
         }
         setResult(null)
@@ -722,10 +945,145 @@ export function WeeklyQuizPanel({
                         </div>
                     )}
 
-                    <Button className="w-full h-11 rounded-xl" onClick={startAttempt}>
-                        <Brain className="h-4 w-4 mr-2" />
-                        {hasPrevAttempts ? "Retake Quiz" : "Start Quiz"}
-                    </Button>
+                    <div className="space-y-2">
+                        <Button className="w-full h-11 rounded-xl" onClick={startAttempt}>
+                            <Brain className="h-4 w-4 mr-2" />
+                            {hasPrevAttempts ? "Retake Quiz" : "Start Quiz"}
+                        </Button>
+                        {hasPrevAttempts && (
+                            <Button
+                                variant="outline"
+                                className="w-full h-10 rounded-xl"
+                                onClick={loadLastAttemptWeekly}
+                                disabled={loadingLastAttempt}
+                            >
+                                {loadingLastAttempt
+                                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    : <Brain className="h-4 w-4 mr-2" />
+                                }
+                                View Last Results
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    // ── Weekly Last Results ───────────────────────────────────────────────────
+
+    if (view === "last_results" && lastAttempt && quiz) {
+        const resultMap = Object.fromEntries(lastAttempt.results.map((r) => [r.question_id, r]))
+        const sortedTopics = Object.entries(lastAttempt.topic_scores).sort((a, b) => a[1].pct - b[1].pct)
+
+        return (
+            <div className="flex flex-col h-full overflow-hidden">
+                <div className={cn(
+                    "border-b px-4 sm:px-8 py-5 shrink-0",
+                    lastAttempt.passed ? "bg-emerald-50 dark:bg-emerald-950/20" : "bg-red-50 dark:bg-red-950/20"
+                )}>
+                    <div className="flex items-center gap-4">
+                        {lastAttempt.passed
+                            ? <CheckCircle2 className="h-8 w-8 text-emerald-500 shrink-0" />
+                            : <XCircle className="h-8 w-8 text-red-500 shrink-0" />
+                        }
+                        <div className="flex-1 min-w-0">
+                            <h2 className={cn("text-lg font-bold", lastAttempt.passed ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>
+                                Last Attempt — Week {week} {lastAttempt.passed ? "(Passed)" : "(Not Passed)"}
+                            </h2>
+                            <p className="text-sm text-muted-foreground">
+                                Score: <span className="font-semibold text-foreground">{lastAttempt.score}%</span>
+                                {lastAttempt.created_at && (
+                                    <> · {new Date(lastAttempt.created_at).toLocaleDateString()}</>
+                                )}
+                            </p>
+                        </div>
+                        <p className={cn("text-3xl font-black shrink-0", lastAttempt.passed ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                            {lastAttempt.score}%
+                        </p>
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                        <Button variant="outline" size="sm" onClick={() => setView("ready")}>Quiz Overview</Button>
+                        <Button size="sm" onClick={startAttempt}>
+                            <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                    <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6 space-y-6">
+                        {sortedTopics.length > 1 && (
+                            <div className="rounded-xl border bg-card p-4 space-y-3">
+                                <h3 className="text-sm font-semibold">Score by Topic</h3>
+                                <div className="space-y-2">
+                                    {sortedTopics.map(([topic, ts]) => (
+                                        <div key={topic} className="space-y-1">
+                                            <div className="flex justify-between text-xs">
+                                                <span className="text-muted-foreground truncate pr-2">{topic}</span>
+                                                <span className={cn("font-semibold shrink-0", ts.pct >= 60 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                                                    {ts.correct}/{ts.total} · {ts.pct}%
+                                                </span>
+                                            </div>
+                                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                                <div
+                                                    className={cn("h-full rounded-full", ts.pct >= 60 ? "bg-emerald-500" : "bg-red-400")}
+                                                    style={{ width: `${ts.pct}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {quiz.questions.map((q, i) => {
+                            const r = resultMap[q.id]
+                            if (!r) return null
+                            return (
+                                <div key={q.id} className={cn(
+                                    "rounded-xl border p-4 space-y-3",
+                                    r.is_correct ? "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20" : "border-red-200 bg-red-50/50 dark:bg-red-950/20"
+                                )}>
+                                    <div className="flex items-start gap-2">
+                                        {r.is_correct
+                                            ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                                            : <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                                        }
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-foreground">
+                                                <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>
+                                                {q.question}
+                                            </p>
+                                            {r.topic && r.topic !== "General" && (
+                                                <span className="mt-1 inline-block text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5">{r.topic}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-1.5 pl-6">
+                                        {OPTIONS.map((opt) => {
+                                            const text = getOptionText(q, opt)
+                                            const isCorrect = opt === r.correct
+                                            const isSelected = opt === r.selected
+                                            return (
+                                                <div key={opt} className={cn(
+                                                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm border",
+                                                    isCorrect
+                                                        ? "border-emerald-300 bg-emerald-100 dark:bg-emerald-900/30 font-medium text-emerald-800 dark:text-emerald-300"
+                                                        : isSelected && !isCorrect
+                                                            ? "border-red-300 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                                                            : "border-transparent text-muted-foreground"
+                                                )}>
+                                                    <span className="font-mono text-xs w-4 shrink-0">{opt}.</span>
+                                                    <span>{text}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                    <p className="pl-6 text-xs text-muted-foreground italic">{r.explanation}</p>
+                                </div>
+                            )
+                        })}
+                    </div>
                 </div>
             </div>
         )
@@ -814,6 +1172,7 @@ export function WeeklyQuizPanel({
     if (view === "submitted" && result && quiz) {
         const resultMap = Object.fromEntries(result.results.map((r) => [r.question_id, r]))
         const styleInfo = result.next_week_style ? STYLE_INFO[result.next_week_style] : null
+        const sortedTopics = Object.entries(result.topic_scores ?? {}).sort((a, b) => a[1].pct - b[1].pct)
 
         return (
             <div className="flex flex-col h-full overflow-hidden">
@@ -860,6 +1219,31 @@ export function WeeklyQuizPanel({
 
                 <div className="flex-1 overflow-y-auto">
                     <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6 space-y-4">
+                        {/* Topic breakdown */}
+                        {sortedTopics.length > 1 && (
+                            <div className="rounded-xl border bg-card p-4 space-y-3">
+                                <h3 className="text-sm font-semibold">Score by Topic</h3>
+                                <div className="space-y-2">
+                                    {sortedTopics.map(([topic, ts]) => (
+                                        <div key={topic} className="space-y-1">
+                                            <div className="flex justify-between text-xs">
+                                                <span className="text-muted-foreground truncate pr-2">{topic}</span>
+                                                <span className={cn("font-semibold shrink-0", ts.pct >= 60 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                                                    {ts.correct}/{ts.total} · {ts.pct}%
+                                                </span>
+                                            </div>
+                                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                                <div
+                                                    className={cn("h-full rounded-full", ts.pct >= 60 ? "bg-emerald-500" : "bg-red-400")}
+                                                    style={{ width: `${ts.pct}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {quiz.questions.map((q, i) => {
                             const r = resultMap[q.id]
                             if (!r) return null
@@ -873,10 +1257,15 @@ export function WeeklyQuizPanel({
                                             ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
                                             : <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
                                         }
-                                        <p className="text-sm font-medium text-foreground">
-                                            <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>
-                                            {q.question}
-                                        </p>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-foreground">
+                                                <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>
+                                                {q.question}
+                                            </p>
+                                            {r.topic && r.topic !== "General" && (
+                                                <span className="mt-1 inline-block text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5">{r.topic}</span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-1 gap-1.5 pl-6">
                                         {OPTIONS.map((opt) => {

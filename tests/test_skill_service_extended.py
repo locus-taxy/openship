@@ -80,8 +80,9 @@ class TestGetSyllabusDetail:
 class TestGetAllSyllabi:
     def test_returns_list_of_skill_dicts(self):
         session = MagicMock()
-        # Simulate a row tuple
-        row = (1, "user-1", "test@example.com", "Python", 30, 2, None, 5, 3, "not_generated")
+        # Simulate a row tuple: id, user_id, email, skill, days, hours, created_at,
+        # total_tasks, completed_tasks, quiz_status, total_weeks, weekly_quizzes_passed
+        row = (1, "user-1", "test@example.com", "Python", 30, 2, None, 5, 3, "not_generated", 4, 1)
         exec_mock = MagicMock()
         exec_mock.all.return_value = [row]
         session.exec.return_value = exec_mock
@@ -92,6 +93,8 @@ class TestGetAllSyllabi:
             assert result[0]["skill"] == "Python"
             assert result[0]["total_tasks"] == 5
             assert result[0]["completed_tasks"] == 3
+            assert result[0]["total_weeks"] == 4
+            assert result[0]["weekly_quizzes_passed"] == 1
         finally:
             patcher.stop()
 

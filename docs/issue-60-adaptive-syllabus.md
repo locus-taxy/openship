@@ -1,5 +1,7 @@
 # Tech Doc — Adaptive Syllabus Generation (Issue #60)
 
+> **SUPERSEDED** — This was the initial design proposal. The implemented approach uses proper ML algorithms (BKT, Ebbinghaus Forgetting Curve, Thompson Sampling Bandit) instead of the simple mastery score described here. See [`issue-60-ml-approach.md`](issue-60-ml-approach.md) for the current, accurate documentation.
+
 ## Goal
 
 - Keep the existing **full-course quiz** exactly as it is today

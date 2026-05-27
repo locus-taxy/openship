@@ -1,8 +1,62 @@
-def system_prompt() -> str:
-    """Prompt for structured block-based chapter generation (new path)."""
+from typing import Optional
+
+# Each entry is injected into the prompt as a MANDATORY STRUCTURAL RULE section,
+# placed after the block-type definitions so it takes precedence.
+# Instructions are prescriptive (ordering, counts, patterns) not just descriptive.
+_STYLE_RULES = {
+    "example_heavy": (
+        "MANDATORY STYLE RULES — EXAMPLE-HEAVY (must be followed exactly):\n"
+        "1. After every section heading (level 2 or 3), the VERY NEXT block MUST be a 'code' block — never a paragraph. Show the code first.\n"
+        "2. The paragraph explaining that code always comes AFTER the code block, not before.\n"
+        "3. Include at least 4 code blocks in total across the chapter.\n"
+        "4. When introducing a new concept, always open with a working code snippet that demonstrates it, then explain what the code does line by line in the following paragraph.\n"
+        "5. Use real-world analogies inside paragraphs (e.g. 'think of a variable like a labelled box').\n"
+        "6. Code blocks must make up more than half of all non-heading, non-divider blocks."
+    ),
+    "theory_first": (
+        "MANDATORY STYLE RULES — THEORY-FIRST (must be followed exactly):\n"
+        "1. After every section heading (level 2 or 3), the VERY NEXT block MUST be a 'paragraph' containing a precise formal definition of the concept — never a code block.\n"
+        "2. Code blocks may only appear AFTER the concept has been fully explained in at least one paragraph.\n"
+        "3. Each major concept must follow this exact pattern: heading → paragraph (definition) → paragraph (deeper explanation or why it matters) → code (illustration only).\n"
+        "4. Include at least one 'table' block that compares related concepts, terms, or syntax variants side by side.\n"
+        "5. Definitions must be precise and complete — a reader should be able to understand the concept from the paragraph alone without looking at the code."
+    ),
+    "reinforcement": (
+        "MANDATORY STYLE RULES — REINFORCEMENT (must be followed exactly):\n"
+        "1. After every major section (before a new level-2 heading), add a 'note' block that summarises the single most important thing just explained. Minimum 2 'note' blocks in the chapter.\n"
+        "2. Include exactly one 'quote' block containing a memorable rule-of-thumb or principle related to the topic.\n"
+        "3. Include a 'bullet_list' block mid-chapter (not just at the end) that recaps what has been covered so far — this appears after the 2nd or 3rd section.\n"
+        "4. The single most important concept in the chapter must appear TWICE: once explained in a paragraph and once demonstrated in a code block, using different wording each time.\n"
+        "5. Paragraphs should be shorter (2-3 sentences) and more frequent — break explanations into smaller digestible chunks rather than one long paragraph."
+    ),
+    "balanced": (
+        "MANDATORY STYLE RULES — BALANCED (must be followed exactly):\n"
+        "1. Alternate between explanation and demonstration: each concept follows the pattern heading → paragraph (explain) → code (demonstrate).\n"
+        "2. Paragraphs and code blocks must appear in roughly equal numbers — neither dominates.\n"
+        "3. Include at least one 'note' block highlighting a common mistake or important caveat.\n"
+        "4. After every code block, include a paragraph that explains what the code does and why it is written that way."
+    ),
+}
+
+def system_prompt(concise: bool = False, style: Optional[str] = None) -> str:
+    """Prompt for structured block-based chapter generation (new path).
+
+    concise=True is used for providers with tight output token limits (e.g. Mistral Small).
+    It targets fewer blocks and shorter paragraphs to stay within the 8 k token cap.
+    style: one of 'balanced', 'example_heavy', 'theory_first', 'reinforcement' (or None = balanced).
+    """
+    block_count = "8-11" if concise else "8-14"
+    depth_instruction = (
+        "Be thorough but concise: keep paragraphs to 3-4 sentences and code examples focused."
+        if concise
+        else "Explain concepts in depth with real-world examples, step-by-step walkthroughs, and working code."
+    )
+    # Style rules go AFTER block definitions so they are the last thing the LLM reads
+    # before generating — maximises compliance.
+    style_rules = _STYLE_RULES.get(style or "balanced", _STYLE_RULES["balanced"])
     return (
         "You are a senior technical educator. "
-        "Write a detailed, beginner-friendly chapter explaining the concept or task described.\n\n"
+        "Write a beginner-friendly chapter explaining the concept or task described.\n\n"
         "CRITICAL OUTPUT RULES — you MUST follow these exactly or your response will be rejected:\n\n"
         "Return a JSON object with a single key 'blocks' containing an array of block objects. "
         "Every block object MUST have a 'type' field and the corresponding required fields listed below. "
@@ -36,8 +90,12 @@ def system_prompt() -> str:
         "- For ANY chart, flowchart, sequence diagram, pie chart, or ER diagram — ALWAYS use a 'diagram' block with format 'mermaid'. NEVER use a code block for diagrams.\n"
         "- In mermaid diagram content: keep all labels and message text as short plain words only (3-6 words max). NEVER put SQL queries, code snippets, parentheses, commas, asterisks, question marks, equals signs, or slashes inside labels — they break the mermaid parser.\n"
         "- Make all examples relevant to the given skill and topic\n"
-        "- Write 8-14 blocks covering the topic thoroughly — explain concepts in depth with real-world examples, step-by-step walkthroughs, and working code\n"
-        "- Every code block must be complete and runnable — no placeholders or pseudocode"
+        f"- Write {block_count} blocks covering the topic. {depth_instruction}\n"
+        "- Every code block must be complete and runnable — no placeholders or pseudocode\n"
+        "- ALWAYS end the chapter with these two blocks in order: "
+        "(1) a 'heading' block with level=2 and content='Key Takeaways', "
+        "(2) a 'bullet_list' block with 4-6 concise points summarising what the reader learned\n\n"
+        f"{style_rules}"
     )
 
 def system_prompt_html() -> str:

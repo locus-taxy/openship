@@ -12,6 +12,114 @@ import { sanitizeHtml } from "@/lib/sanitize"
 import hljs from "highlight.js"
 import "highlight.js/styles/atom-one-dark.css"
 
+// ─── Block rendering (for structured content_blocks) ─────────────────────────
+
+type BlockType = "heading" | "paragraph" | "code" | "bullet_list" | "numbered_list" | "table" | "note" | "quote" | "divider" | "diagram"
+
+interface ContentBlock {
+    type: BlockType
+    content?: string
+    level?: number
+    language?: string
+    items?: string[]
+    headers?: string[]
+    rows?: string[][]
+}
+
+function InlineText({ text }: { text: string }) {
+    const parts = text.split(/(`[^`]+`)/g)
+    return (
+        <>
+            {parts.map((part, i) => {
+                if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
+                    return <code key={i} className="bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-[0.82em] font-mono">{part.slice(1, -1)}</code>
+                const boldParts = part.split(/(\*\*[^*]+\*\*)/g)
+                if (boldParts.length > 1)
+                    return boldParts.map((bp, j) =>
+                        bp.startsWith("**") && bp.endsWith("**") && bp.length > 4
+                            ? <strong key={`${i}-${j}`}>{bp.slice(2, -2)}</strong>
+                            : <span key={`${i}-${j}`}>{bp}</span>
+                    )
+                return <span key={i}>{part}</span>
+            })}
+        </>
+    )
+}
+
+function PublicCodeBlock({ code, language }: { code: string; language: string }) {
+    const ref = useRef<HTMLElement>(null)
+    const [copied, setCopied] = useState(false)
+
+    useEffect(() => {
+        if (!ref.current) return
+        ref.current.textContent = code
+        try {
+            if (language) ref.current.innerHTML = hljs.highlight(code, { language }).value
+            else hljs.highlightElement(ref.current)
+        } catch { hljs.highlightElement(ref.current) }
+        ref.current.classList.add("hljs")
+    }, [code, language])
+
+    const lines = code.split("\n")
+    if (lines[lines.length - 1] === "") lines.pop()
+
+    async function handleCopy() {
+        try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* denied */ }
+    }
+
+    const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
+    const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+
+    return (
+        <div className="relative rounded-xl border border-white/10 bg-[#282c34] text-sm shadow-lg overflow-hidden">
+            <button onClick={handleCopy} title="Copy code"
+                dangerouslySetInnerHTML={{ __html: copied ? ICON_CHECK : ICON_COPY }}
+                style={{ position: "absolute", top: 10, right: 10, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, padding: "5px 8px", cursor: "pointer", color: copied ? "#4ade80" : "#9da5b4", display: "flex", alignItems: "center", justifyContent: "center" }}
+            />
+            <div className="flex overflow-x-auto">
+                <div className="flex flex-col shrink-0 select-none text-right px-3 py-4 text-[#636d83] text-xs leading-[1.6] border-r border-white/[0.08] min-w-[2.5rem]">
+                    {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
+                </div>
+                <div className="flex-1 overflow-x-auto px-5 py-4 min-w-0">
+                    <code ref={ref} className="font-mono text-xs leading-[1.6] whitespace-pre block" />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function BlockItem({ block }: { block: ContentBlock }) {
+    switch (block.type) {
+        case "heading": {
+            const text = block.content ?? ""
+            if (block.level === 1) return <h1 className="text-2xl font-bold tracking-tight text-foreground mt-6 mb-3"><InlineText text={text} /></h1>
+            if (block.level === 3) return <h3 className="text-base font-semibold text-foreground mt-4 mb-1.5"><InlineText text={text} /></h3>
+            return <h2 className="text-xl font-semibold text-foreground mt-5 mb-2 border-b border-border/50 pb-2"><InlineText text={text} /></h2>
+        }
+        case "paragraph": return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
+        case "code": return <PublicCodeBlock code={block.content ?? ""} language={block.language ?? ""} />
+        case "diagram": return <PublicCodeBlock code={block.content ?? ""} language="plaintext" />
+        case "bullet_list": return <ul className="list-disc pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
+        case "numbered_list": return <ol className="list-decimal pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
+        case "table": return (
+            <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full border-collapse text-sm">
+                    <thead className="bg-muted/50"><tr>{block.headers?.map((h, i) => <th key={i} className="border border-border px-4 py-2.5 text-left font-semibold text-foreground"><InlineText text={h} /></th>)}</tr></thead>
+                    <tbody>{block.rows?.map((row, i) => <tr key={i} className={i % 2 === 1 ? "bg-muted/20" : ""}>{row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600"><InlineText text={cell} /></td>)}</tr>)}</tbody>
+                </table>
+            </div>
+        )
+        case "note": return <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3"><p className="text-sm text-foreground/80 leading-7"><InlineText text={block.content ?? ""} /></p></div>
+        case "quote": return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 italic"><InlineText text={block.content ?? ""} /></blockquote>
+        case "divider": return <hr className="border-border my-2" />
+        default: return null
+    }
+}
+
+function BlockRenderer({ blocks }: { blocks: ContentBlock[] }) {
+    return <div className="space-y-4">{blocks.map((block, i) => <BlockItem key={i} block={block} />)}</div>
+}
+
 interface PublicTask {
     id: number
     day: number
@@ -19,6 +127,7 @@ interface PublicTask {
     task: string
     hours: number
     newsletter: string | null
+    content_blocks: string | null
 }
 
 interface PublicWeek {
@@ -44,6 +153,16 @@ interface PublicSyllabus {
 
 function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
     const proseRef = useRef<HTMLDivElement>(null)
+
+    const blocks: ContentBlock[] | null = (() => {
+        if (!chapter.content_blocks) return null
+        try {
+            const parsed = JSON.parse(chapter.content_blocks)
+            return Array.isArray(parsed) && parsed.length > 0 ? parsed : null
+        } catch { return null }
+    })()
+
+    const hasContent = blocks !== null || !!chapter.newsletter
 
     useEffect(() => {
         const container = proseRef.current
@@ -129,39 +248,43 @@ function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
                         <p className="text-sm text-muted-foreground leading-relaxed">{chapter.task}</p>
                     </div>
 
-                    {chapter.newsletter ? (
+                    {hasContent ? (
                         <div className="space-y-4">
                             <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                 <FileText className="h-3 w-3" /> Content
                             </div>
-                            <div
-                                ref={proseRef}
-                                className="prose prose-base max-w-none
-                                    prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
-                                    prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
-                                    prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
-                                    prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2
-                                    prose-h4:text-sm prose-h4:mt-4 prose-h4:mb-1
-                                    prose-p:text-zinc-600 prose-p:leading-7
-                                    prose-strong:text-foreground prose-strong:font-semibold
-                                    prose-em:text-zinc-600
-                                    prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
-                                    prose-ul:pl-5 prose-ol:pl-5 prose-ul:my-3 prose-ol:my-3
-                                    prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
-                                    [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
-                                    prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                                    [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm
-                                    [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
-                                    prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
-                                    prose-hr:border-border prose-hr:my-6
-                                    prose-table:w-full prose-table:border-collapse prose-table:text-sm
-                                    prose-thead:bg-muted/50
-                                    prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
-                                    prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
-                                    prose-tr:even:bg-muted/20
-                                    [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
-                                dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.newsletter) }}
-                            />
+                            {blocks ? (
+                                <BlockRenderer blocks={blocks} />
+                            ) : chapter.newsletter ? (
+                                <div
+                                    ref={proseRef}
+                                    className="prose prose-base max-w-none
+                                        prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
+                                        prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
+                                        prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3 prose-h2:border-b prose-h2:border-border/50 prose-h2:pb-2
+                                        prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2
+                                        prose-h4:text-sm prose-h4:mt-4 prose-h4:mb-1
+                                        prose-p:text-zinc-600 prose-p:leading-7
+                                        prose-strong:text-foreground prose-strong:font-semibold
+                                        prose-em:text-zinc-600
+                                        prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
+                                        prose-ul:pl-5 prose-ol:pl-5 prose-ul:my-3 prose-ol:my-3
+                                        prose-li:text-zinc-600 prose-li:leading-7 prose-li:my-0.5
+                                        [&_ul>li::marker]:text-zinc-500 [&_ol>li::marker]:text-zinc-500
+                                        prose-code:bg-zinc-100 prose-code:text-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                                        [&_pre]:!p-0 [&_pre]:!bg-[#282c34] [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:shadow-lg [&_pre]:text-sm
+                                        [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:font-mono
+                                        prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:my-4
+                                        prose-hr:border-border prose-hr:my-6
+                                        prose-table:w-full prose-table:border-collapse prose-table:text-sm
+                                        prose-thead:bg-muted/50
+                                        prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2.5 prose-th:text-left prose-th:font-semibold prose-th:text-foreground
+                                        prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
+                                        prose-tr:even:bg-muted/20
+                                        [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
+                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.newsletter) }}
+                                />
+                            ) : null}
                         </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center py-24 text-center rounded-lg border border-dashed">

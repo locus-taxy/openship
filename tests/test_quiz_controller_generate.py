@@ -2,7 +2,13 @@ from unittest.mock import patch, MagicMock
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
-from controllers.quiz import generate_quiz_for_skill, submit_quiz, reset_final_quiz
+from controllers.quiz import (
+    generate_quiz_for_skill,
+    submit_quiz,
+    reset_final_quiz,
+    get_latest_attempt,
+    get_weekly_latest_attempt,
+)
 from models.user import User
 from models.skill import Skill
 from models.quiz import Quiz
@@ -258,5 +264,49 @@ class TestSubmitQuizBkt:
                 result = submit_quiz(1, payload=payload, current_user=user)
             mock_bkt.assert_not_called()
             assert result.passed is False
+        finally:
+            patcher.stop()
+
+class TestGetLatestAttempt:
+    def test_raises_404_when_no_attempt_data(self):
+        user = _make_user()
+        skill = _make_skill()
+        quiz = Quiz(id=1, skill_id=1, week=0, pass_score=60)
+        quiz.status = "available"
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_quiz_session(session)
+        try:
+            with (
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
+                patch(
+                    "controllers.quiz.quiz_service.get_latest_attempt_results", return_value=None
+                ),
+            ):
+                with pytest.raises(HTTPException) as exc:
+                    get_latest_attempt(skill_id=1, current_user=user)
+                assert exc.value.status_code == 404
+        finally:
+            patcher.stop()
+
+class TestGetWeeklyLatestAttempt:
+    def test_raises_404_when_no_attempt_data(self):
+        user = _make_user()
+        skill = _make_skill()
+        quiz = Quiz(id=2, skill_id=1, week=1, pass_score=60)
+        quiz.status = "available"
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_quiz_session(session)
+        try:
+            with (
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
+                patch(
+                    "controllers.quiz.quiz_service.get_latest_attempt_results", return_value=None
+                ),
+            ):
+                with pytest.raises(HTTPException) as exc:
+                    get_weekly_latest_attempt(skill_id=1, week=1, current_user=user)
+                assert exc.value.status_code == 404
         finally:
             patcher.stop()

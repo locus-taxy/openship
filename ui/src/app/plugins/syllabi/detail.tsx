@@ -259,9 +259,18 @@ function BlockItem({ block }: { block: ContentBlock }) {
     }
 }
 
+// ─── Style badge config ───────────────────────────────────────────────────────
+
+const STYLE_META: Record<string, { label: string; className: string }> = {
+    balanced:       { label: "Balanced",       className: "bg-zinc-100 text-zinc-600 border-zinc-200" },
+    example_heavy:  { label: "Example-heavy",  className: "bg-blue-50 text-blue-600 border-blue-200" },
+    theory_first:   { label: "Theory-first",   className: "bg-violet-50 text-violet-600 border-violet-200" },
+    reinforcement:  { label: "Reinforcement",  className: "bg-amber-50 text-amber-600 border-amber-200" },
+}
+
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
-function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGenerationEnd, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
+function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGenerationEnd, onContentGenerated, onMarkComplete, onGoToNext, hasNext, isLastInWeek, weekNumber, onGoToWeekQuiz, allWeekComplete }: {
     chapter: Chapter
     isGenerating: boolean
     onGenerationStart: (taskId: number) => void
@@ -270,9 +279,14 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
     onMarkComplete: (taskId: number) => void
     onGoToNext: () => void
     hasNext: boolean
+    isLastInWeek: boolean
+    weekNumber: number | null
+    onGoToWeekQuiz: () => void
+    allWeekComplete: boolean
 }) {
     const [content, setContent] = useState<string | null>(null)
     const [blocks, setBlocks] = useState<ContentBlock[] | null>(null)
+    const [contentStyle, setContentStyle] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const generating = isGenerating
     // const [sending, setSending] = useState(false)
@@ -289,6 +303,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         setCompleted(chapter.completed)
         setContent(null)
         setBlocks(null)
+        setContentStyle(null)
         if (chapter.has_content) loadContent()
     }, [chapter.id])
 
@@ -387,6 +402,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         setContent(null)
         const { success, data } = await getRequest(`/py/chapter/${chapter.id}`)
         if (success) {
+            if (data.content_style) setContentStyle(data.content_style)
             if (data.content_blocks) {
                 try {
                     const parsed = JSON.parse(data.content_blocks)
@@ -482,8 +498,16 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                             <div className="space-y-4">
                                 {/* Toolbar */}
                                 <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                                        <FileText className="h-3 w-3" /> Content
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                            <FileText className="h-3 w-3" /> Content
+                                        </div>
+                                        {contentStyle && STYLE_META[contentStyle] && (
+                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${STYLE_META[contentStyle].className}`}>
+                                                <Sparkles className="h-2.5 w-2.5" />
+                                                {STYLE_META[contentStyle].label}
+                                            </span>
+                                        )}
                                     </div>
                                     <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1.5" disabled={generating} onClick={() => setConfirmOpen(true)}>
                                         {generating
@@ -540,11 +564,26 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                                             <CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete
                                         </Button>
                                     )}
-                                    {completed && hasNext && (
-                                        <Button size="sm" onClick={onGoToNext}>
-                                            Next Chapter <ArrowRight className="h-4 w-4 ml-1.5" />
-                                        </Button>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {completed && isLastInWeek && weekNumber !== null && (
+                                            allWeekComplete ? (
+                                                <Button size="sm" onClick={onGoToWeekQuiz}>
+                                                    <Brain className="h-4 w-4 mr-1.5" />
+                                                    Week {weekNumber} Quiz
+                                                </Button>
+                                            ) : (
+                                                <Button size="sm" disabled>
+                                                    <Brain className="h-4 w-4 mr-1.5" />
+                                                    Complete all chapters first
+                                                </Button>
+                                            )
+                                        )}
+                                        {completed && hasNext && !isLastInWeek && (
+                                            <Button size="sm" onClick={onGoToNext}>
+                                                Next Chapter <ArrowRight className="h-4 w-4 ml-1.5" />
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         ) : null
@@ -947,9 +986,12 @@ export default function SyllabusDetailPage() {
     const completedCount = allTasks.filter((t) => t.completed).length
     const hasWeeklyQuizData = detail ? detail.generated_weeks > detail.total_weeks : false
     const quizPassed = detail?.quiz_status === "passed"
-    // Quiz counts as one extra step — chapters + quiz = total course
-    const totalSteps = allTasks.length + 1
-    const completedSteps = completedCount + (quizPassed ? 1 : 0)
+    const weeklyQuizzesPassed = detail
+        ? Object.values(detail.weekly_quiz_statuses as Record<string, string>).filter(s => s === "passed").length
+        : 0
+    // Fixed denominator: expected course days + weekly quizzes + final quiz
+    const totalSteps = detail ? detail.days + detail.total_weeks + 1 : 0
+    const completedSteps = completedCount + weeklyQuizzesPassed + (quizPassed ? 1 : 0)
     const overallProgress = totalSteps > 1 ? Math.round((completedSteps / totalSteps) * 100) : 0
 
     // Restore chapter from URL param, fallback to first chapter
@@ -1244,6 +1286,25 @@ export default function SyllabusDetailPage() {
                             onMarkComplete={handleChapterCompleted}
                             onGoToNext={goToNextChapter}
                             hasNext={!!nextChapter}
+                            isLastInWeek={(() => {
+                                const allWeeks = detail.months.flatMap(m => m.weeks)
+                                const week = allWeeks.find(w => w.tasks.some(t => t.id === activeChapter.id))
+                                return week ? week.tasks[week.tasks.length - 1]?.id === activeChapter.id : false
+                            })()}
+                            weekNumber={(() => {
+                                const allWeeks = detail.months.flatMap(m => m.weeks)
+                                return allWeeks.find(w => w.tasks.some(t => t.id === activeChapter.id))?.week ?? null
+                            })()}
+                            allWeekComplete={(() => {
+                                const allWeeks = detail.months.flatMap(m => m.weeks)
+                                const week = allWeeks.find(w => w.tasks.some(t => t.id === activeChapter.id))
+                                return week ? week.tasks.every(t => t.completed) : false
+                            })()}
+                            onGoToWeekQuiz={() => {
+                                const allWeeks = detail.months.flatMap(m => m.weeks)
+                                const week = allWeeks.find(w => w.tasks.some(t => t.id === activeChapter.id))
+                                if (week) { setActiveView("weekly-quiz"); setActiveWeek(week.week) }
+                            }}
                         />
                     ) : null}
                 </div>

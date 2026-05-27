@@ -7,6 +7,10 @@ from services.daily_task import (
     clear_syllabus_tasks,
     delete_week_tasks,
     store_week_tasks,
+    get_max_day_for_skill,
+    get_week_content_style,
+    claim_week_style,
+    add_blocks_to_db,
 )
 from models.daily_task import DailyTask
 
@@ -242,5 +246,116 @@ class TestStoreWeekTasks:
             result = store_week_tasks("u1", "Python", 1, week=2, month=1, daily_plan=[], hours=2)
             assert result is True
             session.add.assert_not_called()
+        finally:
+            patcher.stop()
+
+class TestGetMaxDayForSkill:
+    def test_returns_max_day_when_tasks_exist(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.first.return_value = 14
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            result = get_max_day_for_skill(1)
+            assert result == 14
+        finally:
+            patcher.stop()
+
+    def test_returns_zero_when_no_tasks(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.first.return_value = None
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            result = get_max_day_for_skill(999)
+            assert result == 0
+        finally:
+            patcher.stop()
+
+class TestGetWeekContentStyle:
+    def test_returns_style_when_task_has_one(self):
+        task = _make_task(content_style="visual_heavy")
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.first.return_value = task
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            result = get_week_content_style(1, week=1)
+            assert result == "visual_heavy"
+        finally:
+            patcher.stop()
+
+    def test_returns_none_when_no_task_with_style(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.first.return_value = None
+        session.exec.return_value = exec_mock
+        patcher = _patch_session(session)
+        try:
+            result = get_week_content_style(1, week=1)
+            assert result is None
+        finally:
+            patcher.stop()
+
+class TestClaimWeekStyle:
+    def test_writes_style_when_task_has_none(self):
+        task = _make_task(content_style=None)
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session(session)
+        try:
+            claim_week_style(task_id=1, style="example_heavy")
+            assert task.content_style == "example_heavy"
+            session.add.assert_called_once_with(task)
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+    def test_skips_write_when_style_already_set(self):
+        task = _make_task(content_style="existing_style")
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session(session)
+        try:
+            claim_week_style(task_id=1, style="new_style")
+            session.add.assert_not_called()
+            session.commit.assert_not_called()
+        finally:
+            patcher.stop()
+
+    def test_skips_write_when_task_not_found(self):
+        session = MagicMock()
+        session.get.return_value = None
+        patcher = _patch_session(session)
+        try:
+            claim_week_style(task_id=999, style="visual_heavy")
+            session.add.assert_not_called()
+        finally:
+            patcher.stop()
+
+    def test_logs_error_on_exception(self):
+        session = MagicMock()
+        session.get.side_effect = Exception("DB error")
+        patcher = _patch_session(session)
+        try:
+            claim_week_style(task_id=1, style="any_style")
+        finally:
+            patcher.stop()
+
+class TestAddBlocksToDbContentStyle:
+    def test_sets_content_style_when_provided(self):
+        task = _make_task()
+        block = MagicMock()
+        block.model_dump.return_value = {"type": "paragraph", "content": "hello"}
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session(session)
+        try:
+            result = add_blocks_to_db([block], task_id=1, content_style="visual_heavy")
+            assert result is True
+            assert task.content_style == "visual_heavy"
         finally:
             patcher.stop()

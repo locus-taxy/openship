@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional, Tuple
+import random
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlmodel import Session, select
 
@@ -46,6 +47,13 @@ def all_chapters_complete(skill_id: int) -> bool:
         ).first()
         return incomplete is None
 
+def get_topic_week_map(skill_id: int, topics: List[str]) -> Dict[str, int]:
+    """Return {topic: week} for the given topic names so the quiz can group by week."""
+    topic_set = set(topics)
+    with Session(engine) as session:
+        tasks = session.exec(select(DailyTask).where(DailyTask.skill_id == skill_id)).all()
+        return {t.topic: t.week for t in tasks if t.topic and t.topic in topic_set and t.week}
+
 def get_topics_for_skill(skill_id: int) -> List[str]:
     """Return ordered list of topic strings across the whole course."""
     with Session(engine) as session:
@@ -89,8 +97,15 @@ def create_quiz(
     questions: List[GeneratedQuestion],
     week: int = 0,
     topic_map: Optional[Dict[int, str]] = None,
+    pool_size: int = 1,
 ) -> Quiz:
-    """Insert Quiz + QuizQuestion rows. week=0 is the final quiz, week>=1 is weekly."""
+    """Insert Quiz + QuizQuestion rows. week=0 is the final quiz, week>=1 is weekly.
+
+    When pool_size > 1 the LLM generated pool_size variants per unique question.
+    Every pool_size consecutive questions receive the same pool_group so that
+    get_quiz_with_questions can sample one variant per group.
+    topic_map keys are pool-group numbers (1-indexed), not raw position numbers.
+    """
     pass_score = FINAL_PASS_SCORE if week == 0 else WEEKLY_PASS_SCORE
     with Session(engine) as session:
         quiz = Quiz(skill_id=skill_id, week=week, pass_score=pass_score)
@@ -99,7 +114,8 @@ def create_quiz(
 
         for i, q in enumerate(questions, start=1):
             opts = {o.label.upper(): o.text for o in q.options}
-            topic = topic_map.get(i) if topic_map else None
+            group = (i - 1) // pool_size + 1  # 1-based pool group
+            topic = topic_map.get(group) if topic_map else None
             question_row = QuizQuestion(
                 quiz_id=quiz.id,
                 position=i,
@@ -111,6 +127,7 @@ def create_quiz(
                 correct_option=q.correct_option.upper(),
                 explanation=q.explanation,
                 topic=topic,
+                pool_group=group if pool_size > 1 else None,
             )
             session.add(question_row)
 
@@ -123,12 +140,22 @@ def get_quiz_with_questions(quiz_id: int) -> Tuple[Optional[Quiz], List[QuizQues
         quiz = session.get(Quiz, quiz_id)
         if quiz is None:
             return None, []
-        questions = session.exec(
+        all_questions = session.exec(
             select(QuizQuestion)
             .where(QuizQuestion.quiz_id == quiz_id)
             .order_by(QuizQuestion.position)
         ).all()
-        return quiz, list(questions)
+
+    # If pool groups exist, sample exactly one question per group
+    has_pools = any(q.pool_group is not None for q in all_questions)
+    if not has_pools:
+        return quiz, list(all_questions)
+
+    groups: Dict[int, List[QuizQuestion]] = {}
+    for q in all_questions:
+        groups.setdefault(q.pool_group, []).append(q)  # type: ignore[arg-type]
+    sampled = [random.choice(variants) for _, variants in sorted(groups.items())]
+    return quiz, sampled
 
 def get_best_score(quiz_id: int, user_id: int) -> Optional[int]:
     with Session(engine) as session:
@@ -209,6 +236,58 @@ def delete_final_quiz(skill_id: int) -> bool:
         session.delete(quiz)
         session.commit()
         return True
+
+def get_latest_attempt_results(quiz_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+    """Return the most recent attempt with per-question results and per-topic score breakdown."""
+    with Session(engine) as session:
+        attempt = session.exec(
+            select(QuizAttempt)
+            .where(QuizAttempt.quiz_id == quiz_id, QuizAttempt.user_id == user_id)
+            .order_by(QuizAttempt.created_at.desc())
+        ).first()
+        if attempt is None:
+            return None
+
+        quiz = session.get(Quiz, quiz_id)
+        questions = session.exec(
+            select(QuizQuestion)
+            .where(QuizQuestion.quiz_id == quiz_id)
+            .order_by(QuizQuestion.position)
+        ).all()
+
+        results = []
+        topic_scores: Dict[str, Dict[str, int]] = {}
+        for q in questions:
+            selected = attempt.answers.get(str(q.id), "")
+            is_correct = bool(selected) and selected.upper() == q.correct_option.upper()
+            topic = q.topic or "General"
+            results.append(
+                {
+                    "question_id": q.id,
+                    "topic": topic,
+                    "selected": selected,
+                    "correct": q.correct_option,
+                    "is_correct": is_correct,
+                    "explanation": q.explanation,
+                }
+            )
+            ts = topic_scores.setdefault(topic, {"correct": 0, "total": 0})
+            ts["total"] += 1
+            if is_correct:
+                ts["correct"] += 1
+
+        for ts in topic_scores.values():
+            ts["pct"] = round(ts["correct"] / ts["total"] * 100) if ts["total"] else 0
+
+        return {
+            "attempt_id": attempt.id,
+            "score": attempt.score,
+            "passed": attempt.passed,
+            "pass_score": quiz.pass_score if quiz else 0,
+            "created_at": attempt.created_at.isoformat() if attempt.created_at else None,
+            "results": results,
+            "topic_scores": topic_scores,
+        }
 
 def get_previous_best_score(skill_id: int, user_id: int, before_week: int) -> Optional[int]:
     """Return best score from the weekly quiz immediately before the given week."""

@@ -33,6 +33,7 @@ class QuizSubmitRequest(BaseModel):
 
 class QuizQuestionResult(BaseModel):
     question_id: int
+    topic: Optional[str] = None
     selected: str
     correct: str
     is_correct: bool
@@ -44,6 +45,7 @@ class WeeklyQuizSubmitResponse(BaseModel):
     passed: bool
     pass_score: int
     results: List[QuizQuestionResult]
+    topic_scores: Dict[str, "TopicScore"]
     next_week_style: Optional[str]  # teaching style the bandit picked for next week
     next_week_unlocked: Optional[
         int
@@ -55,6 +57,7 @@ class QuizSubmitResponse(BaseModel):
     passed: bool
     pass_score: int
     results: List[QuizQuestionResult]
+    topic_scores: Dict[str, "TopicScore"]
 
 class QuizAttemptOut(BaseModel):
     attempt_id: int
@@ -67,3 +70,25 @@ class QuizAttemptsResponse(BaseModel):
     skill_id: int
     pass_score: int
     attempts: List[QuizAttemptOut]
+
+class TopicScore(BaseModel):
+    correct: int
+    total: int
+    pct: int
+
+class QuizQuestionResultFull(BaseModel):
+    question_id: int
+    topic: str
+    selected: str
+    correct: str
+    is_correct: bool
+    explanation: str
+
+class LatestAttemptResponse(BaseModel):
+    attempt_id: int
+    score: int
+    passed: bool
+    pass_score: int
+    created_at: Optional[str]
+    results: List[QuizQuestionResultFull]
+    topic_scores: Dict[str, TopicScore]

@@ -436,32 +436,55 @@ class TestGenerateNextWeek:
             model="gemini-flash",
         )
 
+    def _prev_quiz_mock(self):
+        """A mock quiz object for the previous week."""
+        q = MagicMock()
+        q.id = 99
+        q.pass_score = 60
+        return q
+
+    def _patch_get_quiz_by_week(self, prev_quiz, next_week_quiz):
+        """get_quiz_by_week is called twice: prev-week lookup then next-week existence check."""
+        return patch(
+            "controllers.quiz.quiz_service.get_quiz_by_week",
+            side_effect=[prev_quiz, next_week_quiz],
+        )
+
     def test_returns_none_when_daily_plan_is_none(self):
         """When generate_week_plan returns None, logs warning and returns early."""
+        attempt = {"score": 80, "topic_scores": {"Loops": {"pct": 100}}}
         with (
             patch("controllers.quiz.get_weak_topics", return_value=[]),
             patch("controllers.quiz.get_forgotten_topics", return_value=[]),
+            self._patch_get_quiz_by_week(self._prev_quiz_mock(), None),
+            patch("controllers.quiz.quiz_service.get_latest_attempt_results", return_value=attempt),
+            patch("controllers.quiz.calc_remediation_days", return_value=0),
             patch("controllers.quiz.delete_week_tasks"),
             patch("controllers.quiz.generate_week_plan", return_value=None),
+            patch("controllers.quiz.get_max_day_for_skill", return_value=7),
         ):
             result = _generate_next_week(**self._base_kwargs())
         assert result is None
 
     def test_stores_tasks_and_creates_quiz_when_topics_exist(self):
-        """Full success path: stores tasks and creates weekly quiz."""
+        """Full success path with a failed topic → targeted remediation."""
         daily_plan = [{"day": 8, "topic": "Classes", "task": "Learn OOP"}]
         generated_quiz = MagicMock()
         generated_quiz.questions = [MagicMock()]
+        attempt = {"score": 40, "topic_scores": {"Variables": {"pct": 0}, "Loops": {"pct": 100}}}
         with (
             patch("controllers.quiz.get_weak_topics", return_value=["Variables"]),
             patch("controllers.quiz.get_forgotten_topics", return_value=[]),
+            self._patch_get_quiz_by_week(self._prev_quiz_mock(), None),
+            patch("controllers.quiz.quiz_service.get_latest_attempt_results", return_value=attempt),
+            patch("controllers.quiz.calc_remediation_days", return_value=2),
             patch("controllers.quiz.delete_week_tasks"),
             patch("controllers.quiz.generate_week_plan", return_value=daily_plan),
             patch("controllers.quiz.store_week_tasks"),
             patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=["Classes"]),
-            patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=None),
             patch("controllers.quiz.generate_weekly_quiz", return_value=generated_quiz),
             patch("controllers.quiz.quiz_service.create_quiz") as mock_create,
+            patch("controllers.quiz.get_max_day_for_skill", return_value=7),
         ):
             _generate_next_week(**self._base_kwargs())
         mock_create.assert_called_once()
@@ -470,18 +493,47 @@ class TestGenerateNextWeek:
         """If quiz already exists for next_week, does not call create_quiz."""
         daily_plan = [{"day": 8, "topic": "Classes", "task": "Learn OOP"}]
         existing_quiz = MagicMock()
+        existing_quiz.id = 77
+        existing_quiz.pass_score = 60
+        attempt = {"score": 100, "topic_scores": {}}
         with (
             patch("controllers.quiz.get_weak_topics", return_value=[]),
             patch("controllers.quiz.get_forgotten_topics", return_value=[]),
+            # first call returns prev-week quiz, second call returns the existing next-week quiz
+            patch(
+                "controllers.quiz.quiz_service.get_quiz_by_week",
+                side_effect=[self._prev_quiz_mock(), existing_quiz],
+            ),
+            patch("controllers.quiz.quiz_service.get_latest_attempt_results", return_value=attempt),
+            patch("controllers.quiz.calc_remediation_days", return_value=0),
             patch("controllers.quiz.delete_week_tasks"),
             patch("controllers.quiz.generate_week_plan", return_value=daily_plan),
             patch("controllers.quiz.store_week_tasks"),
             patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=["Classes"]),
-            patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=existing_quiz),
             patch("controllers.quiz.quiz_service.create_quiz") as mock_create,
+            patch("controllers.quiz.get_max_day_for_skill", return_value=7),
         ):
             _generate_next_week(**self._base_kwargs())
         mock_create.assert_not_called()
+
+    def test_falls_back_to_bkt_weak_topics_when_no_prev_quiz(self):
+        """When there is no previous quiz at all, falls back to top-3 BKT weak topics."""
+        daily_plan = [{"day": 8, "topic": "Classes", "task": "Learn OOP"}]
+        with (
+            patch("controllers.quiz.get_weak_topics", return_value=["A", "B", "C", "D"]),
+            patch("controllers.quiz.get_forgotten_topics", return_value=[]),
+            patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=None),
+            patch("controllers.quiz.calc_remediation_days", return_value=0),
+            patch("controllers.quiz.delete_week_tasks"),
+            patch("controllers.quiz.generate_week_plan", return_value=daily_plan) as mock_plan,
+            patch("controllers.quiz.store_week_tasks"),
+            patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=[]),
+            patch("controllers.quiz.get_max_day_for_skill", return_value=7),
+        ):
+            _generate_next_week(**self._base_kwargs())
+        # weak_topics passed should be capped at top 3
+        call_kwargs = mock_plan.call_args.kwargs
+        assert call_kwargs["weak_topics"] == ["A", "B", "C"]
 
     def test_logs_error_on_exception(self):
         """Any exception in the body is caught and logged (does not propagate)."""

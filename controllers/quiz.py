@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Optional
 
 from fastapi import BackgroundTasks, HTTPException
@@ -11,15 +12,17 @@ from schemas.quiz import (
     QuizAttemptOut,
     QuizAttemptsResponse,
     QuizGenerateResponse,
+    LatestAttemptResponse,
     QuizOut,
     QuizQuestionOut,
     QuizQuestionResult,
     QuizSubmitRequest,
     QuizSubmitResponse,
+    TopicScore,
     WeeklyQuizSubmitResponse,
 )
 from services import quiz as quiz_service
-from services.bkt import update_topic_knowledge, get_weak_topics
+from services.bkt import update_topic_knowledge, get_weak_topics, calc_remediation_days
 from services.forgetting_curve import get_forgotten_topics
 from services.bandit import sample_style, update_arm
 from services.skill import unlock_next_week
@@ -31,7 +34,7 @@ from services.llm import (
     get_user_model,
     get_user_provider_name,
 )
-from services.daily_task import delete_week_tasks, store_week_tasks
+from services.daily_task import delete_week_tasks, store_week_tasks, get_max_day_for_skill
 from database import engine
 from sqlmodel import Session
 
@@ -100,22 +103,45 @@ def _generate_next_week(
     try:
         weak = get_weak_topics(skill_id, user_id_int)
         forgotten = get_forgotten_topics(skill_id, user_id_int)
-        days_in_week = max(1, skill_days // skill_total_weeks)
-        start_day = (next_week - 1) * days_in_week + 1
+        days_in_week = max(1, math.ceil(skill_days / skill_total_weeks))
+        start_day = get_max_day_for_skill(skill_id) + 1
         month = ((next_week - 1) // 4) + 1
+
+        # Fetch previous week's quiz attempt to get targeted failed topics
+        prev_quiz = quiz_service.get_quiz_by_week(skill_id, next_week - 1)
+        score_for_remediation = 100
+        remediation_topics: list = []
+        if prev_quiz:
+            prev_attempt = quiz_service.get_latest_attempt_results(prev_quiz.id, user_id_int)
+            if prev_attempt:
+                score_for_remediation = prev_attempt["score"]
+                # Only remediate topics that actually failed in the last attempt
+                # (not the full BKT history which can include many old topics)
+                pass_threshold = prev_quiz.pass_score
+                remediation_topics = [
+                    t for t, s in prev_attempt["topic_scores"].items() if s["pct"] < pass_threshold
+                ]
+
+        # Fall back to top-3 BKT weak topics if no quiz attempt or all topics passed
+        if not remediation_topics:
+            remediation_topics = weak[:3]
+
+        remediation = calc_remediation_days(score_for_remediation, days_in_week)
 
         delete_week_tasks(skill_id, next_week)
         daily_plan = generate_week_plan(
             skill=skill_name,
             week=next_week,
             total_weeks=skill_total_weeks,
-            weak_topics=weak,
+            weak_topics=remediation_topics,
             forgotten_topics=forgotten,
             days_in_week=days_in_week,
             start_day=start_day,
             provider=provider,
             api_key=api_key,
             model=model,
+            prev_score=score_for_remediation,
+            remediation_days=remediation,
         )
         if not daily_plan:
             logger.warning(
@@ -129,6 +155,7 @@ def _generate_next_week(
 
         next_topics = quiz_service.get_topics_for_week(skill_id, next_week)
         if next_topics and quiz_service.get_quiz_by_week(skill_id, next_week) is None:
+            bg_pool_size = 1 if provider == "mistral" else 2
             generated = generate_weekly_quiz(
                 skill=skill_name,
                 week=next_week,
@@ -137,14 +164,19 @@ def _generate_next_week(
                 provider=provider,
                 api_key=api_key,
                 model=model,
+                pool_size=bg_pool_size,
             )
             if generated:
+                num_unique = quiz_service.WEEKLY_QUIZ_QUESTIONS
                 topic_map = {
-                    i: next_topics[(i - 1) % len(next_topics)]
-                    for i in range(1, len(generated.questions) + 1)
+                    i: next_topics[(i - 1) % len(next_topics)] for i in range(1, num_unique + 1)
                 }
                 quiz_service.create_quiz(
-                    skill_id, generated.questions, week=next_week, topic_map=topic_map
+                    skill_id,
+                    generated.questions,
+                    week=next_week,
+                    topic_map=topic_map,
+                    pool_size=bg_pool_size,
                 )
     except Exception as exc:
         logger.error(
@@ -169,6 +201,7 @@ def generate_weekly_quiz_for_skill(
     api_key = get_user_api_key(current_user)
     model = get_user_model(current_user)
 
+    pool_size = 1 if provider == "mistral" else 2
     generated = generate_weekly_quiz(
         skill=skill.skill,
         week=week,
@@ -177,16 +210,16 @@ def generate_weekly_quiz_for_skill(
         provider=provider,
         api_key=api_key,
         model=model,
+        pool_size=pool_size,
     )
     if generated is None:
         raise HTTPException(
             status_code=502, detail="Weekly quiz generation failed. Please try again."
         )
 
-    # Build topic_map: position → topic (distribute topics evenly across questions)
-    topic_map = {}
-    for i, q_obj in enumerate(generated.questions, start=1):
-        topic_map[i] = topics[(i - 1) % len(topics)]
+    # Build topic_map: pool_group → topic (distribute topics evenly across unique questions)
+    num_unique = quiz_service.WEEKLY_QUIZ_QUESTIONS
+    topic_map = {i: topics[(i - 1) % len(topics)] for i in range(1, num_unique + 1)}
 
     try:
         quiz = quiz_service.create_quiz(
@@ -194,6 +227,7 @@ def generate_weekly_quiz_for_skill(
             questions=generated.questions,
             week=week,
             topic_map=topic_map,
+            pool_size=pool_size,
         )
     except IntegrityError as err:
         raise HTTPException(status_code=409, detail=f"Week {week} quiz already generated") from err
@@ -275,6 +309,7 @@ def submit_weekly_quiz(
     results = [
         QuizQuestionResult(
             question_id=q.id,
+            topic=q.topic,
             selected=payload.answers.get(q.id, ""),
             correct=q.correct_option,
             is_correct=payload.answers.get(q.id, "").upper() == q.correct_option.upper(),
@@ -283,12 +318,23 @@ def submit_weekly_quiz(
         for q in questions
     ]
 
+    raw_topic_scores: dict = {}
+    for q in questions:
+        topic = q.topic or "General"
+        ts = raw_topic_scores.setdefault(topic, {"correct": 0, "total": 0})
+        ts["total"] += 1
+        if payload.answers.get(q.id, "").upper() == q.correct_option.upper():
+            ts["correct"] += 1
+    for ts in raw_topic_scores.values():
+        ts["pct"] = round(ts["correct"] / ts["total"] * 100) if ts["total"] else 0
+
     return WeeklyQuizSubmitResponse(
         attempt_id=attempt.id,
         score=attempt.score,
         passed=attempt.passed,
         pass_score=quiz.pass_score,
         results=results,
+        topic_scores={t: TopicScore(**s) for t, s in raw_topic_scores.items()},
         next_week_style=next_style,
         next_week_unlocked=new_generated_weeks if new_generated_weeks == next_week else None,
     )
@@ -314,6 +360,10 @@ def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateRe
     api_key = get_user_api_key(current_user)
     model = get_user_model(current_user)
 
+    all_for_map = list(dict.fromkeys(weak + forgotten))
+    topic_week_map = quiz_service.get_topic_week_map(skill_id, all_for_map)
+
+    pool_size = 1 if provider == "mistral" else 2
     num_questions = quiz_service.get_num_questions(skill.days)
     generated = generate_final_quiz(
         skill=skill.skill,
@@ -323,17 +373,26 @@ def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateRe
         provider=provider,
         api_key=api_key,
         model=model,
+        topic_week_map=topic_week_map or None,
+        pool_size=pool_size,
     )
     if generated is None:
         raise HTTPException(
             status_code=502, detail="Final quiz generation failed. Please try again."
         )
 
+    topic_map = (
+        {i: all_for_map[(i - 1) % len(all_for_map)] for i in range(1, num_questions + 1)}
+        if all_for_map
+        else None
+    )
     try:
         quiz = quiz_service.create_quiz(
             skill_id=skill_id,
             questions=generated.questions,
             week=0,
+            topic_map=topic_map,
+            pool_size=pool_size,
         )
     except IntegrityError as err:
         raise HTTPException(
@@ -379,6 +438,7 @@ def submit_quiz(
     results = [
         QuizQuestionResult(
             question_id=q.id,
+            topic=q.topic,
             selected=payload.answers.get(q.id, ""),
             correct=q.correct_option,
             is_correct=payload.answers.get(q.id, "").upper() == q.correct_option.upper(),
@@ -387,12 +447,23 @@ def submit_quiz(
         for q in questions
     ]
 
+    raw_topic_scores: dict = {}
+    for q in questions:
+        topic = q.topic or "General"
+        ts = raw_topic_scores.setdefault(topic, {"correct": 0, "total": 0})
+        ts["total"] += 1
+        if payload.answers.get(q.id, "").upper() == q.correct_option.upper():
+            ts["correct"] += 1
+    for ts in raw_topic_scores.values():
+        ts["pct"] = round(ts["correct"] / ts["total"] * 100) if ts["total"] else 0
+
     return QuizSubmitResponse(
         attempt_id=attempt.id,
         score=attempt.score,
         passed=attempt.passed,
         pass_score=quiz.pass_score,
         results=results,
+        topic_scores={t: TopicScore(**s) for t, s in raw_topic_scores.items()},
     )
 
 def get_attempts(skill_id: int, current_user: User) -> QuizAttemptsResponse:
@@ -412,6 +483,28 @@ def get_attempts(skill_id: int, current_user: User) -> QuizAttemptsResponse:
             )
             for a in attempts
         ],
+    )
+
+def get_latest_attempt(skill_id: int, current_user: User) -> LatestAttemptResponse:
+    quiz = _get_owned_quiz(skill_id, current_user, week=0)
+    data = quiz_service.get_latest_attempt_results(quiz.id, current_user.id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="No attempts found for this quiz")
+    return LatestAttemptResponse(
+        **{k: v for k, v in data.items() if k != "topic_scores"},
+        topic_scores={t: TopicScore(**s) for t, s in data["topic_scores"].items()},
+    )
+
+def get_weekly_latest_attempt(
+    skill_id: int, week: int, current_user: User
+) -> LatestAttemptResponse:
+    quiz = _get_owned_quiz(skill_id, current_user, week=week)
+    data = quiz_service.get_latest_attempt_results(quiz.id, current_user.id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="No attempts found for this quiz")
+    return LatestAttemptResponse(
+        **{k: v for k, v in data.items() if k != "topic_scores"},
+        topic_scores={t: TopicScore(**s) for t, s in data["topic_scores"].items()},
     )
 
 def reset_final_quiz(skill_id: int, current_user: User):

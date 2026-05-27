@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
-from sqlalchemy import func, case, outerjoin
+from sqlalchemy import func, case, outerjoin, select as _sa_select
 from database import engine
 from models.skill import Skill
 from models.daily_task import DailyTask
@@ -113,6 +113,12 @@ def get_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
 def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
     with Session(engine) as session:
         completed_expr = func.coalesce(func.sum(case((DailyTask.completed == True, 1), else_=0)), 0)
+        weekly_passed_subq = (
+            _sa_select(func.count(Quiz.id))
+            .where(Quiz.skill_id == Skill.id, Quiz.week > 0, Quiz.status == "passed")
+            .correlate(Skill)
+            .scalar_subquery()
+        )
         statement = (
             select(
                 Skill.id,
@@ -125,6 +131,8 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
                 func.count(DailyTask.id).label("total_tasks"),
                 completed_expr.label("completed_tasks"),
                 Quiz.status.label("quiz_status"),
+                Skill.total_weeks,
+                weekly_passed_subq.label("weekly_quizzes_passed"),
             )
             .outerjoin(DailyTask, DailyTask.skill_id == Skill.id)
             .outerjoin(Quiz, (Quiz.skill_id == Skill.id) & (Quiz.week == 0))
@@ -144,6 +152,8 @@ def get_all_syllabi(email: Optional[str] = None) -> List[Dict[str, Any]]:
                 "total_tasks": row[7] or 0,
                 "completed_tasks": int(row[8] or 0),
                 "quiz_status": row[9] if row[9] else "not_generated",
+                "total_weeks": row[10] or 0,
+                "weekly_quizzes_passed": int(row[11] or 0),
             }
             for row in rows
         ]
@@ -227,6 +237,12 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
             return []
 
         completed_expr = func.coalesce(func.sum(case((DailyTask.completed == True, 1), else_=0)), 0)
+        weekly_passed_subq = (
+            _sa_select(func.count(Quiz.id))
+            .where(Quiz.skill_id == Skill.id, Quiz.week > 0, Quiz.status == "passed")
+            .correlate(Skill)
+            .scalar_subquery()
+        )
         statement = (
             select(
                 Skill.id,
@@ -239,6 +255,8 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
                 func.count(DailyTask.id).label("total_tasks"),
                 completed_expr.label("completed_tasks"),
                 Quiz.status.label("quiz_status"),
+                Skill.total_weeks,
+                weekly_passed_subq.label("weekly_quizzes_passed"),
             )
             .outerjoin(DailyTask, DailyTask.skill_id == Skill.id)
             .outerjoin(Quiz, (Quiz.skill_id == Skill.id) & (Quiz.week == 0))
@@ -269,6 +287,8 @@ def search_syllabi(email: str, query: str) -> List[Dict[str, Any]]:
                 "total_tasks": row[7] or 0,
                 "completed_tasks": int(row[8] or 0),
                 "quiz_status": row[9] if row[9] else "not_generated",
+                "total_weeks": row[10] or 0,
+                "weekly_quizzes_passed": int(row[11] or 0),
                 "matching_chapters": matching_tasks_by_skill.get(row[0], []),
             }
             for row in rows
@@ -300,6 +320,7 @@ def get_public_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
                     "task": t.task,
                     "hours": t.hours,
                     "newsletter": t.newsletter,
+                    "content_blocks": t.content_blocks,
                 }
             )
 

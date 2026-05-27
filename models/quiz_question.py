@@ -21,3 +21,7 @@ class QuizQuestion(SQLModel, table=True):
         default=None,
         sa_column=Column(String(255), nullable=True),
     )  # DailyTask.topic this question tests
+    pool_group: Optional[int] = Field(
+        default=None,
+        sa_column=Column(Integer, nullable=True),
+    )  # questions sharing a pool_group are variants; one is sampled per attempt
