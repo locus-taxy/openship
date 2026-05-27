@@ -12,13 +12,9 @@ The internet is an ocean — vast, deep, and full of treasure. But oceans withou
 
 That's where **Openship** comes in.
 
-Think of Openship as your personal vessel on the sea of learning. You choose the destination — the skill you want to master. You set the pace — how many days, how many hours. Openship then charts your course: a structured **Month → Week → Day** route through the waters, with AI-written lessons waiting at every waypoint. You're not lost at sea anymore. You're navigating.
+Think of Openship as your personal vessel on the sea of learning. You choose the destination — the skill you want to master. You set the pace — how many days, how many hours. Openship then charts your course: a structured **Month → Week → Day** route through the waters, with AI-written lessons waiting at every waypoint. And unlike a static course, Openship watches how you're doing — and quietly adjusts the route as you sail.
 
-Built by the team at **Locus**, Openship is a fully open-source, AI-powered personalized learning platform. And it might just be the most thoughtful approach to self-directed learning available today.
-
-Openship takes a skill you want to learn and the time you can realistically commit, then builds a structured **Month → Week → Day** curriculum — completely tailored to you. Every chapter is generated on demand by the AI model of your choice, written specifically for your learning path. Once all chapters are done, an AI-generated final quiz validates what you've learned — pass it to reach 100% completion.
-
-It's not a video course. It's not a content aggregator. It's a dynamic learning engine that generates your syllabus, writes your lessons, tracks your progress, and grows with you.
+Built by the team at **Locus**, Openship is a fully open-source, AI-powered personalized learning platform.
 
 ---
 
@@ -31,11 +27,13 @@ https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
 ## How it works
 
 1. **Configure** — add your LLM provider API key (Anthropic, OpenAI, Google Gemini, or Mistral) in Settings
-2. **Enroll** — choose a skill, set your duration, daily time commitment, and quiz difficulty
-3. **Generate** — your AI model creates a structured syllabus organized by month, week, and day — and auto-generates a final quiz in the background
+2. **Enroll** — choose a skill, set your duration and daily time commitment
+3. **Generate** — your AI model creates a structured syllabus organized by month, week, and day; Week 1 is unlocked immediately with a pre-generated quiz
 4. **Learn** — open any chapter, generate its content on demand, and mark days complete as you go
-5. **Quiz** — once all chapters are done, take the AI-generated final quiz; pass it to reach 100% completion
-6. **Track** — the analytics dashboard shows your overall progress across all courses
+5. **Weekly quiz** — after finishing all chapters in a week, take an AI-generated quiz; your score determines how the next week is planned — weak topics get extra focus, forgotten ones get spaced repetition
+6. **Adaptive next week** — the platform generates Week 2+ on demand, personalised using your quiz results and mastery data; the difficulty and topic mix shift based on what you actually know
+7. **Final quiz** — once all weeks are complete, a final quiz draws from the topics you struggled with most across the whole course; pass it to reach 100%
+8. **Track** — the analytics dashboard shows your overall progress across all courses
 
 ---
 
@@ -49,21 +47,33 @@ Unlike most AI tools that hide their model and charge you a subscription, Opensh
 
 No more "complete this 40-hour course at your own pace" ambiguity. You tell Openship how many days you have and how many hours per day — it builds a plan that respects your constraints. The curriculum isn't generic; it's shaped around your schedule.
 
-### 3. On-Demand Lessons, Not Static Content
+### 3. Adaptive Learning That Gets Smarter As You Go
+
+Openship uses three ML components working together to personalise your experience as you progress:
+
+- **Bayesian Knowledge Tracing (BKT)** — tracks your per-topic mastery probability after every quiz answer. Topics where you score low are automatically woven into the next week's plan.
+- **Forgetting Curve** — identifies topics you haven't seen recently and schedules them for spaced repetition before you forget them.
+- **Thompson Sampling Bandit** — picks a content style for each week (`Visual-Heavy`, `Example-Heavy`, `Diagram-Heavy`, or `Story-Driven`) and updates its choice based on your quiz scores — if visual content correlated with better results, it learns to use it more.
+
+The result: each week is a different plan, not a copy-paste of the template.
+
+### 4. On-Demand Lessons, Not Static Content
 
 Content isn't pre-written and locked. Each chapter is generated when you open it — meaning the AI writes specifically for that lesson in the context of your full syllabus. Code examples include syntax highlighting. Tables render cleanly. It reads like a textbook written for you, not for the median student.
 
-### 4. Real Progress Tracking
+### 5. Real Progress Tracking
 
 Mark chapters complete, watch your progress bar move, check your analytics dashboard across all active courses. Completion rates, hours planned, tasks remaining — it's all there. This is the accountability layer that most self-study methods completely lack.
 
-### 5. Share What You Build
+### 6. Share What You Build
 
 Generated a great syllabus for learning Rust in 30 days or becoming a data analyst in 3 months? Share it publicly with one click. Other learners can view your syllabus without even needing an account.
 
-### 6. Your API Keys Stay Yours
+### 7. Your API Keys Stay Yours
 
 Openship stores LLM API keys with partial encryption — the key prefix is stored in plaintext while only the sensitive suffix is encrypted using a server-side Fernet key. A database breach alone isn't enough to reconstruct a full key. Security was a first-class consideration, not an afterthought.
+
+---
 
 ## Who Should Use and Contribute to Openship?
 
@@ -84,7 +94,7 @@ Here's what's at stake if this grows:
 - A free, self-hostable alternative to expensive e-learning subscriptions
 - A platform that respects user privacy (your keys, your data, your server)
 - A community-built learning engine that any AI provider can plug into
-- A reference implementation of a clean FastAPI + React application that developers can learn from
+- A reference implementation of a clean FastAPI + React application with real ML components that developers can learn from
 
 Starring the repo signals to other developers that this is worth their attention. Contributing — even one good PR — moves the project forward in a way that benefits every future learner.
 
@@ -103,21 +113,34 @@ Add your database URL and secrets to `.env`, run `make dev`, open your browser, 
 That's it.
 
 ---
-*Openship is MIT-licensed and open to contributions. See CONTRIBUTING.md for how to get involved.*
-
 
 ## Features
 
+### Core learning loop
 - **Multi-provider LLM support** — bring your own API key for Anthropic (Claude), OpenAI (GPT), Google Gemini, or Mistral; switch providers and models at any time from the UI
 - **Personalized syllabus generation** — AI produces a structured 3-level plan (month / week / day) tailored to the skill and your schedule
-- **On-demand chapter content** — rich AI-written lessons generated per chapter with syntax-highlighted code blocks, tables, and examples
-- **AI-generated final quiz** — automatically created in the background when a course is generated; multiple-choice questions drawn from the actual topics you studied; difficulty set at enrollment (beginner / intermediate / advanced)
-- **Quiz gating** — Final Quiz appears only after all chapters are complete; passing it brings the course to 100%
-- **Unlimited quiz retries** — questions are shuffled on each retry; every attempt is recorded with score history
-- **Progress tracking** — mark chapters complete; progress bar accounts for both chapters and quiz pass; analytics update in real-time
+- **On-demand chapter content** — rich AI-written lessons generated per chapter with syntax-highlighted code blocks, diagrams, tables, bullet lists, and examples
+- **Progressive week unlock** — only Week 1 is generated upfront; subsequent weeks are generated on demand after the previous week's quiz, personalised to your results
+
+### Adaptive ML engine
+- **Bayesian Knowledge Tracing** — per-topic mastery model updated after every quiz submission; weak topics fed into the next week's plan
+- **Forgetting curve** — spaced repetition scheduling based on time since last exposure; forgotten topics resurface automatically
+- **Thompson Sampling bandit** — picks a chapter content style per week (`Visual-Heavy`, `Example-Heavy`, `Diagram-Heavy`, `Story-Driven`) and updates from quiz feedback; exploits styles that correlate with better scores
+- **Remediation planning** — quiz score below threshold triggers extra review days at the start of the next week, proportional to how many topics need reinforcement
+
+### Quizzes
+- **Weekly quizzes** — AI-generated 5-question quiz per week, covering that week's topics; unlocks the next week on completion
+- **Final quiz** — personalised to the topics you struggled with most across the whole course; appears after all weeks complete; pass it to reach 100%
+- **Quiz variant pools** — each question is generated in multiple variants; a different variant is sampled per attempt, so retakes feel fresh
+- **Score history** — every attempt recorded with timestamp and score; best score tracked per quiz
+
+### Progress and analytics
+- **Progress tracking** — mark chapters complete; progress bar accounts for chapters and quiz pass
 - **Analytics dashboard** — overview of all courses: completion rates, in-progress courses, hours planned, tasks remaining
-- **Course management** — delete any enrolled course (removes all chapters, progress, quiz, and attempts)
-- **Shareable syllabi** — generate a public link to share any syllabus with others
+
+### Other
+- **Shareable syllabi** — generate a public link to share any syllabus with others (no account required to view)
+- **Course management** — delete any enrolled course (removes all chapters, progress, quizzes, and attempts)
 - **Resizable chapter sidebar** — collapsible and draggable sidebar with chapter tree navigation
 - **JWT authentication** — cookie-based auth with access and refresh tokens, enforced globally via middleware
 - **Fully responsive** — works on mobile, tablet, and desktop
@@ -130,6 +153,7 @@ That's it.
 |-------|-----------|
 | API | FastAPI + Uvicorn |
 | AI | Anthropic, OpenAI, Google Gemini, Mistral (via `instructor`) |
+| ML | Bayesian Knowledge Tracing · Thompson Sampling · Ebbinghaus Forgetting Curve |
 | Database | PostgreSQL · SQLModel ORM · Alembic migrations |
 | Frontend | React 18 + TypeScript + Vite |
 | UI Components | shadcn/ui · Radix UI · Tailwind CSS |
@@ -209,6 +233,7 @@ Copy `.env.example` to `.env` and set at minimum:
 
 Interactive docs (Swagger UI) are available at `http://localhost:3005/docs` when running locally.
 
+---
 
 ## Contributing
 
