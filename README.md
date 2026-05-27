@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
 3. **Generate** - your AI model creates a structured syllabus organized by month, week, and day; Week 1 is unlocked immediately with a pre-generated quiz
 4. **Learn** - open any chapter, generate its content on demand, and mark days complete as you go
 5. **Weekly quiz** - after finishing all chapters in a week, take an AI-generated quiz; your score determines how the next week is planned: weak topics get extra focus, forgotten ones get spaced repetition
-6. **Adaptive next week** - the platform generates the next week on demand, personalised using your quiz results and mastery data
+6. **Adaptive next week** - the platform generates the next week on demand, personalized using your quiz results and mastery data
 7. **Final quiz** - once all weeks are complete, a final quiz covers the topics you struggled with most; pass it to reach 100%
 8. **Track** - the analytics dashboard shows your overall progress across all courses
 
@@ -41,7 +41,7 @@ Plug in your own API key for Anthropic, OpenAI, Google Gemini, or Mistral. Switc
 
 ### 2. Adaptive ML Engine
 
-Three components work together to personalise each week:
+Three components work together to personalize each week:
 
 - **Bayesian Knowledge Tracing (BKT)** - tracks per-topic mastery after every quiz answer; low-scoring topics are automatically included in the next week's plan
 - **Forgetting Curve** - identifies topics not seen recently and schedules them for spaced repetition
@@ -71,7 +71,7 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 - **Multi-provider LLM support** - Anthropic (Claude), OpenAI (GPT), Google Gemini, Mistral; switch providers and models from the UI
 - **Personalized syllabus generation** - AI produces a structured month / week / day plan tailored to the skill and your schedule
 - **On-demand chapter content** - AI-written lessons generated per chapter with code blocks, diagrams, tables, and examples
-- **Progressive week unlock** - only Week 1 is generated upfront; subsequent weeks are generated after the previous week's quiz, personalised to your results
+- **Progressive week unlock** - only Week 1 is generated upfront; subsequent weeks are generated after the previous week's quiz, personalized to your results
 
 ### Adaptive ML engine
 - **Bayesian Knowledge Tracing** - per-topic mastery model updated after every quiz submission; weak topics fed into the next week's plan
@@ -81,7 +81,7 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 
 ### Quizzes
 - **Weekly quizzes** - AI-generated 5-question quiz per week covering that week's topics; unlocks the next week on completion
-- **Final quiz** - personalised to the topics you struggled with most; appears after all weeks are complete; pass it to reach 100%
+- **Final quiz** - personalized to the topics you struggled with most; appears after all weeks are complete; pass it to reach 100%
 - **Quiz variant pools** - each question is generated in multiple variants; a different variant is sampled per attempt so retakes feel fresh
 - **Score history** - every attempt recorded with timestamp and score; best score tracked per quiz
 
