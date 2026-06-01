@@ -14,6 +14,8 @@ class UserApiKey(SQLModel, table=True):
     llm_provider_id: int = Field(foreign_key="llm_providers.id", index=True)
     llm_model: Optional[str] = Field(default=None, max_length=100)
     api_key: str = Field(max_length=1024)  # partially encrypted — see services/encryption.py
+    input_per_1m_usd: Optional[float] = Field(default=None, gt=0)
+    output_per_1m_usd: Optional[float] = Field(default=None, gt=0)
     created_at: Optional[datetime] = Field(
         default=None,
         sa_column=Column(DateTime, server_default=func.now()),

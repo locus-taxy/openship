@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Cookie, Request, Response
-from schemas.auth import SignupRequest, LoginRequest, SaveSettingsRequest
+from schemas.auth import SignupRequest, LoginRequest, SaveSettingsRequest, SaveCurrencyRequest
 from controllers import auth as auth_controller
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,3 +42,23 @@ def list_models(provider: str, request: Request):
 @router.post("/me/models/verify")
 def verify_model(provider: str, model: str, request: Request):
     return auth_controller.verify_custom_model(request.state.user, provider, model)
+
+@router.get("/me/pricing")
+def get_model_pricing(provider: str, model: str, request: Request):
+    return auth_controller.get_model_pricing(provider, model, request.state.user)
+
+@router.put("/me/pricing/manual")
+def save_manual_pricing(
+    provider: str, model: str, input_per_1m_usd: float, output_per_1m_usd: float, request: Request
+):
+    return auth_controller.save_manual_pricing(
+        request.state.user, provider, model, input_per_1m_usd, output_per_1m_usd
+    )
+
+@router.post("/me/pricing/refresh")
+def refresh_pricing(request: Request):
+    return auth_controller.refresh_pricing_cache()
+
+@router.patch("/me/settings/currency")
+def save_currency(payload: SaveCurrencyRequest, request: Request):
+    return auth_controller.save_currency(request.state.user, payload)

@@ -1,14 +1,12 @@
-import { useEffect, useId, useRef, useState } from "react"
-import mermaid from "mermaid"
-
-mermaid.initialize({ startOnLoad: false, theme: "dark" })
+import { useEffect, useRef, useState } from "react"
+import hljs from "highlight.js"
 import { LlmBar } from "@/components/llm-bar"
+import { BlockRenderer, type ContentBlock } from "./block-renderer"
 import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
     ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
     Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap,
-    Pencil, Play, X,
 } from "lucide-react"
 import { QuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
@@ -21,30 +19,10 @@ import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { getRequest, postRequest } from "@/services"
-import { isRunnable, executeCode } from "@/services/executor"
 import api from "@/services"
 import useStore from "@/store"
 import { sanitizeHtml } from "@/lib/sanitize"
 import { useSidebar } from "@/components/ui/sidebar"
-import hljs from "highlight.js"
-import "highlight.js/styles/atom-one-dark.css"
-
-type BlockType =
-    | "heading" | "paragraph" | "code"
-    | "bullet_list" | "numbered_list"
-    | "table" | "note" | "quote" | "divider"
-    | "diagram"
-
-interface ContentBlock {
-    type: BlockType
-    content?: string
-    level?: number
-    language?: string
-    items?: string[]
-    headers?: string[]
-    rows?: string[][]
-    format?: string
-}
 
 interface Chapter {
     id: number
@@ -78,327 +56,6 @@ interface SyllabusDetail {
     months: Month[]
 }
 
-// ─── Inline Markdown parser (backtick code, bold, italic) ────────────────────
-
-function InlineText({ text }: { text: string }) {
-    // Split on backtick spans: `code`
-    const parts = text.split(/(`[^`]+`)/g)
-    return (
-        <>
-            {parts.map((part, i) => {
-                if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-                    return (
-                        <code key={i} className="bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-[0.82em] font-mono">
-                            {part.slice(1, -1)}
-                        </code>
-                    )
-                }
-                // Bold: **text**
-                const boldParts = part.split(/(\*\*[^*]+\*\*)/g)
-                if (boldParts.length > 1) {
-                    return boldParts.map((bp, j) =>
-                        bp.startsWith("**") && bp.endsWith("**") && bp.length > 4
-                            ? <strong key={`${i}-${j}`}>{bp.slice(2, -2)}</strong>
-                            : <span key={`${i}-${j}`}>{bp}</span>
-                    )
-                }
-                return <span key={i}>{part}</span>
-            })}
-        </>
-    )
-}
-
-// ─── Block Renderer Components ───────────────────────────────────────────────
-
-function CodeBlock({ code, language }: { code: string; language: string }) {
-    const ref = useRef<HTMLElement>(null)
-    const [copied, setCopied]           = useState(false)
-    const [isEditing, setIsEditing]     = useState(false)
-    const [editedCode, setEditedCode]   = useState(code)
-    const [output, setOutput]           = useState<{ stdout: string; stderr: string } | null>(null)
-    const [isRunning, setIsRunning]     = useState(false)
-    const [runLabel, setRunLabel]       = useState("Running…")
-    const [runError, setRunError]       = useState<string | null>(null)
-
-    useEffect(() => {
-        if (!ref.current || isEditing) return
-        ref.current.textContent = editedCode
-        try {
-            if (language) {
-                ref.current.innerHTML = hljs.highlight(editedCode, { language }).value
-            } else {
-                hljs.highlightElement(ref.current)
-            }
-        } catch {
-            hljs.highlightElement(ref.current)
-        }
-        ref.current.classList.add("hljs")
-    }, [editedCode, language, isEditing])
-
-    const lines = editedCode.split("\n")
-    if (lines[lines.length - 1] === "") lines.pop()
-
-    const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
-    const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
-
-    async function handleCopy() {
-        try {
-            await navigator.clipboard.writeText(editedCode)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
-        } catch { /* clipboard denied */ }
-    }
-
-    async function handleRun() {
-        setIsRunning(true)
-        setOutput(null)
-        setRunError(null)
-        setRunLabel(language?.toLowerCase() === "python" ? "Loading Python…" : "Running…")
-        try {
-            const result = await executeCode(language, editedCode)
-            setOutput(result)
-        } catch (e) {
-            setRunError(e instanceof Error ? e.message : "Execution failed")
-        } finally {
-            setIsRunning(false)
-        }
-    }
-
-    return (
-        <div className="rounded-xl border border-white/10 bg-[#282c34] text-sm shadow-lg overflow-hidden">
-
-            {/* Toolbar */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end",
-                          gap: 6, padding: "8px 10px 0" }}>
-
-                {/* Edit / Done toggle */}
-                <button
-                    onClick={() => {
-                        if (isEditing) {
-                            setOutput(null)
-                            setRunError(null)
-                        }
-                        setIsEditing(e => !e)
-                    }}
-                    title={isEditing ? "Done editing" : "Edit code"}
-                    style={{
-                        background: isEditing ? "rgba(99,211,130,0.15)" : "rgba(255,255,255,0.08)",
-                        border: `1px solid ${isEditing ? "rgba(99,211,130,0.4)" : "rgba(255,255,255,0.12)"}`,
-                        borderRadius: 6, padding: "4px 8px", cursor: "pointer",
-                        color: isEditing ? "#4ade80" : "#9da5b4",
-                        display: "flex", alignItems: "center", gap: 4, fontSize: 11,
-                    }}
-                >
-                    {isEditing ? <><X size={11} /> Done</> : <><Pencil size={11} /> Edit</>}
-                </button>
-
-                {/* Run button — only for runnable languages */}
-                {isRunnable(language) && (
-                    <button
-                        onClick={handleRun}
-                        disabled={isRunning}
-                        title="Run code"
-                        style={{
-                            background: "rgba(99,211,130,0.15)",
-                            border: "1px solid rgba(99,211,130,0.35)",
-                            borderRadius: 6, padding: "4px 10px",
-                            cursor: isRunning ? "default" : "pointer",
-                            color: "#4ade80", display: "flex", alignItems: "center",
-                            gap: 4, fontSize: 11, opacity: isRunning ? 0.6 : 1,
-                        }}
-                    >
-                        {isRunning
-                            ? <><Loader2 size={11} className="animate-spin" /> {runLabel}</>
-                            : <><Play size={11} /> Run</>}
-                    </button>
-                )}
-
-                {/* Copy button */}
-                <button
-                    onClick={handleCopy}
-                    title="Copy code"
-                    dangerouslySetInnerHTML={{ __html: copied ? ICON_CHECK : ICON_COPY }}
-                    style={{
-                        background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: 6, padding: "5px 8px", cursor: "pointer",
-                        color: copied ? "#4ade80" : "#9da5b4",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                    }}
-                />
-            </div>
-
-            {/* Code area */}
-            {isEditing ? (
-                <textarea
-                    value={editedCode}
-                    onChange={e => setEditedCode(e.target.value)}
-                    spellCheck={false}
-                    style={{
-                        width: "100%", boxSizing: "border-box",
-                        background: "transparent", color: "#abb2bf",
-                        fontFamily: "monospace", fontSize: 12, lineHeight: 1.6,
-                        padding: "12px 20px", border: "none", outline: "none",
-                        resize: "vertical",
-                        minHeight: `${Math.max(lines.length, 4) * 1.6 * 12 + 24}px`,
-                    }}
-                />
-            ) : (
-                <div className="flex overflow-x-auto">
-                    <div className="flex flex-col shrink-0 select-none text-right px-3 py-4
-                                    text-[#636d83] text-xs leading-[1.6]
-                                    border-r border-white/[0.08] min-w-[2.5rem]">
-                        {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
-                    </div>
-                    <div className="flex-1 overflow-x-auto px-5 py-4 min-w-0">
-                        <code ref={ref} className="font-mono text-xs leading-[1.6] whitespace-pre block" />
-                    </div>
-                </div>
-            )}
-
-            {/* Output panel */}
-            {(output !== null || runError !== null) && (
-                <div style={{
-                    borderTop: "1px solid rgba(255,255,255,0.08)",
-                    background: "#1e2227", padding: "10px 16px",
-                    maxHeight: 200, overflowY: "auto",
-                }}>
-                    {runError ? (
-                        <>
-                            <div style={{ fontSize: 10, color: "#f87171", marginBottom: 4,
-                                          fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                                Error
-                            </div>
-                            <pre style={{ margin: 0, fontFamily: "monospace", fontSize: 12,
-                                          lineHeight: 1.6, color: "#f87171", whiteSpace: "pre-wrap" }}>
-                                {runError}
-                            </pre>
-                        </>
-                    ) : (
-                        <>
-                            {output!.stdout && (
-                                <>
-                                    <div style={{ fontSize: 10, color: "#4ade80", marginBottom: 4,
-                                                  fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                                        Output
-                                    </div>
-                                    <pre style={{ margin: 0, fontFamily: "monospace", fontSize: 12,
-                                                  lineHeight: 1.6, color: "#abb2bf", whiteSpace: "pre-wrap" }}>
-                                        {output!.stdout}
-                                    </pre>
-                                </>
-                            )}
-                            {output!.stderr && (
-                                <>
-                                    <div style={{ fontSize: 10, color: "#fbbf24",
-                                                  marginTop: output!.stdout ? 8 : 0, marginBottom: 4,
-                                                  fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                                        Stderr
-                                    </div>
-                                    <pre style={{ margin: 0, fontFamily: "monospace", fontSize: 12,
-                                                  lineHeight: 1.6, color: "#fbbf24", whiteSpace: "pre-wrap" }}>
-                                        {output!.stderr}
-                                    </pre>
-                                </>
-                            )}
-                            {!output!.stdout && !output!.stderr && (
-                                <div style={{ fontSize: 12, color: "#636d83", fontStyle: "italic" }}>
-                                    (no output)
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
-            )}
-        </div>
-    )
-}
-
-function MermaidBlock({ code }: { code: string }) {
-    const id = useId()
-    const ref = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (!ref.current) return
-        let cancelled = false
-        const renderId = `mermaid-${id.replace(/[^a-zA-Z0-9]/g, "")}`
-
-        mermaid.render(renderId, code)
-            .then(({ svg }) => {
-                if (!cancelled && ref.current) ref.current.innerHTML = svg
-            })
-            .catch(() => {
-                if (!cancelled && ref.current) {
-                    const pre = document.createElement("pre")
-                    pre.className = "text-xs text-muted-foreground whitespace-pre-wrap p-4"
-                    pre.textContent = code
-                    ref.current.replaceChildren(pre)
-                }
-            })
-
-        return () => { cancelled = true }
-    }, [code, id])
-
-    return <div ref={ref} className="rounded-xl border border-border bg-muted/30 p-4 overflow-x-auto" />
-}
-
-function BlockRenderer({ blocks }: { blocks: ContentBlock[] }) {
-    return (
-        <div className="space-y-4">
-            {blocks.map((block, i) => <BlockItem key={i} block={block} />)}
-        </div>
-    )
-}
-
-function BlockItem({ block }: { block: ContentBlock }) {
-    switch (block.type) {
-        case "heading": {
-            const text = block.content ?? ""
-            if (block.level === 1) return <h1 className="text-2xl font-bold tracking-tight text-foreground mt-6 mb-3"><InlineText text={text} /></h1>
-            if (block.level === 3) return <h3 className="text-base font-semibold text-foreground mt-4 mb-1.5"><InlineText text={text} /></h3>
-            return <h2 className="text-xl font-semibold text-foreground mt-5 mb-2 border-b border-border/50 pb-2"><InlineText text={text} /></h2>
-        }
-        case "paragraph":
-            return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
-        case "code":
-            return <CodeBlock code={block.content ?? ""} language={block.language ?? ""} />
-        case "bullet_list":
-            return <ul className="list-disc pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
-        case "numbered_list":
-            return <ol className="list-decimal pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
-        case "table":
-            return (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full border-collapse text-sm">
-                        <thead className="bg-muted/50">
-                            <tr>{block.headers?.map((h, i) => <th key={i} className="border border-border px-4 py-2.5 text-left font-semibold text-foreground"><InlineText text={h} /></th>)}</tr>
-                        </thead>
-                        <tbody>
-                            {block.rows?.map((row, i) => (
-                                <tr key={i} className={i % 2 === 1 ? "bg-muted/20" : ""}>
-                                    {row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600"><InlineText text={cell} /></td>)}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )
-        case "note":
-            return (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-                    <p className="text-sm text-foreground/80 leading-7"><InlineText text={block.content ?? ""} /></p>
-                </div>
-            )
-        case "quote":
-            return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 italic"><InlineText text={block.content ?? ""} /></blockquote>
-        case "divider":
-            return <hr className="border-border my-2" />
-        case "diagram":
-            return <MermaidBlock code={block.content ?? ""} />
-        default:
-            return null
-    }
-}
-
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
 function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGenerationEnd, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
@@ -420,15 +77,33 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
     // const [emailSent, setEmailSent] = useState(false)
     const [hasContent, setHasContent] = useState(chapter.has_content)
     const [confirmOpen, setConfirmOpen] = useState(false)
+    const [chapterCost, setChapterCost] = useState<{
+        total_cost_usd: number | null
+        generation_count: number
+        input_tokens: number | null
+        output_tokens: number | null
+    } | null>(null)
+    const [displayCurrency, setDisplayCurrency] = useState("USD")
+    const [exchangeRate, setExchangeRate] = useState(1.0)
     const proseRef = useRef<HTMLDivElement>(null)
     const { toast } = useToast()
     const { setSettingsOpen } = useStore((s: any) => s)
+
+    useEffect(() => {
+        getRequest("/py/auth/me/settings").then(({ success, data }) => {
+            if (success) {
+                setDisplayCurrency(data.display_currency ?? "USD")
+                setExchangeRate(data.currency_exchange_rate ?? 1.0)
+            }
+        })
+    }, [])
 
     useEffect(() => {
         setHasContent(chapter.has_content)
         setCompleted(chapter.completed)
         setContent(null)
         setBlocks(null)
+        setChapterCost(null)
         if (chapter.has_content) loadContent()
     }, [chapter.id])
 
@@ -525,7 +200,22 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         setLoading(true)
         setBlocks(null)
         setContent(null)
-        const { success, data } = await getRequest(`/py/chapter/${chapter.id}`)
+        const [chapterRes, costRes] = await Promise.all([
+            getRequest(`/py/chapter/${chapter.id}`),
+            getRequest(`/py/chapter/${chapter.id}/cost`),
+        ])
+        if (costRes.success) {
+            const logs: { input_tokens: number | null; output_tokens: number | null }[] =
+                costRes.data.logs ?? []
+            const lastLog = logs[logs.length - 1] ?? {}
+            setChapterCost({
+                total_cost_usd: costRes.data.total_cost_usd ?? null,
+                generation_count: costRes.data.generation_count ?? 0,
+                input_tokens: lastLog.input_tokens ?? null,
+                output_tokens: lastLog.output_tokens ?? null,
+            })
+        }
+        const { success, data } = chapterRes
         if (success) {
             if (data.content_blocks) {
                 try {
@@ -554,9 +244,15 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             onContentGenerated(chapter.id)
             loadContent()
         } catch (err: any) {
+            console.error("[handleGenerate] error:", err)
             const status = err?.response?.status
-            const detail = err?.response?.data?.detail ?? ""
-            if (status === 400 && typeof detail === "string" && detail.includes("LLM provider")) {
+            const rawDetail = err?.response?.data?.detail
+            const detail = typeof rawDetail === "string"
+                ? rawDetail
+                : Array.isArray(rawDetail)
+                    ? rawDetail.map((d: any) => d?.msg ?? JSON.stringify(d)).join("; ")
+                    : ""
+            if (status === 400 && detail.includes("LLM provider")) {
                 toast({
                     title: "LLM not configured",
                     description: "Add your provider and API key in Settings.",
@@ -569,7 +265,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             } else if (status === 429) {
                 toast({ variant: "destructive", title: "Quota exceeded", description: detail || "You've hit your LLM provider's rate limit. Wait a moment and try again." })
             } else {
-                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate content." })
+                toast({ variant: "destructive", title: "Error", description: detail || `Request failed${status ? ` (${status})` : " — check console for details"}` })
             }
         } finally {
             onGenerationEnd(chapter.id)
@@ -597,7 +293,17 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         <div className="flex flex-col h-full overflow-hidden">
             {/* Header */}
             <div className="border-b px-4 sm:px-8 py-5 bg-background shrink-0">
-                <p className="text-xs text-muted-foreground mb-1">Day {chapter.day} · {chapter.hours}h</p>
+                <p className="text-xs text-muted-foreground mb-1">
+                    Day {chapter.day} · {chapter.hours}h
+                    {chapterCost?.total_cost_usd != null && chapterCost.total_cost_usd > 0 && (
+                        <span className="ml-2 text-muted-foreground/60">
+                            · {(chapterCost.total_cost_usd * exchangeRate).toFixed(4)}{displayCurrency !== "USD" ? ` ${displayCurrency}` : " USD"}
+                            {chapterCost.generation_count > 1 && (
+                                <span className="ml-1">· {chapterCost.generation_count}×</span>
+                            )}
+                        </span>
+                    )}
+                </p>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight">{chapter.topic}</h2>
             </div>
 
@@ -610,6 +316,18 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Task</p>
                         <p className="text-sm text-muted-foreground leading-relaxed">{chapter.task}</p>
                     </div>
+
+                    {/* Token usage */}
+                    {(chapterCost?.input_tokens != null || chapterCost?.output_tokens != null) && (
+                        <div className="flex gap-4 text-xs text-muted-foreground/70">
+                            {chapterCost?.input_tokens != null && (
+                                <span>↑ {chapterCost.input_tokens.toLocaleString()} input tokens</span>
+                            )}
+                            {chapterCost?.output_tokens != null && (
+                                <span>↓ {chapterCost.output_tokens.toLocaleString()} output tokens</span>
+                            )}
+                        </div>
+                    )}
 
                     {hasContent ? (
                         loading ? (

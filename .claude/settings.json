@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh run *)",
+      "Bash(git ls-tree *)",
+      "Bash(.venv/bin/pytest tests/ -q --no-header)",
+      "Bash(PGPASSWORD=12345678 psql -h localhost -U kshitij -d openship -c \"SELECT SUM\\(input_tokens\\), SUM\\(output_tokens\\), SUM\\(input_tokens + output_tokens\\) as total_tokens, COUNT\\(*\\) FROM llm_usage_logs WHERE user_id = 1;\")",
+      "Bash(PGPASSWORD=12345678 psql -h localhost -U kshitij -d openship -c \"SELECT SUM\\(input_tokens\\) as daily_input, SUM\\(output_tokens\\) as daily_output, SUM\\(input_tokens + output_tokens\\) as daily_total FROM daily_tasks WHERE user_id = '1';\")",
+      "Bash(PGPASSWORD=12345678 psql -h localhost -U kshitij -d openship -c \"SELECT SUM\\(input_tokens\\) as log_input, SUM\\(output_tokens\\) as log_output, SUM\\(input_tokens + output_tokens\\) as log_total FROM llm_usage_logs WHERE user_id = 1;\")",
+      "Bash(python3 -c \"from services.usage_log import get_user_usage_cost; print\\(get_user_usage_cost\\(1\\)\\)\")",
+      "Bash(git -C /Users/kshitijr/Downloads/openship-2 add ui/src/app/plugins/syllabi/detail.tsx)",
+      "Bash(git -C /Users/kshitijr/Downloads/openship-2 commit -m ' *)",
+      "Bash(git -C /Users/kshitijr/Downloads/openship-2 push)",
+      "Bash(git show *)",
+      "Bash(git rm *)",
+      "Bash(git commit -m ' *)",
+      "Bash(awk '{print $NF}')",
+      "Bash(gh issue *)",
+      "Bash(git remote *)",
+      "Bash(.venv/bin/alembic upgrade *)",
+      "Bash(.venv/bin/alembic history *)",
+      "Bash(psql -U kshitij -d openship -c \"SELECT * FROM alembic_version;\")",
+      "Bash(psql -U kshitij -d openship -c \"\\\\d daily_tasks\")",
+      "Bash(.venv/bin/alembic stamp *)",
+      "Bash(psql -U kshitij -d openship -c \"UPDATE alembic_version SET version_num = 'l0m1n2o3p4q5';\")",
+      "Bash(curl -s \"https://emkc.org/api/v2/piston/runtimes\")",
+      "Bash(curl -s -w '\\\\nHTTP_STATUS:%{http_code}' -X POST https://emkc.org/api/v2/piston/execute -H 'Content-Type: application/json' -d '{\"language\":\"python\",\"version\":\"3.10.0\",\"files\":[{\"content\":\"print\\(\\\\\"hello\\\\\"\\)\"}]}')",
+      "Bash(curl -s http://localhost:3005/py/health)",
+      "Bash(psql -U kshitij -d openship -c \"SELECT id, user_id, provider_id, LEFT\\(api_key, 30\\) as api_key_preview FROM user_api_keys LIMIT 5;\")",
+      "Bash(psql -U kshitij -d openship -c \"\\\\d user_api_keys\")",
+      "Bash(psql -U kshitij -d openship -c \"SELECT id, user_id, LEFT\\(api_key, 30\\) as api_key_preview FROM user_api_keys LIMIT 5;\")",
+      "Bash(.venv/bin/python -c \"from cryptography.fernet import Fernet; print\\(Fernet.generate_key\\(\\).decode\\(\\)\\)\")",
+      "Bash(psql -U kshitij -d openship -c ' *)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/pip show *)",
+      "Bash(PYTHONPATH=/Users/kshitijr/Downloads/openship-2/.venv/lib/python3.14/site-packages .venv/bin/python -c ' *)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python -c \"from pydantic import BaseModel; print\\('pydantic OK'\\)\")",
+      "Bash(git log *)",
+      "Bash(git merge *)"
+    ]
+  }
+}

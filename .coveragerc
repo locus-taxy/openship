@@ -1,0 +1,15 @@
+[run]
+source = .
+omit =
+    tests/*
+    alembic/*
+    venv/*
+    .venv/*
+    */__pycache__/*
+    black_then_collapse.py
+    collapse_blank_lines.py
+    run_migrations.py
+
+[report]
+show_missing = True
+skip_covered = False

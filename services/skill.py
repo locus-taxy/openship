@@ -274,6 +274,7 @@ def get_public_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
                     "task": t.task,
                     "hours": t.hours,
                     "newsletter": t.newsletter,
+                    "content_blocks": t.content_blocks,
                 }
             )
 

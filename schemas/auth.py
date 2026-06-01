@@ -14,3 +14,7 @@ class SaveSettingsRequest(BaseModel):
     llm_provider: Optional[str] = Field(default=None, max_length=50)
     llm_model: Optional[str] = Field(default=None, max_length=100)
     api_key: Optional[str] = Field(default=None, max_length=512)
+
+class SaveCurrencyRequest(BaseModel):
+    display_currency: str = Field(..., pattern=r"^[A-Za-z]{3}$")
+    currency_exchange_rate: float = Field(..., gt=0)

@@ -11,7 +11,7 @@ from enum import Enum
 import hashlib
 import logging
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import instructor
 from prompts import chapter as chapter_prompts
@@ -22,7 +22,7 @@ from fastapi import HTTPException
 from google import genai
 from mistralai import Mistral
 from openai import OpenAI
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -157,24 +157,24 @@ def fetch_provider_models(provider: str, api_key: str) -> List[str]:
 # ── Pydantic output schemas ───────────────────────────────────────────────────
 
 class DailyPlan(BaseModel):
-    day: int
-    topic: str
-    task: str
+    day: int = Field(description="Day number within the week")
+    topic: str = Field(description="Topic to study on this day")
+    task: str = Field(description="Specific actionable task to complete")
 
 class Week(BaseModel):
-    week: int
-    title: str
-    days_range: str
-    daily_plan: List[DailyPlan]
+    week: int = Field(description="Week number within the month")
+    title: str = Field(description="Theme or focus of this week")
+    days_range: str = Field(description="Day range covered, e.g. 'Days 1-7'")
+    daily_plan: List[DailyPlan] = Field(description="One entry per study day this week")
 
 class Month(BaseModel):
-    month: int
-    title: str
-    goal: str
-    weeks: List[Week]
+    month: int = Field(description="Month number, starting from 1")
+    title: str = Field(description="Theme or focus of this month")
+    goal: str = Field(description="What the learner will achieve by end of month")
+    weeks: List[Week] = Field(description="Weekly breakdown for this month")
 
 class SyllabusResponse(BaseModel):
-    months: List[Month]
+    months: List[Month] = Field(description="Complete month-by-month syllabus")
 
 class ChapterContent(BaseModel):
     html: str
@@ -522,6 +522,34 @@ def get_user_model(user) -> Optional[str]:
     model = get_provider_model(user.id, user.llm_provider_id)
     return model or DEFAULT_MODELS.get(provider.name)
 
+# ── Token extraction ──────────────────────────────────────────────────────────
+
+def extract_token_counts(
+    raw_response: Any, provider_name: str
+) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Extract (input_tokens, output_tokens) from a raw provider API response.
+    Returns (None, None) if unavailable or extraction fails — never raises.
+    """
+    if raw_response is None:
+        return None, None
+    try:
+        if provider_name == "anthropic":
+            usage = getattr(raw_response, "usage", None)
+            return getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None)
+        if provider_name in ("openai", "mistral"):
+            usage = getattr(raw_response, "usage", None)
+            return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+        if provider_name == "gemini":
+            meta = getattr(raw_response, "usage_metadata", None)
+            return (
+                getattr(meta, "prompt_token_count", None),
+                getattr(meta, "candidates_token_count", None),
+            )
+    except Exception as e:
+        logger.warning("Token extraction failed [provider=%s]: %s", provider_name, e)
+    return None, None
+
 # ── Public functions ──────────────────────────────────────────────────────────
 
 def generate_syllabus_json(
@@ -553,9 +581,15 @@ def generate_syllabus_json(
     except HTTPException:
         raise
     except Exception as e:
+        cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+        logger.error(
+            "Syllabus generation error [provider=%s cause=%s]",
+            provider,
+            type(cause).__name__ if cause else "none",
+            exc_info=True,
+        )
         _raise_if_provider_error(provider, e)
-        logger.exception("Syllabus generation failed [provider=%s]", provider)
-        return None
+        raise HTTPException(status_code=500, detail="Syllabus generation failed")
 
 def generate_quiz(
     skill: str,
@@ -616,8 +650,10 @@ def generate_chapter_content(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
-) -> Optional[StructuredChapterContent]:
-    """Generate structured chapter content using Instructor. Returns StructuredChapterContent or None."""
+) -> Tuple[Optional[StructuredChapterContent], Optional[int], Optional[int]]:
+    """Generate structured chapter content using Instructor.
+    Returns (StructuredChapterContent, input_tokens, output_tokens) or (None, None, None) on failure.
+    """
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
@@ -629,7 +665,7 @@ def generate_chapter_content(
 
     try:
         client = _build_client(provider, api_key)
-        response: StructuredChapterContent = client.chat.completions.create(
+        response, raw = client.chat.completions.create_with_completion(
             model=model,
             response_model=StructuredChapterContent,
             messages=[
@@ -642,7 +678,8 @@ def generate_chapter_content(
             **_token_kwargs(provider, chapter_max_tokens),
             max_retries=1,
         )
-        return response
+        input_tokens, output_tokens = extract_token_counts(raw, provider)
+        return response, input_tokens, output_tokens
     except HTTPException:
         raise
     except Exception as e:
@@ -667,7 +704,7 @@ def generate_chapter_content(
                 detail="The chapter was too long and the response was cut off. Try regenerating — it usually works on the next attempt.",
             )
         logger.exception("Chapter (blocks) generation failed [provider=%s]", provider)
-        return None
+        return None, None, None
 
 def generate_chapter_html(
     task_description: str,
@@ -676,14 +713,18 @@ def generate_chapter_html(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
-) -> Optional[str]:
-    """Generate chapter HTML content using Instructor. Returns HTML string or None."""
+) -> Tuple[Optional[str], Optional[int], Optional[int]]:
+    """
+    Generate chapter HTML content using Instructor.
+    Returns (html, input_tokens, output_tokens).
+    html is None on failure; token counts are None if unavailable.
+    """
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
     try:
         client = _build_client(provider, api_key)
-        response: ChapterContent = client.chat.completions.create(
+        response, raw = client.chat.completions.create_with_completion(
             model=model,
             response_model=ChapterContent,
             messages=[
@@ -696,10 +737,11 @@ def generate_chapter_html(
             **_token_kwargs(provider, 8192),
             max_retries=1,
         )
-        return response.html
+        input_tokens, output_tokens = extract_token_counts(raw, provider)
+        return response.html, input_tokens, output_tokens
     except HTTPException:
         raise
     except Exception as e:
         _raise_if_provider_error(provider, e)
         logger.exception("Chapter (html) generation failed [provider=%s]", provider)
-        return None
+        return None, None, None

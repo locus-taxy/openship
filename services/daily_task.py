@@ -72,6 +72,9 @@ def get_chapter_content(task_id: int) -> Optional[Dict[str, Any]]:
             "hours": t.hours,
             "completed": t.completed,
             "newsletter": t.newsletter,
+            "input_tokens": t.input_tokens,
+            "output_tokens": t.output_tokens,
+            "generation_cost_usd": t.generation_cost_usd,
             "content_blocks": t.content_blocks,
             "has_content": bool(t.content_blocks) or bool(t.newsletter),
         }
@@ -125,13 +128,29 @@ def get_tasks_for_generating_newsletter(skill_id: int) -> List[Dict[str, Any]]:
             for t in tasks
         ]
 
-def add_content_to_db(newsletter: str, task_id: int) -> bool:
+def add_content_to_db(
+    newsletter: str,
+    task_id: int,
+    input_tokens: Optional[int] = None,
+    output_tokens: Optional[int] = None,
+    generation_cost_usd: Optional[float] = None,
+) -> bool:
     try:
         with Session(engine) as session:
             task = session.get(DailyTask, task_id)
             if task is None:
                 return False
+            if any(
+                v is not None and v < 0 for v in (input_tokens, output_tokens, generation_cost_usd)
+            ):
+                return False
             task.newsletter = _sanitize_html(newsletter)
+            if input_tokens is not None:
+                task.input_tokens = input_tokens
+            if output_tokens is not None:
+                task.output_tokens = output_tokens
+            if generation_cost_usd is not None:
+                task.generation_cost_usd = generation_cost_usd
             session.add(task)
             session.commit()
             return True
@@ -212,6 +231,26 @@ def mark_task_completed(task_id: int) -> bool:
     except Exception as e:
         print(f"Error marking task completed: {e}")
         return False
+
+def get_total_cost_for_user(user_id: str) -> Dict[str, Any]:
+    """Aggregate token counts and USD cost across all tasks for a user."""
+    with Session(engine) as session:
+        tasks = session.exec(select(DailyTask).where(DailyTask.user_id == user_id)).all()
+        return {
+            "total_input_tokens": sum(t.input_tokens or 0 for t in tasks),
+            "total_output_tokens": sum(t.output_tokens or 0 for t in tasks),
+            "total_cost_usd": sum(t.generation_cost_usd or 0.0 for t in tasks),
+        }
+
+def get_cost_summary_for_skill(skill_id: int) -> Dict[str, Any]:
+    """Aggregate token counts and USD cost for all tasks in a skill."""
+    with Session(engine) as session:
+        tasks = session.exec(select(DailyTask).where(DailyTask.skill_id == skill_id)).all()
+        return {
+            "total_input_tokens": sum(t.input_tokens or 0 for t in tasks),
+            "total_output_tokens": sum(t.output_tokens or 0 for t in tasks),
+            "total_cost_usd": sum(t.generation_cost_usd or 0.0 for t in tasks),
+        }
 
 def store_syllabus_tasks(
     user_id: str, skill: str, syllabus_data: list, hours: int, skill_id: int
