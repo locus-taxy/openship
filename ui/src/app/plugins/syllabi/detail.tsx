@@ -8,6 +8,7 @@ import {
     ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
     Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap,
+    Pencil, Play, X,
 } from "lucide-react"
 import { QuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
@@ -20,6 +21,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { getRequest, postRequest } from "@/services"
+import { isRunnable, executeCode } from "@/services/executor"
 import api from "@/services"
 import useStore from "@/store"
 import { sanitizeHtml } from "@/lib/sanitize"
@@ -110,63 +112,203 @@ function InlineText({ text }: { text: string }) {
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
     const ref = useRef<HTMLElement>(null)
+    const [copied, setCopied]           = useState(false)
+    const [isEditing, setIsEditing]     = useState(false)
+    const [editedCode, setEditedCode]   = useState(code)
+    const [output, setOutput]           = useState<{ stdout: string; stderr: string } | null>(null)
+    const [isRunning, setIsRunning]     = useState(false)
+    const [runLabel, setRunLabel]       = useState("Running…")
+    const [runError, setRunError]       = useState<string | null>(null)
 
     useEffect(() => {
-        if (!ref.current) return
-        ref.current.textContent = code
+        if (!ref.current || isEditing) return
+        ref.current.textContent = editedCode
         try {
             if (language) {
-                ref.current.innerHTML = hljs.highlight(code, { language }).value
+                ref.current.innerHTML = hljs.highlight(editedCode, { language }).value
             } else {
                 hljs.highlightElement(ref.current)
             }
         } catch {
-            // Unknown language — fall back to auto-detect
             hljs.highlightElement(ref.current)
         }
         ref.current.classList.add("hljs")
-    }, [code, language])
+    }, [editedCode, language, isEditing])
 
-    const lines = code.split("\n")
+    const lines = editedCode.split("\n")
     if (lines[lines.length - 1] === "") lines.pop()
 
     const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
     const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
 
-    const [copied, setCopied] = useState(false)
-
     async function handleCopy() {
         try {
-            await navigator.clipboard.writeText(code)
+            await navigator.clipboard.writeText(editedCode)
             setCopied(true)
             setTimeout(() => setCopied(false), 2000)
         } catch { /* clipboard denied */ }
     }
 
+    async function handleRun() {
+        setIsRunning(true)
+        setOutput(null)
+        setRunError(null)
+        setRunLabel(language?.toLowerCase() === "python" ? "Loading Python…" : "Running…")
+        try {
+            const result = await executeCode(language, editedCode)
+            setOutput(result)
+        } catch (e) {
+            setRunError(e instanceof Error ? e.message : "Execution failed")
+        } finally {
+            setIsRunning(false)
+        }
+    }
+
     return (
-        <div className="relative rounded-xl border border-white/10 bg-[#282c34] text-sm shadow-lg overflow-hidden">
-            <button
-                onClick={handleCopy}
-                title="Copy code"
-                dangerouslySetInnerHTML={{ __html: copied ? ICON_CHECK : ICON_COPY }}
-                style={{
-                    position: "absolute", top: 10, right: 10,
-                    background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: 6, padding: "5px 8px", cursor: "pointer",
-                    color: copied ? "#4ade80" : "#9da5b4", display: "flex",
-                    alignItems: "center", justifyContent: "center",
-                }}
-            />
-            <div className="flex overflow-x-auto">
-                <div className="flex flex-col shrink-0 select-none text-right px-3 py-4
-                                text-[#636d83] text-xs leading-[1.6]
-                                border-r border-white/[0.08] min-w-[2.5rem]">
-                    {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
-                </div>
-                <div className="flex-1 overflow-x-auto px-5 py-4 min-w-0">
-                    <code ref={ref} className="font-mono text-xs leading-[1.6] whitespace-pre block" />
-                </div>
+        <div className="rounded-xl border border-white/10 bg-[#282c34] text-sm shadow-lg overflow-hidden">
+
+            {/* Toolbar */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end",
+                          gap: 6, padding: "8px 10px 0" }}>
+
+                {/* Edit / Done toggle */}
+                <button
+                    onClick={() => {
+                        if (isEditing) {
+                            setOutput(null)
+                            setRunError(null)
+                        }
+                        setIsEditing(e => !e)
+                    }}
+                    title={isEditing ? "Done editing" : "Edit code"}
+                    style={{
+                        background: isEditing ? "rgba(99,211,130,0.15)" : "rgba(255,255,255,0.08)",
+                        border: `1px solid ${isEditing ? "rgba(99,211,130,0.4)" : "rgba(255,255,255,0.12)"}`,
+                        borderRadius: 6, padding: "4px 8px", cursor: "pointer",
+                        color: isEditing ? "#4ade80" : "#9da5b4",
+                        display: "flex", alignItems: "center", gap: 4, fontSize: 11,
+                    }}
+                >
+                    {isEditing ? <><X size={11} /> Done</> : <><Pencil size={11} /> Edit</>}
+                </button>
+
+                {/* Run button — only for runnable languages */}
+                {isRunnable(language) && (
+                    <button
+                        onClick={handleRun}
+                        disabled={isRunning}
+                        title="Run code"
+                        style={{
+                            background: "rgba(99,211,130,0.15)",
+                            border: "1px solid rgba(99,211,130,0.35)",
+                            borderRadius: 6, padding: "4px 10px",
+                            cursor: isRunning ? "default" : "pointer",
+                            color: "#4ade80", display: "flex", alignItems: "center",
+                            gap: 4, fontSize: 11, opacity: isRunning ? 0.6 : 1,
+                        }}
+                    >
+                        {isRunning
+                            ? <><Loader2 size={11} className="animate-spin" /> {runLabel}</>
+                            : <><Play size={11} /> Run</>}
+                    </button>
+                )}
+
+                {/* Copy button */}
+                <button
+                    onClick={handleCopy}
+                    title="Copy code"
+                    dangerouslySetInnerHTML={{ __html: copied ? ICON_CHECK : ICON_COPY }}
+                    style={{
+                        background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: 6, padding: "5px 8px", cursor: "pointer",
+                        color: copied ? "#4ade80" : "#9da5b4",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                />
             </div>
+
+            {/* Code area */}
+            {isEditing ? (
+                <textarea
+                    value={editedCode}
+                    onChange={e => setEditedCode(e.target.value)}
+                    spellCheck={false}
+                    style={{
+                        width: "100%", boxSizing: "border-box",
+                        background: "transparent", color: "#abb2bf",
+                        fontFamily: "monospace", fontSize: 12, lineHeight: 1.6,
+                        padding: "12px 20px", border: "none", outline: "none",
+                        resize: "vertical",
+                        minHeight: `${Math.max(lines.length, 4) * 1.6 * 12 + 24}px`,
+                    }}
+                />
+            ) : (
+                <div className="flex overflow-x-auto">
+                    <div className="flex flex-col shrink-0 select-none text-right px-3 py-4
+                                    text-[#636d83] text-xs leading-[1.6]
+                                    border-r border-white/[0.08] min-w-[2.5rem]">
+                        {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
+                    </div>
+                    <div className="flex-1 overflow-x-auto px-5 py-4 min-w-0">
+                        <code ref={ref} className="font-mono text-xs leading-[1.6] whitespace-pre block" />
+                    </div>
+                </div>
+            )}
+
+            {/* Output panel */}
+            {(output !== null || runError !== null) && (
+                <div style={{
+                    borderTop: "1px solid rgba(255,255,255,0.08)",
+                    background: "#1e2227", padding: "10px 16px",
+                    maxHeight: 200, overflowY: "auto",
+                }}>
+                    {runError ? (
+                        <>
+                            <div style={{ fontSize: 10, color: "#f87171", marginBottom: 4,
+                                          fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                                Error
+                            </div>
+                            <pre style={{ margin: 0, fontFamily: "monospace", fontSize: 12,
+                                          lineHeight: 1.6, color: "#f87171", whiteSpace: "pre-wrap" }}>
+                                {runError}
+                            </pre>
+                        </>
+                    ) : (
+                        <>
+                            {output!.stdout && (
+                                <>
+                                    <div style={{ fontSize: 10, color: "#4ade80", marginBottom: 4,
+                                                  fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                                        Output
+                                    </div>
+                                    <pre style={{ margin: 0, fontFamily: "monospace", fontSize: 12,
+                                                  lineHeight: 1.6, color: "#abb2bf", whiteSpace: "pre-wrap" }}>
+                                        {output!.stdout}
+                                    </pre>
+                                </>
+                            )}
+                            {output!.stderr && (
+                                <>
+                                    <div style={{ fontSize: 10, color: "#fbbf24",
+                                                  marginTop: output!.stdout ? 8 : 0, marginBottom: 4,
+                                                  fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                                        Stderr
+                                    </div>
+                                    <pre style={{ margin: 0, fontFamily: "monospace", fontSize: 12,
+                                                  lineHeight: 1.6, color: "#fbbf24", whiteSpace: "pre-wrap" }}>
+                                        {output!.stderr}
+                                    </pre>
+                                </>
+                            )}
+                            {!output!.stdout && !output!.stderr && (
+                                <div style={{ fontSize: 12, color: "#636d83", fontStyle: "italic" }}>
+                                    (no output)
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
