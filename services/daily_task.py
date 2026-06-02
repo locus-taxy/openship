@@ -134,6 +134,7 @@ def add_content_to_db(
     input_tokens: Optional[int] = None,
     output_tokens: Optional[int] = None,
     generation_cost_usd: Optional[float] = None,
+    pricing_id: Optional[int] = None,
 ) -> bool:
     try:
         with Session(engine) as session:
@@ -151,6 +152,8 @@ def add_content_to_db(
                 task.output_tokens = output_tokens
             if generation_cost_usd is not None:
                 task.generation_cost_usd = generation_cost_usd
+            if pricing_id is not None:
+                task.pricing_id = pricing_id
             session.add(task)
             session.commit()
             return True
@@ -197,7 +200,7 @@ def _sanitize_block(block_dict: dict) -> dict:
         block_dict["content"] = _clean_mermaid(block_dict["content"])
     return block_dict
 
-def add_blocks_to_db(blocks: list, task_id: int) -> bool:
+def add_blocks_to_db(blocks: list, task_id: int, pricing_id: Optional[int] = None) -> bool:
     try:
         with Session(engine) as session:
             task = session.get(DailyTask, task_id)
@@ -207,6 +210,8 @@ def add_blocks_to_db(blocks: list, task_id: int) -> bool:
             if not sanitized:
                 return True
             task.content_blocks = json.dumps(sanitized)
+            if pricing_id is not None:
+                task.pricing_id = pricing_id
             session.add(task)
             session.commit()
             return True

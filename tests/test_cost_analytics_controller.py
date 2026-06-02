@@ -209,9 +209,10 @@ class TestResolvePriceHelper:
 
         user = _make_user()
         with patch("controllers.content.lookup_model_price", return_value=(1.0, 2.0)):
-            inp, out = _resolve_price(user, "openai", "gpt-4o-mini")
+            inp, out, source = _resolve_price(user, "openai", "gpt-4o-mini")
         assert inp == 1.0
         assert out == 2.0
+        assert source == "auto"
 
     def test_falls_back_to_manual_price_when_auto_is_none(self):
         from controllers.content import _resolve_price
@@ -219,9 +220,10 @@ class TestResolvePriceHelper:
         user = _make_user()
         with patch("controllers.content.lookup_model_price", return_value=(None, None)):
             with patch("controllers.content.get_user_model_price", return_value=(9.0, 18.0)):
-                inp, out = _resolve_price(user, "openai", "custom-model")
+                inp, out, source = _resolve_price(user, "openai", "custom-model")
         assert inp == 9.0
         assert out == 18.0
+        assert source == "manual"
 
     def test_returns_none_when_no_price_available(self):
         from controllers.content import _resolve_price
@@ -229,9 +231,10 @@ class TestResolvePriceHelper:
         user = _make_user()
         with patch("controllers.content.lookup_model_price", return_value=(None, None)):
             with patch("controllers.content.get_user_model_price", return_value=None):
-                inp, out = _resolve_price(user, "openai", "unknown-model")
+                inp, out, source = _resolve_price(user, "openai", "unknown-model")
         assert inp is None
         assert out is None
+        assert source is None
 
 class TestGenerateSkillContentCoveragePaths:
     def _make_user(self):

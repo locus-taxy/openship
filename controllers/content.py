@@ -27,18 +27,21 @@ from services.user import compute_generation_cost_usd, get_currency_settings
 from services.pricing import lookup_model_price
 from services.usage_log import log_llm_usage, get_chapter_cost, get_user_usage_cost
 from services.user_pricing import get_user_model_price
+from services.pricing_snapshot import create_pricing_snapshot
 
 class CompleteChapterBody(BaseModel):
     local_date: date
 
 def _resolve_price(user: User, provider: str, model: str):
-    """Return (input_per_1m, output_per_1m) using auto-pricing first, manual override second."""
+    """Return (input_per_1m, output_per_1m, source) using auto-pricing first, manual override second."""
     inp, out = lookup_model_price(provider, model)
     if inp is None or out is None:
         manual = get_user_model_price(user.id, provider, model)
         if manual:
             inp, out = manual
-    return inp, out
+            return inp, out, "manual"
+        return inp, out, None
+    return inp, out, "auto"
 
 def _check_skill_ownership(detail: dict, current_user: User):
     if detail.pop("_user_id") != str(current_user.id):
@@ -78,14 +81,23 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
             provider_name = get_user_provider_name(current_user)
             model_name = get_user_model(current_user)
             cost_usd = None
-            inp_price, out_price = None, None
+            inp_price, out_price, price_source = None, None, None
+            pricing_id = None
             if input_tokens is not None:
-                inp_price, out_price = _resolve_price(
+                inp_price, out_price, price_source = _resolve_price(
                     current_user, provider_name or "", model_name or ""
                 )
                 cost_usd = compute_generation_cost_usd(
                     input_tokens, output_tokens, inp_price, out_price
                 )
+                if inp_price is not None and out_price is not None:
+                    pricing_id = create_pricing_snapshot(
+                        provider=provider_name or "",
+                        model=model_name or "",
+                        input_per_1m_usd=inp_price,
+                        output_per_1m_usd=out_price,
+                        source=price_source or "auto",
+                    )
             log_llm_usage(
                 user_id=current_user.id,
                 call_type="chapter",
@@ -104,6 +116,7 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 generation_cost_usd=cost_usd,
+                pricing_id=pricing_id,
             ):
                 logger.error("Failed to save content for task %s", task["id"])
                 failed_tasks.append(task["id"])
@@ -151,10 +164,21 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         )
 
     cost_usd = None
-    inp_price, out_price = None, None
+    inp_price, out_price, price_source = None, None, None
+    pricing_id = None
     if input_tokens is not None:
-        inp_price, out_price = _resolve_price(current_user, provider_name or "", model_name or "")
+        inp_price, out_price, price_source = _resolve_price(
+            current_user, provider_name or "", model_name or ""
+        )
         cost_usd = compute_generation_cost_usd(input_tokens, output_tokens, inp_price, out_price)
+        if inp_price is not None and out_price is not None:
+            pricing_id = create_pricing_snapshot(
+                provider=provider_name or "",
+                model=model_name or "",
+                input_per_1m_usd=inp_price,
+                output_per_1m_usd=out_price,
+                source=price_source or "auto",
+            )
 
     log_llm_usage(
         user_id=current_user.id,
@@ -169,7 +193,7 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         output_price_per_1m_usd=out_price,
     )
 
-    if not add_blocks_to_db(blocks=result.blocks, task_id=payload.task_id):
+    if not add_blocks_to_db(blocks=result.blocks, task_id=payload.task_id, pricing_id=pricing_id):
         raise HTTPException(
             status_code=500, detail=f"Failed to save content for task {payload.task_id}"
         )
