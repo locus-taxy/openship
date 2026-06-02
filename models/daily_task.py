@@ -2,7 +2,6 @@ from typing import Optional
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, DateTime, func
 from sqlalchemy import Integer, ForeignKey, Text
-from sqlalchemy import Column as SAColumn
 
 class DailyTask(SQLModel, table=True):
     __tablename__ = "daily_tasks"
@@ -27,7 +26,7 @@ class DailyTask(SQLModel, table=True):
     generation_cost_usd: Optional[float] = Field(default=None)
     pricing_id: Optional[int] = Field(
         default=None,
-        sa_column=SAColumn(Integer, ForeignKey("pricing_snapshots.id"), nullable=True),
+        sa_column=Column(Integer, ForeignKey("pricing_snapshots.id"), nullable=True),
     )
     completed: bool = Field(default=False)
     stop_sending: bool = Field(default=False)

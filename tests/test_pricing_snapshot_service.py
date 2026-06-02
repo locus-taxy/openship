@@ -2,14 +2,6 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy.exc import SQLAlchemyError
 
-def _patch_session(session_mock):
-    patcher = patch(
-        "services.pricing_snapshot.Session",
-        return_value=__import__("contextlib").nullcontext(session_mock),
-    )
-    patcher.start()
-    return patcher
-
 class TestCreatePricingSnapshot:
     def test_returns_id_on_success(self):
         from services.pricing_snapshot import create_pricing_snapshot
