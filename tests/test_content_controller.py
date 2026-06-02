@@ -128,6 +128,7 @@ class TestGenerateChapter:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
             patch("controllers.content.generate_chapter_content", return_value=mock_result),
             patch("controllers.content.add_blocks_to_db", return_value=False),
             patch("controllers.content.get_user_provider_name", return_value="gemini"),
@@ -137,6 +138,42 @@ class TestGenerateChapter:
             with pytest.raises(HTTPException) as exc:
                 generate_chapter(GenerateChapterContentRequest(task_id=1), user)
             assert exc.value.status_code == 500
+
+    def test_raises_500_on_unexpected_exception(self):
+        user = _make_user()
+        chapter = _make_chapter(user_id="1")
+        with (
+            patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
+            patch(
+                "controllers.content.generate_chapter_content",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("controllers.content.get_user_provider_name", return_value="gemini"),
+            patch("controllers.content.get_user_api_key", return_value="key"),
+            patch("controllers.content.get_user_model", return_value="gemini-flash"),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                generate_chapter(GenerateChapterContentRequest(task_id=1), user)
+            assert exc.value.status_code == 500
+
+    def test_claim_week_style_called_when_week_set(self):
+        user = _make_user()
+        chapter = _make_chapter(user_id="1", week=2)
+        mock_result = MagicMock()
+        mock_result.blocks = []
+        with (
+            patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.get_week_content_style", return_value="balanced"),
+            patch("controllers.content.claim_week_style") as mock_claim,
+            patch("controllers.content.generate_chapter_content", return_value=mock_result),
+            patch("controllers.content.add_blocks_to_db", return_value=True),
+            patch("controllers.content.get_user_provider_name", return_value="gemini"),
+            patch("controllers.content.get_user_api_key", return_value="key"),
+            patch("controllers.content.get_user_model", return_value="gemini-flash"),
+        ):
+            generate_chapter(GenerateChapterContentRequest(task_id=1), user)
+        mock_claim.assert_called_once_with(1, "balanced")
 
 class TestCompleteChapter:
     def test_raises_500_when_mark_fails(self):

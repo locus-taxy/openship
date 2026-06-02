@@ -45,7 +45,7 @@ class TestSubscriptionRoute:
         ):
             resp = auth_client.post(
                 "/subscribe",
-                json={"skill": "Python", "days": 30, "hours": 2, "quiz_difficulty": "beginner"},
+                json={"skill": "Python", "days": 30, "hours": 2},
             )
         assert resp.status_code == 200
         assert resp.json()["status"] == "success"

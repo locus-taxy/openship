@@ -44,23 +44,13 @@ class TestSkillExists:
             patcher.stop()
 
 class TestCreateSkill:
-    def test_normalizes_invalid_difficulty_to_beginner(self):
+    def test_creates_skill_successfully(self):
         session = MagicMock()
         patcher = _patch_session(session)
         try:
-            create_skill("u1", "test@example.com", "Python", 30, 2, quiz_difficulty="invalid")
+            create_skill("u1", "test@example.com", "Python", 30, 2)
             added = session.add.call_args[0][0]
-            assert added.quiz_difficulty == "beginner"
-        finally:
-            patcher.stop()
-
-    def test_valid_difficulty_preserved(self):
-        session = MagicMock()
-        patcher = _patch_session(session)
-        try:
-            create_skill("u1", "test@example.com", "Python", 30, 2, quiz_difficulty="advanced")
-            added = session.add.call_args[0][0]
-            assert added.quiz_difficulty == "advanced"
+            assert added.skill == "Python"
         finally:
             patcher.stop()
 
@@ -82,7 +72,6 @@ class TestGetSkill:
             skill="Python",
             days=30,
             hours=2,
-            quiz_difficulty="beginner",
         )
         session = MagicMock()
         exec_mock = MagicMock()

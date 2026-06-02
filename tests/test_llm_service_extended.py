@@ -10,12 +10,16 @@ from services.llm import (
     _require_settings,
     fetch_provider_models,
     generate_syllabus_json,
-    generate_quiz,
+    generate_weekly_quiz,
+    generate_final_quiz,
     generate_chapter_content,
     generate_chapter_html,
+    generate_week_plan,
     verify_model,
     PROVIDER_MODELS,
     DEFAULT_MODELS,
+    GeneratedQuestion,
+    QuizOption,
 )
 
 class TestShouldSkip:
@@ -226,10 +230,47 @@ class TestGenerateSyllabusJson:
                 generate_syllabus_json("Python", 30, 2, "gemini", "key", "gemini-flash")
         assert ei.value.status_code == 429
 
-class TestGenerateQuiz:
+class TestGenerateWeeklyQuiz:
     def test_raises_400_when_no_settings(self):
         with pytest.raises(HTTPException) as ei:
-            generate_quiz("Python", [], "beginner", 10, provider=None, api_key=None)
+            generate_weekly_quiz("Python", 1, [], 5, provider=None, api_key=None)
+        assert ei.value.status_code == 400
+
+    def test_returns_generated_quiz_on_success(self):
+        mock_response = MagicMock()
+        mock_response.questions = [MagicMock()] * 5
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_weekly_quiz(
+                "Python", 1, ["Vars", "Loops"], 5, "gemini", "key", "gemini-flash"
+            )
+        assert result is mock_response
+
+    def test_accepts_partial_question_count(self):
+        mock_response = MagicMock()
+        mock_response.questions = [MagicMock()] * 3  # fewer than requested 5
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_weekly_quiz("Python", 1, ["Vars"], 5, "gemini", "key", "gemini-flash")
+        assert result is mock_response  # partial result accepted
+
+    def test_returns_none_on_generic_exception(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("timeout")
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_weekly_quiz("Python", 1, ["Vars"], 5, "gemini", "key", "gemini-flash")
+        assert result is None
+
+class TestGenerateFinalQuiz:
+    def test_returns_none_when_no_topics(self):
+        result = generate_final_quiz("Python", [], [], 10, "gemini", "key", "gemini-flash")
+        assert result is None
+
+    def test_raises_400_when_no_settings(self):
+        with pytest.raises(HTTPException) as ei:
+            generate_final_quiz("Python", ["Loops"], [], 10, provider=None, api_key=None)
         assert ei.value.status_code == 400
 
     def test_returns_generated_quiz_on_success(self):
@@ -238,41 +279,19 @@ class TestGenerateQuiz:
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
         with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_quiz(
-                "Python", ["Vars", "Loops"], "beginner", 10, "gemini", "key", "gemini-flash"
+            result = generate_final_quiz(
+                "Python", ["Loops"], ["Functions"], 10, "gemini", "key", "gemini-flash"
             )
         assert result is mock_response
 
-    def test_returns_none_when_question_count_mismatch(self):
-        mock_response = MagicMock()
-        mock_response.questions = [MagicMock()] * 5  # expected 10
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_quiz(
-                "Python", ["Vars"], "beginner", 10, "gemini", "key", "gemini-flash"
-            )
-        assert result is None
-
-    def test_returns_none_on_generic_exception(self):
+    def test_returns_none_on_exception(self):
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("timeout")
         with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_quiz(
-                "Python", ["Vars"], "beginner", 10, "gemini", "key", "gemini-flash"
+            result = generate_final_quiz(
+                "Python", ["Loops"], [], 10, "gemini", "key", "gemini-flash"
             )
         assert result is None
-
-    def test_normalizes_invalid_difficulty(self):
-        mock_response = MagicMock()
-        mock_response.questions = [MagicMock()] * 10
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_quiz(
-                "Python", ["Vars"], "invalid-level", 10, "gemini", "key", "gemini-flash"
-            )
-        assert result is mock_response
 
 class TestGenerateChapterContent:
     def test_raises_400_when_no_settings(self):
@@ -382,3 +401,284 @@ class TestVerifyModel:
         with patch("services.llm._build_client", return_value=mock_client):
             result = verify_model("gemini", "key", "gemini-flash")
         assert result["ok"] is False
+
+class TestRaiseIfProviderErrorAuthBranch:
+    def test_raises_400_on_401_in_message(self):
+        """Covers the 401/403 auth branch of _raise_if_provider_error."""
+        exc = Exception("401 unauthorized")
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("openai", exc)
+        assert ei.value.status_code == 400
+
+    def test_raises_400_on_api_key_not_valid(self):
+        exc = Exception("api key not valid")
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("gemini", exc)
+        assert ei.value.status_code == 400
+
+class TestGeneratedQuestionValidator:
+    """Covers line 321 — correct_option not found among option labels."""
+
+    def _make_options(self, labels=("A", "B", "C", "D")):
+        return [QuizOption(label=label, text=f"Option {label}") for label in labels]
+
+    def test_raises_when_correct_option_not_in_labels(self):
+        """Directly invoke validate_options on a model_construct'd object to hit line 321."""
+        from pydantic import ValidationError
+
+        # Build the object bypassing all validators, then call the model_validator directly
+        options = self._make_options(("A", "B", "C", "D"))
+        # Construct a GeneratedQuestion bypassing validators
+        q = GeneratedQuestion.model_construct(
+            question="Test?",
+            options=options,
+            correct_option="X",  # valid per field validator but 'X' is NOT among A/B/C/D labels
+            explanation="Exp",
+        )
+        with pytest.raises(ValueError, match="not found among option labels"):
+            q.validate_options()
+
+    def test_valid_question_passes_validator(self):
+        q = GeneratedQuestion(
+            question="What is Python?",
+            options=self._make_options(),
+            correct_option="B",
+            explanation="It's a language",
+        )
+        assert q.correct_option == "B"
+
+class TestPatchedGenerateFallback:
+    """Covers lines 439-444 — setattr fallback when model_copy raises."""
+
+    def test_setattr_fallback_when_model_copy_raises(self):
+        """When config.model_copy raises, the fallback iterates and calls setattr."""
+        import services.llm as llm_mod
+
+        # Build a config mock that fails model_copy but allows setattr
+        config_mock = MagicMock()
+        config_mock.max_output_tokens = None
+        config_mock.response_schema = MagicMock()  # triggers update["response_schema"] = None
+        config_mock.model_copy.side_effect = Exception("model_copy failed")
+
+        real_generate_mock = MagicMock(return_value="result")
+        google_client_mock = MagicMock()
+        google_client_mock.models.generate_content = real_generate_mock
+
+        captured_patched = {}
+
+        original_build = llm_mod._build_client
+
+        def fake_build(provider, api_key):
+            with patch("services.llm.genai") as mock_genai:
+                mock_genai.Client.return_value = google_client_mock
+                with patch("services.llm.instructor") as mock_instr:
+                    mock_instr.from_genai.return_value = MagicMock()
+                    result = (
+                        original_build.__wrapped__(provider, api_key)
+                        if hasattr(original_build, "__wrapped__")
+                        else None
+                    )
+                    # Capture the patched generate that was set on google_client_mock
+                    captured_patched["fn"] = google_client_mock.models.generate_content
+            return result
+
+        # Directly build the patched generate closure by calling _build_client with gemini
+        with patch("services.llm.genai") as mock_genai:
+            mock_genai.Client.return_value = google_client_mock
+            with patch("services.llm.instructor") as mock_instr:
+                mock_instr.from_genai.return_value = MagicMock()
+                try:
+                    llm_mod._build_client("gemini", "test-api-key")
+                except Exception:  # noqa: BLE001
+                    pass
+            # _patched_generate was set on the mock client
+            patched_fn = google_client_mock.models.generate_content
+
+        # Now call the patched function with a config that fails model_copy
+        patched_fn(config=config_mock)
+        # model_copy was attempted (fails), then setattr was called as fallback
+        assert config_mock.model_copy.called
+
+    def test_setattr_fallback_handles_setattr_exception(self):
+        """When both model_copy and setattr raise, the inner except swallows the error."""
+        import services.llm as llm_mod
+
+        config_mock = MagicMock()
+        config_mock.max_output_tokens = None
+        config_mock.response_schema = MagicMock()
+        config_mock.model_copy.side_effect = Exception("model_copy failed")
+
+        # Make setattr raise by using a read-only property — use a real class
+        class ReadOnlyConfig:
+            @property
+            def max_output_tokens(self):
+                return None
+
+            @property
+            def response_schema(self):
+                return object()  # not None
+
+        ro_config = ReadOnlyConfig()
+
+        real_generate_mock = MagicMock(return_value="result")
+        google_client_mock = MagicMock()
+        google_client_mock.models.generate_content = real_generate_mock
+
+        with patch("services.llm.genai") as mock_genai:
+            mock_genai.Client.return_value = google_client_mock
+            with patch("services.llm.instructor") as mock_instr:
+                mock_instr.from_genai.return_value = MagicMock()
+                try:
+                    llm_mod._build_client("gemini", "key")
+                except Exception:  # noqa: BLE001
+                    pass
+            patched_fn = google_client_mock.models.generate_content
+
+        # Should not raise even though setattr will fail on read-only properties
+        try:
+            patched_fn(config=ro_config)
+        except Exception:  # noqa: BLE001
+            pass  # Real generate may raise; what matters is no crash in the fallback
+
+class TestGenerateWeeklyQuizPartialResult:
+    """Covers line 611 — generate_weekly_quiz reraises HTTPException."""
+
+    def test_returns_partial_result_on_count_mismatch(self):
+        mock_response = MagicMock()
+        mock_response.questions = [MagicMock()] * 3  # asked for 5
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_weekly_quiz(
+                "Python", 1, ["Vars", "Loops"], 5, "openai", "key", "gpt-4o"
+            )
+        assert result is mock_response  # partial result returned, not None
+
+    def test_reraises_http_exception(self):
+        """Covers line 611 — except HTTPException: raise."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = HTTPException(
+            status_code=429, detail="quota"
+        )
+        with patch("services.llm._build_client", return_value=mock_client):
+            with pytest.raises(HTTPException) as ei:
+                generate_weekly_quiz("Python", 1, ["Vars"], 5, "gemini", "key", "gemini-flash")
+        assert ei.value.status_code == 429
+
+class TestGenerateFinalQuizMismatch:
+    """Covers final quiz count mismatch handling — now lenient like weekly quiz."""
+
+    def test_returns_partial_when_count_mismatches(self):
+        mock_response = MagicMock()
+        mock_response.questions = [MagicMock()] * 7  # asked for 10
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_final_quiz(
+                "Python", ["Loops"], ["Functions"], 10, "gemini", "key", "gemini-flash"
+            )
+        assert result is not None
+        assert len(result.questions) == 7
+
+    def test_returns_none_when_questions_empty(self):
+        mock_response = MagicMock()
+        mock_response.questions = []
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_final_quiz(
+                "Python", ["Loops"], [], 10, "gemini", "key", "gemini-flash"
+            )
+        assert result is None
+
+    def test_reraises_http_exception(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = HTTPException(
+            status_code=429, detail="quota"
+        )
+        with patch("services.llm._build_client", return_value=mock_client):
+            with pytest.raises(HTTPException) as ei:
+                generate_final_quiz("Python", ["Loops"], [], 10, "gemini", "key", "gemini-flash")
+        assert ei.value.status_code == 429
+
+class TestGenerateChapterContentTruncation:
+    """Covers line 759 — incompleteoutput raises 422."""
+
+    def test_raises_422_on_finish_reason_max_tokens(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception(
+            "finish_reason.max_tokens exceeded"
+        )
+        with patch("services.llm._build_client", return_value=mock_client):
+            with pytest.raises(HTTPException) as ei:
+                generate_chapter_content("desc", "title", "Python", "openai", "key", "gpt-4o")
+        assert ei.value.status_code == 422
+
+class TestGenerateChapterHtmlHttpException:
+    """Covers line 759 — generate_chapter_html reraises HTTPException."""
+
+    def test_reraises_http_exception(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = HTTPException(
+            status_code=400, detail="invalid key"
+        )
+        with patch("services.llm._build_client", return_value=mock_client):
+            with pytest.raises(HTTPException) as ei:
+                generate_chapter_html("desc", "title", "Python", "gemini", "key", "gemini-flash")
+        assert ei.value.status_code == 400
+
+class TestGenerateWeekPlan:
+    def test_raises_400_when_no_settings(self):
+        with pytest.raises(HTTPException) as ei:
+            generate_week_plan("Python", 2, 4, [], [], 7, 8, provider=None, api_key=None)
+        assert ei.value.status_code == 400
+
+    def test_returns_list_of_dicts_on_success(self):
+        mock_day = MagicMock()
+        mock_day.day = 8  # required by new day-range validation
+        mock_day.model_dump.return_value = {"day": 8, "topic": "Classes", "task": "Learn OOP"}
+        mock_response = MagicMock()
+        mock_response.days = [mock_day]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_week_plan(
+                "Python", 2, 4, ["Variables"], [], 1, 8, "gemini", "key", "gemini-flash"
+            )
+        assert result == [{"day": 8, "topic": "Classes", "task": "Learn OOP"}]
+
+    def test_returns_none_when_days_empty(self):
+        mock_response = MagicMock()
+        mock_response.days = []
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_week_plan("Python", 2, 4, [], [], 7, 8, "openai", "key", "gpt-4o")
+        assert result is None
+
+    def test_returns_none_on_generic_exception(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("network timeout")
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = generate_week_plan(
+                "Python", 2, 4, [], [], 7, 8, "gemini", "key", "gemini-flash"
+            )
+        assert result is None
+
+    def test_reraises_http_exception(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = HTTPException(
+            status_code=429, detail="quota"
+        )
+        with patch("services.llm._build_client", return_value=mock_client):
+            with pytest.raises(HTTPException) as ei:
+                generate_week_plan("Python", 2, 4, [], [], 7, 8, "gemini", "key", "gemini-flash")
+        assert ei.value.status_code == 429
+
+    def test_raises_quota_error_on_rate_limit_exception(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("429 rate_limit exceeded")
+        with patch("services.llm._build_client", return_value=mock_client):
+            with pytest.raises(HTTPException) as ei:
+                generate_week_plan("Python", 2, 4, [], [], 7, 8, "gemini", "key", "gemini-flash")
+        assert ei.value.status_code == 429

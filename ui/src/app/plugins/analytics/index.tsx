@@ -143,21 +143,85 @@ export default function AnalyticsPage() {
 
     if (totalCourses === 0) {
         return (
-            <div className="min-h-screen bg-background flex items-center justify-center p-6">
-                <div className="text-center max-w-sm">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500/20 to-violet-500/10 mx-auto mb-5">
-                        <BarChart2 className="h-9 w-9 text-indigo-500" />
+            <div className="min-h-screen bg-background">
+                <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 sm:py-16 space-y-8">
+
+                    {/* Hero */}
+                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 to-violet-600 p-8 sm:p-12 text-center shadow-xl shadow-indigo-500/20">
+                        <div className="absolute inset-0 opacity-10"
+                            style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
+                        <div className="relative z-10 space-y-4">
+                            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/20 mx-auto">
+                                <Zap className="h-8 w-8 text-white" />
+                            </div>
+                            <div>
+                                <h1 className="text-2xl sm:text-3xl font-black text-white">
+                                    {user?.name ? `Welcome, ${getFirstName(user.name)}!` : "Welcome!"}
+                                </h1>
+                                <p className="text-indigo-200 mt-2 text-sm sm:text-base max-w-md mx-auto leading-relaxed">
+                                    Enroll in your first course and Openship will build a personalised AI learning plan just for you.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => navigate("/enroll")}
+                                className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-3 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors shadow-lg mt-2"
+                            >
+                                <Sparkles className="h-4 w-4" /> Enroll in a Course
+                            </button>
+                        </div>
                     </div>
-                    <h2 className="text-xl font-bold mb-2">No data yet</h2>
-                    <p className="text-muted-foreground text-sm mb-6 leading-relaxed">
-                        Enroll in a course to start seeing your learning analytics.
-                    </p>
-                    <button
-                        onClick={() => navigate("/enroll")}
-                        className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20"
-                    >
-                        <Zap className="h-4 w-4" /> Start Learning
-                    </button>
+
+                    {/* What you'll get */}
+                    <div>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground text-center mb-4">What you'll get</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-2">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10">
+                                    <BarChart2 className="h-5 w-5 text-indigo-500" />
+                                </div>
+                                <p className="font-semibold text-sm">Progress Tracking</p>
+                                <p className="text-xs text-muted-foreground leading-relaxed">See your completion rate, streaks, and overall progress at a glance.</p>
+                            </div>
+                            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-2">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
+                                    <Sparkles className="h-5 w-5 text-violet-500" />
+                                </div>
+                                <p className="font-semibold text-sm">AI-Personalised Plan</p>
+                                <p className="text-xs text-muted-foreground leading-relaxed">Weekly plans adapt to your weak spots and learning style automatically.</p>
+                            </div>
+                            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-2">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
+                                    <Flame className="h-5 w-5 text-amber-500" />
+                                </div>
+                                <p className="font-semibold text-sm">Daily Streaks</p>
+                                <p className="text-xs text-muted-foreground leading-relaxed">Build a learning habit and track your consistency with streak tracking.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Preview of dashboard stats */}
+                    <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-6 space-y-3">
+                        <p className="text-xs text-muted-foreground text-center font-medium">Your dashboard will look like this once you enroll</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 opacity-40 pointer-events-none select-none">
+                            {[
+                                { icon: TrendingUp, label: "In Progress", val: "3", color: "bg-amber-500/10", iconColor: "text-amber-500" },
+                                { icon: Award, label: "Completed", val: "1", color: "bg-emerald-500/10", iconColor: "text-emerald-500" },
+                                { icon: Flame, label: "Day Streak", val: "12", color: "bg-orange-500/10", iconColor: "text-orange-500" },
+                                { icon: Clock, label: "Hours Planned", val: "90", color: "bg-blue-500/10", iconColor: "text-blue-500" },
+                            ].map(({ icon: Icon, label, val, color, iconColor }) => (
+                                <div key={label} className="rounded-xl border border-border/60 bg-card p-4 flex items-center gap-3">
+                                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${color}`}>
+                                        <Icon className={`h-4 w-4 ${iconColor}`} />
+                                    </div>
+                                    <div>
+                                        <p className="text-lg font-black">{val}</p>
+                                        <p className="text-[10px] text-muted-foreground">{label}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
                 </div>
             </div>
         )

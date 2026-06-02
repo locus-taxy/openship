@@ -21,7 +21,11 @@ class TestSubscribeToSkill:
         with patch("controllers.subscription.skill_exists", return_value=True):
             with pytest.raises(HTTPException) as exc:
                 subscribe_to_skill(
-                    SubscribeRequest(skill="Python", days=30, hours=2, quiz_difficulty="beginner"),
+                    SubscribeRequest(
+                        skill="Python",
+                        days=30,
+                        hours=2,
+                    ),
                     user,
                 )
             assert exc.value.status_code == 409
@@ -34,7 +38,11 @@ class TestSubscribeToSkill:
         ):
             with pytest.raises(HTTPException) as exc:
                 subscribe_to_skill(
-                    SubscribeRequest(skill="Python", days=30, hours=2, quiz_difficulty="beginner"),
+                    SubscribeRequest(
+                        skill="Python",
+                        days=30,
+                        hours=2,
+                    ),
                     user,
                 )
             assert exc.value.status_code == 500
@@ -46,7 +54,11 @@ class TestSubscribeToSkill:
             patch("controllers.subscription.create_skill", return_value=42),
         ):
             result = subscribe_to_skill(
-                SubscribeRequest(skill="Python", days=30, hours=2, quiz_difficulty="beginner"),
+                SubscribeRequest(
+                    skill="Python",
+                    days=30,
+                    hours=2,
+                ),
                 user,
             )
         assert result["status"] == "success"
