@@ -78,6 +78,7 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
             provider_name = get_user_provider_name(current_user)
             model_name = get_user_model(current_user)
             cost_usd = None
+            inp_price, out_price = None, None
             if input_tokens is not None:
                 inp_price, out_price = _resolve_price(
                     current_user, provider_name or "", model_name or ""
@@ -94,6 +95,8 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 output_tokens=output_tokens,
                 cost_usd=cost_usd,
                 ref_id=task["id"],
+                input_price_per_1m_usd=inp_price,
+                output_price_per_1m_usd=out_price,
             )
             if not add_content_to_db(
                 newsletter=html,
@@ -148,6 +151,7 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         )
 
     cost_usd = None
+    inp_price, out_price = None, None
     if input_tokens is not None:
         inp_price, out_price = _resolve_price(current_user, provider_name or "", model_name or "")
         cost_usd = compute_generation_cost_usd(input_tokens, output_tokens, inp_price, out_price)
@@ -161,6 +165,8 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         output_tokens=output_tokens,
         cost_usd=cost_usd,
         ref_id=payload.task_id,
+        input_price_per_1m_usd=inp_price,
+        output_price_per_1m_usd=out_price,
     )
 
     if not add_blocks_to_db(blocks=result.blocks, task_id=payload.task_id):
