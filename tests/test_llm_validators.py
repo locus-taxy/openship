@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
+import json
+
 from services.llm import (
     ContentBlock,
     BlockType,
@@ -10,6 +12,7 @@ from services.llm import (
     GeneratedQuestion,
     StructuredChapterContent,
     _build_client,
+    _sanitize_json_escapes,
     generate_chapter_html,
     generate_weekly_quiz,
 )
@@ -196,3 +199,71 @@ class TestGenerateChapterHtmlQuotaError:
             with pytest.raises(HTTPException) as ei:
                 generate_chapter_html("desc", "title", "Python", "gemini", "key", "gemini-flash")
         assert ei.value.status_code == 429
+
+class TestSanitizeJsonEscapes:
+    """Tests for _sanitize_json_escapes — the char-by-char JSON escape sanitizer."""
+
+    def _roundtrip(self, raw: str) -> str:
+        """Sanitize raw and return the parsed string value from {"v": <raw>}."""
+        return json.loads(_sanitize_json_escapes('{"v": "' + raw + '"}'))["v"]
+
+    def test_passthrough_no_backslash(self):
+        assert _sanitize_json_escapes("hello world") == "hello world"
+
+    def test_valid_simple_escapes_unchanged(self):
+        # \n \t \r \b \f \\ \" \/ must pass through untouched
+        assert _sanitize_json_escapes('\\n\\t\\r\\b\\f\\\\\\/\\"') == '\\n\\t\\r\\b\\f\\\\\\/\\"'
+
+    def test_valid_unicode_escape_unchanged(self):
+        raw = '{"v": "char\\u0041"}'
+        assert json.loads(_sanitize_json_escapes(raw))["v"] == "charA"
+
+    def test_invalid_escape_uint32(self):
+        # \uint32_t is invalid — backslash gets doubled
+        result = self._roundtrip("\\uint32_t x")
+        assert result == "\\uint32_t x"
+
+    def test_invalid_escape_unicode_word(self):
+        result = self._roundtrip("\\unicode point")
+        assert result == "\\unicode point"
+
+    def test_invalid_escape_null_char(self):
+        result = self._roundtrip("\\0 terminated")
+        assert result == "\\0 terminated"
+
+    def test_invalid_escape_regex_s(self):
+        result = self._roundtrip("\\s+")
+        assert result == "\\s+"
+
+    def test_invalid_u_too_short(self):
+        # \uAB only 2 hex digits — invalid
+        result = self._roundtrip("\\uAB end")
+        assert result == "\\uAB end"
+
+    def test_lone_trailing_backslash(self):
+        # A lone backslash at end of string gets doubled
+        sanitized = _sanitize_json_escapes("hello\\")
+        assert sanitized == "hello\\\\"
+
+    def test_empty_string(self):
+        assert _sanitize_json_escapes("") == ""
+
+    def test_model_validate_json_bytes_path(self):
+        # Bytes input must be decoded and sanitized
+        payload = b'{"blocks": []}'
+        # Should not raise even though blocks is empty (filter_and_validate_blocks raises ValueError)
+        with pytest.raises(Exception):
+            StructuredChapterContent.model_validate_json(payload)
+
+    def test_model_validate_json_fixes_invalid_escape(self):
+        import json as _json
+
+        code_with_bad_escape = "int x = \\uint32_t(0);"
+        # Build a minimal valid blocks payload with the bad escape in code content
+        raw_json = (
+            '{"blocks": [{"type": "code", "content": "'
+            + code_with_bad_escape
+            + '", "language": "cpp"}]}'
+        )
+        result = StructuredChapterContent.model_validate_json(raw_json)
+        assert result.blocks[0].content == "int x = \\uint32_t(0);"

@@ -85,36 +85,52 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
         raise HTTPException(status_code=404, detail="Task not found")
     _check_task_ownership(chapter, current_user)
 
-    # Use the same style for every chapter in the same week so the bandit's
-    # reward signal (weekly quiz score) can be attributed to a single style.
-    # Sample a new style only for the first chapter of each week.
-    week = chapter.get("week")
-    style = (get_week_content_style(chapter["skill_id"], week) if week else None) or sample_style(
-        chapter["skill_id"], current_user.id
-    )
+    try:
+        # Use the same style for every chapter in the same week so the bandit's
+        # reward signal (weekly quiz score) can be attributed to a single style.
+        # Sample a new style only for the first chapter of each week.
+        week = chapter.get("week")
+        style = (
+            get_week_content_style(chapter["skill_id"], week) if week else None
+        ) or sample_style(chapter["skill_id"], current_user.id)
 
-    # Commit the style immediately so concurrent chapter requests for the same
-    # week see it and don't independently re-sample the bandit.
-    if week:
-        claim_week_style(payload.task_id, style)
+        # Commit the style immediately so concurrent chapter requests for the same
+        # week see it and don't independently re-sample the bandit.
+        if week:
+            claim_week_style(payload.task_id, style)
 
-    result = generate_chapter_content(
-        task_description=chapter["task"],
-        task_title=chapter["topic"],
-        skill=chapter["skill"],
-        provider=get_user_provider_name(current_user),
-        api_key=get_user_api_key(current_user),
-        model=get_user_model(current_user),
-        style=style,
-    )
-    if not result:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to generate content for task {payload.task_id}"
+        result = generate_chapter_content(
+            task_description=chapter["task"],
+            task_title=chapter["topic"],
+            skill=chapter["skill"],
+            provider=get_user_provider_name(current_user),
+            api_key=get_user_api_key(current_user),
+            model=get_user_model(current_user),
+            style=style,
         )
+        if not result:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to generate content for task {payload.task_id}"
+            )
 
-    if not add_blocks_to_db(blocks=result.blocks, task_id=payload.task_id, content_style=style):
+        if not add_blocks_to_db(blocks=result.blocks, task_id=payload.task_id, content_style=style):
+            raise HTTPException(
+                status_code=500, detail=f"Failed to save content for task {payload.task_id}"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Unexpected error generating chapter [task=%s topic=%r]: %s",
+            payload.task_id,
+            chapter.get("topic"),
+            exc,
+            exc_info=True,
+        )
         raise HTTPException(
-            status_code=500, detail=f"Failed to save content for task {payload.task_id}"
+            status_code=500,
+            detail=f"Unexpected error generating content for task {payload.task_id}",
         )
 
     return {"status": "success", "message": f"Content generated for task {payload.task_id}"}

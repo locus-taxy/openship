@@ -58,7 +58,8 @@ def update_arm(skill_id: int, user_id: int, style: str, improved: bool) -> None:
         session.commit()
 
 def get_current_style(skill_id: int, user_id: int) -> Optional[str]:
-    """Return the style with the highest alpha/(alpha+beta) ratio (exploitation only)."""
+    """Return the style with the highest alpha/(alpha+beta) ratio (exploitation only).
+    Not used in production — available for analytics/display if needed in future."""
     with Session(engine) as session:
         arms = session.exec(
             select(ContentStyleArm).where(

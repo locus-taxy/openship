@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
 from sqlalchemy import func, case, outerjoin, select as _sa_select
@@ -5,6 +6,8 @@ from database import engine
 from models.skill import Skill
 from models.daily_task import DailyTask
 from models.quiz import Quiz
+
+logger = logging.getLogger(__name__)
 
 def skill_exists(email: str, skill: str) -> bool:
     with Session(engine) as session:
@@ -32,7 +35,7 @@ def create_skill(
             session.refresh(db_skill)
             return db_skill.id
     except Exception as e:
-        print(f"[DB ERROR] create_skill failed: {e}")
+        logger.error("create_skill failed: %s", e)
         return None
 
 def get_skill(email: str, skill: str) -> Optional[Dict[str, Any]]:

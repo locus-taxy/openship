@@ -208,6 +208,20 @@ class ContentBlock(BaseModel):
             return {k.strip(): v for k, v in values.items()}
         return values
 
+    @field_validator("rows", mode="before")
+    @classmethod
+    def coerce_rows(cls, v):
+        if not isinstance(v, list):
+            return v
+        fixed = []
+        for row in v:
+            if isinstance(row, dict):
+                # Gemini sometimes wraps rows as {"content": [...]} instead of plain lists
+                row = row.get("content") or (list(row.values())[0] if row else [])
+            if isinstance(row, list):
+                fixed.append([str(cell) for cell in row])
+        return fixed
+
     @field_validator("level")
     @classmethod
     def level_must_be_valid(cls, v):
@@ -248,8 +262,64 @@ class ContentBlock(BaseModel):
             self.format = "mermaid"  # only supported format; reject anything else
         return self
 
+_VALID_SIMPLE_ESCAPES = frozenset('"\\/bfnrt')
+_HEX_CHARS = frozenset("0123456789abcdefABCDEF")
+
+def _sanitize_json_escapes(s: str) -> str:
+    """Escape any backslash sequences that are invalid in JSON.
+
+    LLMs embedding code examples often emit raw C/C++/Rust escape sequences
+    (e.g. \\s, \\0, \\uint32_t, \\unicode) inside JSON string values. This
+    walks the string character-by-character and doubles any backslash that
+    doesn't start a valid JSON escape, making the payload parseable without
+    altering legitimate escape sequences.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if c != "\\":
+            out.append(c)
+            i += 1
+            continue
+        # Lone trailing backslash — double it
+        if i + 1 >= n:
+            out.append("\\\\")
+            i += 1
+            continue
+        nxt = s[i + 1]
+        if nxt in _VALID_SIMPLE_ESCAPES:
+            out.append(c)
+            out.append(nxt)
+            i += 2
+        elif nxt == "u":
+            hex4 = s[i + 2 : i + 6]
+            if len(hex4) == 4 and all(h in _HEX_CHARS for h in hex4):
+                out.append(c)
+                out.append(nxt)
+                out.extend(hex4)
+                i += 6
+            else:
+                # Invalid \uXXX or \unicode — escape the backslash only
+                out.append("\\\\")
+                i += 1
+        else:
+            # Any other invalid escape — escape the backslash only
+            out.append("\\\\")
+            i += 1
+    return "".join(out)
+
 class StructuredChapterContent(BaseModel):
     blocks: List[ContentBlock]
+
+    @classmethod
+    def model_validate_json(cls, json_data, *, strict=None, context=None):
+        if isinstance(json_data, (bytes, bytearray)):
+            json_data = json_data.decode("utf-8", errors="replace")
+        if isinstance(json_data, str):
+            json_data = _sanitize_json_escapes(json_data)
+        return super().model_validate_json(json_data, strict=strict, context=context)
 
     @field_validator("blocks")
     @classmethod
@@ -677,14 +747,16 @@ def generate_final_quiz(
             **_token_kwargs(provider, 8192),
             max_retries=1,
         )
-        if not response.questions or len(response.questions) != total_questions:
+        if not response.questions:
+            logger.warning("Final quiz generation returned 0 questions [provider=%s]", provider)
+            return None
+        if len(response.questions) != total_questions:
             logger.warning(
-                "Final quiz generation returned %d questions, expected %d [provider=%s]",
-                len(response.questions) if response.questions else 0,
+                "Final quiz generation returned %d questions, expected %d — using partial result [provider=%s]",
+                len(response.questions),
                 total_questions,
                 provider,
             )
-            return None
         return response
     except HTTPException:
         raise
@@ -737,15 +809,14 @@ def generate_chapter_content(
         raise
     except Exception as e:
         full_msg = _full_exc_msg(e)
-        print(
-            f"[llm] chapter-blocks error provider={provider} type={type(e).__name__} msg={str(e)[:800]}",
-            flush=True,
-        )
         cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
-        if cause:
-            print(
-                f"[llm] caused by: type={type(cause).__name__} msg={str(cause)[:400]}", flush=True
-            )
+        logger.error(
+            "Chapter (blocks) error [provider=%s type=%s]: %s%s",
+            provider,
+            type(e).__name__,
+            str(e)[:800],
+            f" — caused by [{type(cause).__name__}]: {str(cause)[:400]}" if cause else "",
+        )
         _raise_if_provider_error(provider, e)
         if (
             "incompleteoutput" in full_msg.replace(" ", "")

@@ -566,9 +566,9 @@ class TestGenerateWeeklyQuizPartialResult:
         assert ei.value.status_code == 429
 
 class TestGenerateFinalQuizMismatch:
-    """Covers lines 655-661, 664 — returns None when question count mismatches."""
+    """Covers final quiz count mismatch handling — now lenient like weekly quiz."""
 
-    def test_returns_none_when_count_mismatches(self):
+    def test_returns_partial_when_count_mismatches(self):
         mock_response = MagicMock()
         mock_response.questions = [MagicMock()] * 7  # asked for 10
         mock_client = MagicMock()
@@ -577,7 +577,8 @@ class TestGenerateFinalQuizMismatch:
             result = generate_final_quiz(
                 "Python", ["Loops"], ["Functions"], 10, "gemini", "key", "gemini-flash"
             )
-        assert result is None
+        assert result is not None
+        assert len(result.questions) == 7
 
     def test_returns_none_when_questions_empty(self):
         mock_response = MagicMock()

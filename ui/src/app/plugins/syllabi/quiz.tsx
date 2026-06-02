@@ -73,7 +73,7 @@ function getOptionText(q: QuizQuestion, opt: string): string {
     return ({ A: q.option_a, B: q.option_b, C: q.option_c, D: q.option_d } as Record<string, string>)[opt] ?? ""
 }
 
-type View = "loading" | "not_generated" | "generating" | "ready" | "taking" | "submitted" | "last_results" | "error"
+type View = "loading" | "not_generated" | "generating" | "ready" | "taking" | "submitted" | "last_results" | "error" | "generate_error"
 
 export function QuizPanel({
     skillId,
@@ -124,7 +124,7 @@ export function QuizPanel({
         try {
             await api.post(`/py/quiz/${skillId}/generate`)
         } catch (err: any) {
-            if (err?.response?.status !== 409) { setView("error"); return }
+            if (err?.response?.status !== 409) { setView("generate_error"); return }
         }
         await loadQuiz()
     }
@@ -135,7 +135,7 @@ export function QuizPanel({
         try {
             await api.post(`/py/quiz/${skillId}/generate`)
         } catch (err: any) {
-            if (err?.response?.status !== 409) { setView("error"); return }
+            if (err?.response?.status !== 409) { setView("generate_error"); return }
         }
         await loadQuiz()
     }
@@ -203,6 +203,15 @@ export function QuizPanel({
             <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
                 <p className="text-sm text-muted-foreground">Could not load quiz. Please try again.</p>
                 <Button variant="outline" size="sm" onClick={() => loadQuiz()}>Retry</Button>
+            </div>
+        )
+    }
+
+    if (view === "generate_error") {
+        return (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
+                <p className="text-sm text-muted-foreground">Quiz generation failed — the AI returned fewer questions than expected. Please try again.</p>
+                <Button variant="outline" size="sm" onClick={handleGenerate}>Try Again</Button>
             </div>
         )
     }
