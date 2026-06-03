@@ -3,7 +3,7 @@ import mermaid from "mermaid"
 import hljs from "highlight.js"
 import "highlight.js/styles/atom-one-dark.css"
 
-mermaid.initialize({ startOnLoad: false, theme: "dark" })
+mermaid.initialize({ startOnLoad: false, theme: "dark", suppressErrors: true })
 
 export type BlockType =
     | "heading" | "paragraph" | "code"
