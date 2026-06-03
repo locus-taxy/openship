@@ -1,6 +1,6 @@
 """adaptive syllabus ml tables
 
-Revision ID: m1n2o3p4q5r6
+Revision ID: a1b2c3d4e5f6
 Revises: l0m1n2o3p4q5
 Create Date: 2026-05-21
 
@@ -15,7 +15,7 @@ Changes:
 from alembic import op
 import sqlalchemy as sa
 
-revision = "m1n2o3p4q5r6"
+revision = "a1b2c3d4e5f6"
 down_revision = "l0m1n2o3p4q5"
 branch_labels = None
 depends_on = None
