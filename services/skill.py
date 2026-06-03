@@ -171,18 +171,19 @@ def update_skill_weeks(skill_id: int, generated_weeks: int, total_weeks: int) ->
             session.add(skill)
             session.commit()
 
-def unlock_next_week(skill_id: int, completed_week: int) -> int:
+def unlock_next_week(skill_id: int, completed_week: int) -> tuple[int, bool]:
     """Increment generated_weeks after a weekly quiz is submitted.
     Only acts on progressive courses (total_weeks > 0).
-    Returns the new generated_weeks value."""
+    Returns (new_generated_weeks, actually_unlocked) so callers can
+    distinguish a genuine unlock from a quiz retake where nothing changed."""
     with Session(engine) as session:
         skill = session.get(Skill, skill_id)
         if skill and skill.total_weeks > 0 and skill.generated_weeks == completed_week:
             skill.generated_weeks = min(skill.total_weeks, completed_week + 1)
             session.add(skill)
             session.commit()
-            return skill.generated_weeks
-        return skill.generated_weeks if skill else 0
+            return skill.generated_weeks, True
+        return (skill.generated_weeks if skill else 0), False
 
 def get_list_of_skill_ids() -> List[int]:
     with Session(engine) as session:
