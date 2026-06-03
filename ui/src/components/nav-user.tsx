@@ -658,6 +658,7 @@ export function NavUser() {
                                                                 value={apiKey}
                                                                 onChange={(e) => setApiKey(e.target.value)}
                                                                 className="pr-10 font-mono text-sm"
+                                                                autoComplete="new-password"
                                                                 autoFocus={editingKey}
                                                                 onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") { setEditingKey(false); setApiKey(""); } }}
                                                             />
