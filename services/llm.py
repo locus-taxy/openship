@@ -201,11 +201,32 @@ class ContentBlock(BaseModel):
     rows: Optional[List[List[str]]] = None
     format: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def strip_key_whitespace(cls, values):
+        if isinstance(values, dict):
+            return {k.strip(): v for k, v in values.items()}
+        return values
+
+    @field_validator("rows", mode="before")
+    @classmethod
+    def coerce_rows(cls, v):
+        if not isinstance(v, list):
+            return v
+        fixed = []
+        for row in v:
+            if isinstance(row, dict):
+                # Gemini sometimes wraps rows as {"content": [...]} instead of plain lists
+                row = row.get("content") or (list(row.values())[0] if row else [])
+            if isinstance(row, list):
+                fixed.append([str(cell) for cell in row])
+        return fixed
+
     @field_validator("level")
     @classmethod
     def level_must_be_valid(cls, v):
-        if v is not None and v not in (1, 2, 3):
-            raise ValueError("Heading level must be 1, 2, or 3")
+        if v is not None:
+            return max(1, min(3, v))
         return v
 
     @model_validator(mode="after")
@@ -241,8 +262,64 @@ class ContentBlock(BaseModel):
             self.format = "mermaid"  # only supported format; reject anything else
         return self
 
+_VALID_SIMPLE_ESCAPES = frozenset('"\\/bfnrt')
+_HEX_CHARS = frozenset("0123456789abcdefABCDEF")
+
+def _sanitize_json_escapes(s: str) -> str:
+    """Escape any backslash sequences that are invalid in JSON.
+
+    LLMs embedding code examples often emit raw C/C++/Rust escape sequences
+    (e.g. \\s, \\0, \\uint32_t, \\unicode) inside JSON string values. This
+    walks the string character-by-character and doubles any backslash that
+    doesn't start a valid JSON escape, making the payload parseable without
+    altering legitimate escape sequences.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if c != "\\":
+            out.append(c)
+            i += 1
+            continue
+        # Lone trailing backslash — double it
+        if i + 1 >= n:
+            out.append("\\\\")
+            i += 1
+            continue
+        nxt = s[i + 1]
+        if nxt in _VALID_SIMPLE_ESCAPES:
+            out.append(c)
+            out.append(nxt)
+            i += 2
+        elif nxt == "u":
+            hex4 = s[i + 2 : i + 6]
+            if len(hex4) == 4 and all(h in _HEX_CHARS for h in hex4):
+                out.append(c)
+                out.append(nxt)
+                out.extend(hex4)
+                i += 6
+            else:
+                # Invalid \uXXX or \unicode — escape the backslash only
+                out.append("\\\\")
+                i += 1
+        else:
+            # Any other invalid escape — escape the backslash only
+            out.append("\\\\")
+            i += 1
+    return "".join(out)
+
 class StructuredChapterContent(BaseModel):
     blocks: List[ContentBlock]
+
+    @classmethod
+    def model_validate_json(cls, json_data, *, strict=None, context=None):
+        if isinstance(json_data, (bytes, bytearray)):
+            json_data = json_data.decode("utf-8", errors="replace")
+        if isinstance(json_data, str):
+            json_data = _sanitize_json_escapes(json_data)
+        return super().model_validate_json(json_data, strict=strict, context=context)
 
     @field_validator("blocks")
     @classmethod
@@ -268,6 +345,14 @@ class StructuredChapterContent(BaseModel):
         if not filtered:
             raise ValueError("All blocks were empty — LLM did not fill content fields")
         return filtered
+
+class GeneratedDayPlan(BaseModel):
+    day: int
+    topic: str
+    task: str
+
+class GeneratedWeekPlan(BaseModel):
+    days: List[GeneratedDayPlan]
 
 _VALID_OPTIONS = {"A", "B", "C", "D"}
 
@@ -423,8 +508,11 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
                 # only the easiest block types.  instructor still validates the output
                 # against our Pydantic model via model_validate_json — same result,
                 # but the prompt now drives WHAT gets generated.
+                # Pair with response_mime_type so Gemini emits raw JSON instead of
+                # markdown-wrapped JSON (```json...```) which breaks model_validate_json.
                 if getattr(config, "response_schema", None) is not None:
                     update["response_schema"] = None
+                    update["response_mime_type"] = "application/json"
                 if update:
                     try:
                         kwargs["config"] = config.model_copy(update=update)
@@ -445,7 +533,7 @@ def _build_client(provider: str, api_key: str) -> instructor.Instructor:
     if provider == "anthropic":
         return instructor.from_anthropic(Anthropic(api_key=api_key))
     if provider == "mistral":
-        return instructor.from_mistral(Mistral(api_key=api_key))
+        return instructor.from_mistral(Mistral(api_key=api_key, timeout_ms=90000))
     raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
 def _token_kwargs(provider: str, max_tokens: int) -> dict:
@@ -589,25 +677,28 @@ def generate_syllabus_json(
             exc_info=True,
         )
         _raise_if_provider_error(provider, e)
-        raise HTTPException(status_code=500, detail="Syllabus generation failed")
+        logger.exception(
+            "Syllabus generation failed [provider=%s model=%s]: %s", provider, model, e
+        )
+        return None
 
-def generate_quiz(
+def generate_weekly_quiz(
     skill: str,
+    week: int,
     topics: List[str],
-    difficulty: str,
     num_questions: int,
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    pool_size: int = 1,
 ) -> Optional[GeneratedQuiz]:
-    """Generate a multiple-choice quiz using Instructor. Returns GeneratedQuiz or None."""
-    _VALID_DIFFICULTIES = {"beginner", "intermediate", "advanced"}
-    difficulty = difficulty.strip().lower() if difficulty else "beginner"
-    if difficulty not in _VALID_DIFFICULTIES:
-        difficulty = "beginner"
+    """Generate a per-week quiz. Returns GeneratedQuiz or None.
 
+    pool_size > 1 generates pool_size variants per unique question (num_questions * pool_size total).
+    """
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
+    total_questions = num_questions * pool_size
 
     try:
         client = _build_client(provider, api_key)
@@ -617,30 +708,96 @@ def generate_quiz(
             messages=[
                 {
                     "role": "system",
-                    "content": quiz_prompts.system_prompt(skill, difficulty, len(topics)),
+                    "content": quiz_prompts.weekly_system_prompt(skill, week, len(topics)),
                 },
                 {
                     "role": "user",
-                    "content": quiz_prompts.user_prompt(topics, num_questions, difficulty),
+                    "content": quiz_prompts.weekly_user_prompt(topics, total_questions),
                 },
             ],
             **_token_kwargs(provider, 8192),
             max_retries=1,
         )
-        if not response.questions or len(response.questions) != num_questions:
+        if not response.questions:
+            logger.warning("Weekly quiz generation returned 0 questions [provider=%s]", provider)
+            return None
+        if len(response.questions) != total_questions:
             logger.warning(
-                "Quiz generation returned %d questions, expected %d [provider=%s]",
-                len(response.questions) if response.questions else 0,
-                num_questions,
+                "Weekly quiz generation returned %d questions, expected %d — using partial result [provider=%s]",
+                len(response.questions),
+                total_questions,
                 provider,
             )
-            return None
         return response
     except HTTPException:
         raise
     except Exception as e:
         _raise_if_provider_error(provider, e)
-        logger.exception("Quiz generation failed [provider=%s]", provider)
+        logger.exception("Weekly quiz generation failed [provider=%s]", provider)
+        return None
+
+def generate_final_quiz(
+    skill: str,
+    weak_topics: List[str],
+    forgotten_topics: List[str],
+    num_questions: int,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    topic_week_map: Optional[dict] = None,
+    pool_size: int = 1,
+) -> Optional[GeneratedQuiz]:
+    """Generate the ML-personalised final quiz. Returns GeneratedQuiz or None.
+
+    pool_size > 1 generates pool_size variants per unique question (num_questions * pool_size total).
+    """
+    all_topics = list(dict.fromkeys(weak_topics + forgotten_topics))
+    if not all_topics:
+        return None
+
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+    total_questions = num_questions * pool_size
+
+    try:
+        client = _build_client(provider, api_key)
+        response: GeneratedQuiz = client.chat.completions.create(
+            model=model,
+            response_model=GeneratedQuiz,
+            messages=[
+                {
+                    "role": "system",
+                    "content": quiz_prompts.final_system_prompt(skill, len(all_topics)),
+                },
+                {
+                    "role": "user",
+                    "content": quiz_prompts.final_user_prompt(
+                        weak_topics,
+                        forgotten_topics,
+                        total_questions,
+                        topic_week_map=topic_week_map,
+                    ),
+                },
+            ],
+            **_token_kwargs(provider, 8192),
+            max_retries=1,
+        )
+        if not response.questions:
+            logger.warning("Final quiz generation returned 0 questions [provider=%s]", provider)
+            return None
+        if len(response.questions) != total_questions:
+            logger.warning(
+                "Final quiz generation returned %d questions, expected %d — using partial result [provider=%s]",
+                len(response.questions),
+                total_questions,
+                provider,
+            )
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.exception("Final quiz generation failed [provider=%s]", provider)
         return None
 
 def generate_chapter_content(
@@ -650,6 +807,7 @@ def generate_chapter_content(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    style: Optional[str] = None,
 ) -> Tuple[Optional[StructuredChapterContent], Optional[int], Optional[int]]:
     """Generate structured chapter content using Instructor.
     Returns (StructuredChapterContent, input_tokens, output_tokens) or (None, None, None) on failure.
@@ -669,7 +827,12 @@ def generate_chapter_content(
             model=model,
             response_model=StructuredChapterContent,
             messages=[
-                {"role": "system", "content": chapter_prompts.system_prompt()},
+                {
+                    "role": "system",
+                    "content": chapter_prompts.system_prompt(
+                        concise=provider == "mistral", style=style
+                    ),
+                },
                 {
                     "role": "user",
                     "content": chapter_prompts.user_prompt(task_title, skill, task_description),
@@ -684,15 +847,14 @@ def generate_chapter_content(
         raise
     except Exception as e:
         full_msg = _full_exc_msg(e)
-        print(
-            f"[llm] chapter-blocks error provider={provider} type={type(e).__name__} msg={str(e)[:800]}",
-            flush=True,
-        )
         cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
-        if cause:
-            print(
-                f"[llm] caused by: type={type(cause).__name__} msg={str(cause)[:400]}", flush=True
-            )
+        logger.error(
+            "Chapter (blocks) error [provider=%s type=%s]: %s%s",
+            provider,
+            type(e).__name__,
+            str(e)[:800],
+            f" — caused by [{type(cause).__name__}]: {str(cause)[:400]}" if cause else "",
+        )
         _raise_if_provider_error(provider, e)
         if (
             "incompleteoutput" in full_msg.replace(" ", "")
@@ -745,3 +907,72 @@ def generate_chapter_html(
         _raise_if_provider_error(provider, e)
         logger.exception("Chapter (html) generation failed [provider=%s]", provider)
         return None, None, None
+
+def generate_week_plan(
+    skill: str,
+    week: int,
+    total_weeks: int,
+    weak_topics: List[str],
+    forgotten_topics: List[str],
+    days_in_week: int,
+    start_day: int,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    prev_score: int = 100,
+    remediation_days: int = 0,
+) -> Optional[List[dict]]:
+    """Generate ML-personalised daily plan for a specific week. Returns list of day dicts or None."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+    try:
+        client = _build_client(provider, api_key)
+        response: GeneratedWeekPlan = client.chat.completions.create(
+            model=model,
+            response_model=GeneratedWeekPlan,
+            messages=[
+                {
+                    "role": "system",
+                    "content": syllabus_prompts.week_plan_system_prompt(
+                        skill, week, total_weeks, days_in_week
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": syllabus_prompts.week_plan_user_prompt(
+                        week,
+                        start_day,
+                        days_in_week,
+                        weak_topics,
+                        forgotten_topics,
+                        prev_score=prev_score,
+                        remediation_days=remediation_days,
+                    ),
+                },
+            ],
+            **_token_kwargs(provider, 4096),
+            max_retries=1,
+        )
+        if not response.days:
+            return None
+        day_numbers = [d.day for d in response.days]
+        if (
+            len(day_numbers) != days_in_week
+            or len(set(day_numbers)) != days_in_week
+            or min(day_numbers) != start_day
+            or max(day_numbers) != start_day + days_in_week - 1
+        ):
+            logger.warning(
+                "generate_week_plan: malformed days [got=%s expected=%d..%d]",
+                sorted(day_numbers),
+                start_day,
+                start_day + days_in_week - 1,
+            )
+            return None
+        return [d.model_dump() for d in response.days]
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.exception("Week plan generation failed [provider=%s]", provider)
+        return None

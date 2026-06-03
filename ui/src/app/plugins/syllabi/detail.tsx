@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react"
-import hljs from "highlight.js"
 import { LlmBar } from "@/components/llm-bar"
 import { BlockRenderer, type ContentBlock } from "./block-renderer"
 import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
     ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
-    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap,
+    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap, Brain, Lock,
 } from "lucide-react"
-import { QuizPanel } from "./quiz"
+import { QuizPanel, WeeklyQuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -50,15 +49,207 @@ interface SyllabusDetail {
     days: number
     hours: number
     share_enabled: boolean
-    quiz_difficulty: string
     quiz_status: string   // "not_generated" | "available" | "passed"
+    weekly_quiz_statuses: Record<number, string>  // week → status
+    generated_weeks: number  // weeks 1..N accessible
+    total_weeks: number      // total weeks in syllabus
     created_at: string
     months: Month[]
 }
 
+// ─── Inline Markdown parser (backtick code, bold, italic) ────────────────────
+
+function InlineText({ text }: { text: string }) {
+    // Split on backtick spans: `code`
+    const parts = text.split(/(`[^`]+`)/g)
+    return (
+        <>
+            {parts.map((part, i) => {
+                if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
+                    return (
+                        <code key={i} className="bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-[0.82em] font-mono">
+                            {part.slice(1, -1)}
+                        </code>
+                    )
+                }
+                // Bold: **text**
+                const boldParts = part.split(/(\*\*[^*]+\*\*)/g)
+                if (boldParts.length > 1) {
+                    return boldParts.map((bp, j) =>
+                        bp.startsWith("**") && bp.endsWith("**") && bp.length > 4
+                            ? <strong key={`${i}-${j}`}>{bp.slice(2, -2)}</strong>
+                            : <span key={`${i}-${j}`}>{bp}</span>
+                    )
+                }
+                return <span key={i}>{part}</span>
+            })}
+        </>
+    )
+}
+
+// ─── Block Renderer Components ───────────────────────────────────────────────
+
+function CodeBlock({ code, language }: { code: string; language: string }) {
+    const ref = useRef<HTMLElement>(null)
+
+    useEffect(() => {
+        if (!ref.current) return
+        ref.current.textContent = code
+        try {
+            if (language) {
+                ref.current.innerHTML = hljs.highlight(code, { language }).value
+            } else {
+                hljs.highlightElement(ref.current)
+            }
+        } catch {
+            // Unknown language — fall back to auto-detect
+            hljs.highlightElement(ref.current)
+        }
+        ref.current.classList.add("hljs")
+    }, [code, language])
+
+    const lines = code.split("\n")
+    if (lines[lines.length - 1] === "") lines.pop()
+
+    const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
+    const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+
+    const [copied, setCopied] = useState(false)
+
+    async function handleCopy() {
+        try {
+            await navigator.clipboard.writeText(code)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        } catch { /* clipboard denied */ }
+    }
+
+    return (
+        <div className="relative rounded-xl border border-white/10 bg-[#282c34] text-sm shadow-lg overflow-hidden">
+            <button
+                onClick={handleCopy}
+                title="Copy code"
+                dangerouslySetInnerHTML={{ __html: copied ? ICON_CHECK : ICON_COPY }}
+                style={{
+                    position: "absolute", top: 10, right: 10,
+                    background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 6, padding: "5px 8px", cursor: "pointer",
+                    color: copied ? "#4ade80" : "#9da5b4", display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                }}
+            />
+            <div className="flex overflow-x-auto">
+                <div className="flex flex-col shrink-0 select-none text-right px-3 py-4
+                                text-[#636d83] text-xs leading-[1.6]
+                                border-r border-white/[0.08] min-w-[2.5rem]">
+                    {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
+                </div>
+                <div className="flex-1 overflow-x-auto px-5 py-4 min-w-0">
+                    <code ref={ref} className="font-mono text-xs leading-[1.6] whitespace-pre block" />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function MermaidBlock({ code }: { code: string }) {
+    const id = useId()
+    const ref = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (!ref.current) return
+        let cancelled = false
+        const renderId = `mermaid-${id.replace(/[^a-zA-Z0-9]/g, "")}`
+
+        mermaid.render(renderId, code)
+            .then(({ svg }) => {
+                if (!cancelled && ref.current) ref.current.innerHTML = svg
+            })
+            .catch(() => {
+                if (!cancelled && ref.current) {
+                    const pre = document.createElement("pre")
+                    pre.className = "text-xs text-muted-foreground whitespace-pre-wrap p-4"
+                    pre.textContent = code
+                    ref.current.replaceChildren(pre)
+                }
+            })
+
+        return () => { cancelled = true }
+    }, [code, id])
+
+    return <div ref={ref} className="rounded-xl border border-border bg-muted/30 p-4 overflow-x-auto" />
+}
+
+function BlockRenderer({ blocks }: { blocks: ContentBlock[] }) {
+    return (
+        <div className="space-y-4">
+            {blocks.map((block, i) => <BlockItem key={i} block={block} />)}
+        </div>
+    )
+}
+
+function BlockItem({ block }: { block: ContentBlock }) {
+    switch (block.type) {
+        case "heading": {
+            const text = block.content ?? ""
+            if (block.level === 1) return <h1 className="text-2xl font-bold tracking-tight text-foreground mt-6 mb-3"><InlineText text={text} /></h1>
+            if (block.level === 3) return <h3 className="text-base font-semibold text-foreground mt-4 mb-1.5"><InlineText text={text} /></h3>
+            return <h2 className="text-xl font-semibold text-foreground mt-5 mb-2 border-b border-border/50 pb-2"><InlineText text={text} /></h2>
+        }
+        case "paragraph":
+            return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
+        case "code":
+            return <CodeBlock code={block.content ?? ""} language={block.language ?? ""} />
+        case "bullet_list":
+            return <ul className="list-disc pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
+        case "numbered_list":
+            return <ol className="list-decimal pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
+        case "table":
+            return (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full border-collapse text-sm">
+                        <thead className="bg-muted/50">
+                            <tr>{block.headers?.map((h, i) => <th key={i} className="border border-border px-4 py-2.5 text-left font-semibold text-foreground"><InlineText text={h} /></th>)}</tr>
+                        </thead>
+                        <tbody>
+                            {block.rows?.map((row, i) => (
+                                <tr key={i} className={i % 2 === 1 ? "bg-muted/20" : ""}>
+                                    {row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600"><InlineText text={cell} /></td>)}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )
+        case "note":
+            return (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                    <p className="text-sm text-foreground/80 leading-7"><InlineText text={block.content ?? ""} /></p>
+                </div>
+            )
+        case "quote":
+            return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 italic"><InlineText text={block.content ?? ""} /></blockquote>
+        case "divider":
+            return <hr className="border-border my-2" />
+        case "diagram":
+            return <MermaidBlock code={block.content ?? ""} />
+        default:
+            return null
+    }
+}
+
+// ─── Style badge config ───────────────────────────────────────────────────────
+
+const STYLE_META: Record<string, { label: string; className: string }> = {
+    balanced:       { label: "Balanced",       className: "bg-zinc-100 text-zinc-600 border-zinc-200" },
+    example_heavy:  { label: "Example-heavy",  className: "bg-blue-50 text-blue-600 border-blue-200" },
+    theory_first:   { label: "Theory-first",   className: "bg-violet-50 text-violet-600 border-violet-200" },
+    reinforcement:  { label: "Reinforcement",  className: "bg-amber-50 text-amber-600 border-amber-200" },
+}
+
 // ─── Chapter Content Panel (right) ───────────────────────────────────────────
 
-function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGenerationEnd, onContentGenerated, onMarkComplete, onGoToNext, hasNext }: {
+function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGenerationEnd, onContentGenerated, onMarkComplete, onGoToNext, hasNext, isLastInWeek, weekNumber, onGoToWeekQuiz, allWeekComplete }: {
     chapter: Chapter
     isGenerating: boolean
     onGenerationStart: (taskId: number) => void
@@ -67,9 +258,14 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
     onMarkComplete: (taskId: number) => void
     onGoToNext: () => void
     hasNext: boolean
+    isLastInWeek: boolean
+    weekNumber: number | null
+    onGoToWeekQuiz: () => void
+    allWeekComplete: boolean
 }) {
     const [content, setContent] = useState<string | null>(null)
     const [blocks, setBlocks] = useState<ContentBlock[] | null>(null)
+    const [contentStyle, setContentStyle] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const generating = isGenerating
     // const [sending, setSending] = useState(false)
@@ -104,6 +300,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         setContent(null)
         setBlocks(null)
         setChapterCost(null)
+        setContentStyle(null)
         if (chapter.has_content) loadContent()
     }, [chapter.id])
 
@@ -217,6 +414,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
         }
         const { success, data } = chapterRes
         if (success) {
+            if (data.content_style) setContentStyle(data.content_style)
             if (data.content_blocks) {
                 try {
                     const parsed = JSON.parse(data.content_blocks)
@@ -242,7 +440,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
             await api.post("/py/generate-content/chapter", { task_id: chapter.id })
             setHasContent(true)
             onContentGenerated(chapter.id)
-            loadContent()
+            await loadContent()
         } catch (err: any) {
             console.error("[handleGenerate] error:", err)
             const status = err?.response?.status
@@ -340,8 +538,16 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                             <div className="space-y-4">
                                 {/* Toolbar */}
                                 <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                                        <FileText className="h-3 w-3" /> Content
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                            <FileText className="h-3 w-3" /> Content
+                                        </div>
+                                        {contentStyle && STYLE_META[contentStyle] && (
+                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${STYLE_META[contentStyle].className}`}>
+                                                <Sparkles className="h-2.5 w-2.5" />
+                                                {STYLE_META[contentStyle].label}
+                                            </span>
+                                        )}
                                     </div>
                                     <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1.5" disabled={generating} onClick={() => setConfirmOpen(true)}>
                                         {generating
@@ -398,11 +604,26 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
                                             <CheckCircle2 className="h-4 w-4 mr-1.5" />Mark Complete
                                         </Button>
                                     )}
-                                    {completed && hasNext && (
-                                        <Button size="sm" onClick={onGoToNext}>
-                                            Next Chapter <ArrowRight className="h-4 w-4 ml-1.5" />
-                                        </Button>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {completed && isLastInWeek && weekNumber !== null && (
+                                            allWeekComplete ? (
+                                                <Button size="sm" onClick={onGoToWeekQuiz}>
+                                                    <Brain className="h-4 w-4 mr-1.5" />
+                                                    Week {weekNumber} Quiz
+                                                </Button>
+                                            ) : (
+                                                <Button size="sm" disabled>
+                                                    <Brain className="h-4 w-4 mr-1.5" />
+                                                    Complete all chapters first
+                                                </Button>
+                                            )
+                                        )}
+                                        {completed && hasNext && !isLastInWeek && (
+                                            <Button size="sm" onClick={onGoToNext}>
+                                                Next Chapter <ArrowRight className="h-4 w-4 ml-1.5" />
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         ) : null
@@ -446,12 +667,14 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
 
 // ─── Chapter Nav (left panel) ─────────────────────────────────────────────────
 
-function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus }: {
+function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, onSelectWeeklyQuiz, activeWeek, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus, generatedWeeks, totalWeeks, generatingWeek }: {
     detail: SyllabusDetail
     activeChapterId: number | null
     onSelectChapter: (chapter: Chapter) => void
     onSelectQuiz: () => void
     isQuizActive: boolean
+    onSelectWeeklyQuiz: (week: number) => void
+    activeWeek: number | null
     overallProgress: number
     completedCount: number
     totalCount: number
@@ -463,6 +686,9 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
     onToggleShare: () => void
     onCopyLink: () => void
     quizStatus: string
+    generatedWeeks: number
+    totalWeeks: number
+    generatingWeek: number | null
 }) {
     const [openMonths, setOpenMonths] = useState<Set<number>>(
         () => new Set(detail.months.map((m) => m.month))
@@ -476,6 +702,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
             return next
         })
     }
+
+    const canAccessFinalQuiz = completedCount === totalCount && generatedWeeks >= totalWeeks
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -550,10 +778,27 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                                 : <ChevronRight className="h-3 w-3 text-muted-foreground" />
                             }
                         </button>
-                        {openMonths.has(month.month) && month.weeks.map((week) => (
+                        {openMonths.has(month.month) && <>
+                        {month.weeks.map((week) => {
+                            const weekLocked = week.week > generatedWeeks
+                            const weekAllComplete = !weekLocked && week.tasks.length > 0 && week.tasks.every((t) => t.completed)
+                            const weekQuizStatus = detail.weekly_quiz_statuses?.[week.week] ?? "not_generated"
+                            const isThisWeekQuizActive = activeWeek === week.week
+
+                            return (
                             <div key={week.week} className="mb-1">
-                                <p className="px-4 py-1 text-xs text-muted-foreground/60 font-medium">Week {week.week}</p>
-                                {week.tasks.map((chapter) => (
+                                <div className="flex items-center gap-1 px-4 py-1">
+                                    <p className="text-xs text-muted-foreground/60 font-medium flex-1">Week {week.week}</p>
+                                    {weekLocked && <Lock className="h-2.5 w-2.5 text-muted-foreground/40" />}
+                                </div>
+                                {weekLocked ? (
+                                    <div className="w-full flex items-center gap-2 px-4 py-1.5 opacity-35 cursor-not-allowed select-none">
+                                        <Lock className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                                        <span className="text-xs text-muted-foreground">
+                                            {week.tasks.length} chapter{week.tasks.length !== 1 ? "s" : ""} · pass Week {week.week - 1} quiz to unlock
+                                        </span>
+                                    </div>
+                                ) : week.tasks.map((chapter) => (
                                     <button
                                         key={chapter.id}
                                         onClick={() => onSelectChapter(chapter)}
@@ -572,15 +817,77 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                                         </span>
                                     </button>
                                 ))}
+                                {/* Weekly Quiz button — hidden for locked weeks */}
+                                {!weekLocked && (weekAllComplete ? (
+                                    <button
+                                        onClick={() => onSelectWeeklyQuiz(week.week)}
+                                        className={`w-full flex items-center gap-2 px-4 py-2 text-left text-sm transition-colors ${
+                                            isThisWeekQuizActive
+                                                ? "bg-primary/10 text-primary border-r-2 border-primary"
+                                                : "hover:bg-muted/50 text-foreground/80"
+                                        }`}
+                                    >
+                                        <Brain className={`h-3.5 w-3.5 shrink-0 ${
+                                            weekQuizStatus === "passed" ? "text-emerald-500"
+                                            : isThisWeekQuizActive ? "text-primary"
+                                            : "text-muted-foreground"
+                                        }`} />
+                                        <span className="flex-1 min-w-0 text-xs font-medium truncate">Week {week.week} Quiz</span>
+                                        {weekQuizStatus === "passed" && <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />}
+                                    </button>
+                                ) : (
+                                    <div className="w-full flex items-center gap-2 px-4 py-2 opacity-35 cursor-not-allowed select-none">
+                                        <Brain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                        <span className="text-xs text-muted-foreground">Week {week.week} Quiz</span>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
+                            )
+                        })}
+                        {/* Generating week placeholder — appears while background task runs */}
+                        {generatingWeek !== null &&
+                            Math.floor((generatingWeek - 1) / 4) + 1 === month.month &&
+                            !month.weeks.some((w) => w.week === generatingWeek) && (
+                            <div className="mb-1">
+                                <div className="flex items-center gap-1 px-4 py-1">
+                                    <p className="text-xs text-muted-foreground/60 font-medium flex-1">Week {generatingWeek}</p>
+                                    <Loader2 className="h-2.5 w-2.5 text-muted-foreground/40 animate-spin" />
+                                </div>
+                                <div className="w-full flex items-center gap-2 px-4 py-1.5 opacity-60 select-none">
+                                    <Loader2 className="h-3 w-3 flex-shrink-0 text-muted-foreground animate-spin" />
+                                    <span className="text-xs text-muted-foreground">Preparing personalised content…</span>
+                                </div>
+                            </div>
+                        )}
+                        </>}
                     </div>
                 ))}
+                {/* Generating week in a month not yet in the data */}
+                {generatingWeek !== null &&
+                    !detail.months.some((m) => m.month === Math.floor((generatingWeek - 1) / 4) + 1) && (
+                    <div>
+                        <div className="flex w-full items-center justify-between px-4 py-2.5">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Month {Math.floor((generatingWeek - 1) / 4) + 1}
+                            </span>
+                        </div>
+                        <div className="mb-1">
+                            <div className="flex items-center gap-1 px-4 py-1">
+                                <p className="text-xs text-muted-foreground/60 font-medium flex-1">Week {generatingWeek}</p>
+                                <Loader2 className="h-2.5 w-2.5 text-muted-foreground/40 animate-spin" />
+                            </div>
+                            <div className="w-full flex items-center gap-2 px-4 py-1.5 opacity-60 select-none">
+                                <Loader2 className="h-3 w-3 flex-shrink-0 text-muted-foreground animate-spin" />
+                                <span className="text-xs text-muted-foreground">Preparing personalised content…</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Final Quiz — always shown at end of chapter list */}
                 {totalCount > 0 && (
                     <div className="border-t mt-1">
-                        {completedCount === totalCount ? (
+                        {canAccessFinalQuiz ? (
                             <button
                                 onClick={onSelectQuiz}
                                 className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
@@ -613,7 +920,9 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                                 <GraduationCap className="h-4 w-4 shrink-0 text-muted-foreground" />
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium text-foreground/80">Final Quiz</p>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Complete all chapters to attempt</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Complete all weekly quizzes to unlock
+                                    </p>
                                 </div>
                             </div>
                         )}
@@ -660,8 +969,10 @@ export default function SyllabusDetailPage() {
     const [copied, setCopied] = useState(false)
     const [copyFailed, setCopyFailed] = useState(false)
     const [activeChapterId, setActiveChapterId] = useState<number | null>(null)
-    const [activeView, setActiveView] = useState<"chapter" | "quiz">("chapter")
+    const [activeView, setActiveView] = useState<"chapter" | "quiz" | "weekly-quiz">("chapter")
+    const [activeWeek, setActiveWeek] = useState<number | null>(null)
     const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set())
+    const [generatingWeek, setGeneratingWeek] = useState<number | null>(null)
     const [navCollapsed, setNavCollapsed] = useState(false)
     const [navWidth, setNavWidth] = useState(350)
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -713,10 +1024,14 @@ export default function SyllabusDetailPage() {
 
     const allTasks = detail?.months.flatMap((m) => m.weeks.flatMap((w) => w.tasks)) ?? []
     const completedCount = allTasks.filter((t) => t.completed).length
+    const hasWeeklyQuizData = detail ? detail.generated_weeks >= detail.total_weeks : false
     const quizPassed = detail?.quiz_status === "passed"
-    // Quiz counts as one extra step — chapters + quiz = total course
-    const totalSteps = allTasks.length + 1
-    const completedSteps = completedCount + (quizPassed ? 1 : 0)
+    const weeklyQuizzesPassed = detail
+        ? Object.values(detail.weekly_quiz_statuses as Record<string, string>).filter(s => s === "passed").length
+        : 0
+    // Fixed denominator: expected course days + weekly quizzes + final quiz
+    const totalSteps = detail ? detail.days + detail.total_weeks + 1 : 0
+    const completedSteps = completedCount + weeklyQuizzesPassed + (quizPassed ? 1 : 0)
     const overallProgress = totalSteps > 1 ? Math.round((completedSteps / totalSteps) * 100) : 0
 
     // Restore chapter from URL param, fallback to first chapter
@@ -732,7 +1047,21 @@ export default function SyllabusDetailPage() {
     const nextChapter = activeIndex >= 0 && activeIndex < allTasks.length - 1 ? allTasks[activeIndex + 1] : null
 
     function goToNextChapter() {
-        if (!nextChapter) return
+        if (!nextChapter || !detail) return
+        const generatedWeeks = detail.generated_weeks
+        const totalWeeks = detail.total_weeks
+        const allWeeks = detail.months.flatMap((m) => m.weeks)
+        const nextWeek = allWeeks.find((w) => w.tasks.some((t) => t.id === nextChapter.id))
+        const nextIsLocked = (nextWeek?.week ?? 0) > generatedWeeks
+        if (nextIsLocked) {
+            // End of an unlocked week — go to that week's quiz instead
+            const currentWeek = allWeeks.find((w) => w.tasks.some((t) => t.id === activeChapterId))
+            if (currentWeek) {
+                setActiveView("weekly-quiz")
+                setActiveWeek(currentWeek.week)
+            }
+            return
+        }
         setActiveChapterId(nextChapter.id)
         setSearchParams({ chapter: String(nextChapter.id) })
     }
@@ -755,6 +1084,42 @@ export default function SyllabusDetailPage() {
 
     function handleQuizStatusChange(status: string) {
         setDetail((prev) => prev ? { ...prev, quiz_status: status } : prev)
+    }
+
+    function handleWeeklyQuizStatusChange(week: number, status: string) {
+        setDetail((prev) => prev ? {
+            ...prev,
+            weekly_quiz_statuses: { ...prev.weekly_quiz_statuses, [week]: status },
+        } : prev)
+    }
+
+    async function handleWeekUnlocked(newGeneratedWeeks: number) {
+        setDetail((prev) => prev ? { ...prev, generated_weeks: newGeneratedWeeks } : prev)
+        setGeneratingWeek(newGeneratedWeeks)
+
+        // Poll until the ML-generated week's tasks appear in DB (background task completes)
+        // 15 attempts × 2 s = 30 s max wait; stops early once the week is ready
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 2000))
+            const { success, data } = await getRequest(`/py/syllabi/${skillId}`)
+            if (!success) break
+            const presentWeeks = new Set<number>(
+                data.months.flatMap((m: any) => m.weeks.map((w: any) => w.week as number))
+            )
+            if (presentWeeks.has(newGeneratedWeeks)) {
+                setDetail(data)
+                setShareEnabled(data.share_enabled ?? false)
+                setGeneratingWeek(null)
+                return
+            }
+        }
+        // Timed out — sync whatever state exists and clear spinner
+        const { success, data } = await getRequest(`/py/syllabi/${skillId}`)
+        if (success) {
+            setDetail(data)
+            setShareEnabled(data.share_enabled ?? false)
+        }
+        setGeneratingWeek(null)
     }
 
     function handleGenerationStart(taskId: number) {
@@ -874,8 +1239,13 @@ export default function SyllabusDetailPage() {
                         onToggleShare={handleToggleShare}
                         onCopyLink={handleCopyLink}
                         quizStatus={detail.quiz_status}
-                        onSelectQuiz={() => { setActiveView("quiz"); setMobileSidebarOpen(false) }}
+                        onSelectQuiz={() => { setActiveView("quiz"); setActiveWeek(null); setMobileSidebarOpen(false) }}
                         isQuizActive={activeView === "quiz"}
+                        onSelectWeeklyQuiz={(week) => { setActiveView("weekly-quiz"); setActiveWeek(week); setMobileSidebarOpen(false) }}
+                        activeWeek={activeWeek}
+                        generatedWeeks={detail.generated_weeks}
+                        totalWeeks={detail.total_weeks}
+                        generatingWeek={generatingWeek}
                     />
                     {/* Resize handle */}
                     <div
@@ -904,7 +1274,9 @@ export default function SyllabusDetailPage() {
                             </Button>
                             <span className="text-sm font-semibold text-foreground/80 truncate">{detail.skill}</span>
                             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
-                            {activeView === "quiz" ? (
+                            {activeView === "weekly-quiz" && activeWeek !== null ? (
+                                <span className="text-sm text-muted-foreground truncate hidden sm:block">Week {activeWeek} Quiz</span>
+                            ) : activeView === "quiz" ? (
                                 <span className="text-sm text-muted-foreground truncate hidden sm:block">Final Quiz</span>
                             ) : activeChapter && (
                                 <span className="text-sm text-muted-foreground truncate hidden sm:block">
@@ -914,7 +1286,9 @@ export default function SyllabusDetailPage() {
                         </>
                     )}
                     {!navCollapsed && (
-                        activeView === "quiz" ? (
+                        activeView === "weekly-quiz" && activeWeek !== null ? (
+                            <span className="text-sm text-muted-foreground truncate">Week {activeWeek} Quiz</span>
+                        ) : activeView === "quiz" ? (
                             <span className="text-sm text-muted-foreground truncate">Final Quiz</span>
                         ) : activeChapter ? (
                             <span className="text-sm text-muted-foreground truncate">
@@ -925,11 +1299,21 @@ export default function SyllabusDetailPage() {
                 </div>
 
                 <div className="flex-1 overflow-hidden">
-                    {activeView === "quiz" ? (
+                    {activeView === "weekly-quiz" && activeWeek !== null ? (
+                        <WeeklyQuizPanel
+                            key={`weekly-${activeWeek}`}
+                            skillId={skillId!}
+                            week={activeWeek}
+                            onBack={() => setActiveView("chapter")}
+                            onQuizStatusChange={(status) => handleWeeklyQuizStatusChange(activeWeek, status)}
+                            onWeekUnlocked={handleWeekUnlocked}
+                        />
+                    ) : activeView === "quiz" ? (
                         <QuizPanel
                             skillId={skillId!}
                             onBack={() => setActiveView("chapter")}
                             onQuizStatusChange={handleQuizStatusChange}
+                            hasAllWeeklyData={hasWeeklyQuizData}
                         />
                     ) : activeChapter ? (
                         <ChapterContentPanel
@@ -942,6 +1326,25 @@ export default function SyllabusDetailPage() {
                             onMarkComplete={handleChapterCompleted}
                             onGoToNext={goToNextChapter}
                             hasNext={!!nextChapter}
+                            isLastInWeek={(() => {
+                                const allWeeks = detail.months.flatMap(m => m.weeks)
+                                const week = allWeeks.find(w => w.tasks.some(t => t.id === activeChapter.id))
+                                return week ? week.tasks[week.tasks.length - 1]?.id === activeChapter.id : false
+                            })()}
+                            weekNumber={(() => {
+                                const allWeeks = detail.months.flatMap(m => m.weeks)
+                                return allWeeks.find(w => w.tasks.some(t => t.id === activeChapter.id))?.week ?? null
+                            })()}
+                            allWeekComplete={(() => {
+                                const allWeeks = detail.months.flatMap(m => m.weeks)
+                                const week = allWeeks.find(w => w.tasks.some(t => t.id === activeChapter.id))
+                                return week ? week.tasks.every(t => t.completed) : false
+                            })()}
+                            onGoToWeekQuiz={() => {
+                                const allWeeks = detail.months.flatMap(m => m.weeks)
+                                const week = allWeeks.find(w => w.tasks.some(t => t.id === activeChapter.id))
+                                if (week) { setActiveView("weekly-quiz"); setActiveWeek(week.week) }
+                            }}
                         />
                     ) : null}
                 </div>

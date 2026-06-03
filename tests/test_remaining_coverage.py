@@ -277,20 +277,18 @@ class TestGenerateChapterContentWithCause:
         assert inp is None
         assert out is None
 
-# ── services/llm.py generate_quiz returns None on empty response ──────────────
+# ── services/llm.py generate_weekly_quiz returns None on empty response ───────
 
-class TestGenerateQuizEmptyResponse:
+class TestGenerateWeeklyQuizEmptyResponse:
     def test_returns_none_when_response_has_no_questions(self):
-        from services.llm import generate_quiz
+        from services.llm import generate_weekly_quiz
 
         mock_response = MagicMock()
         mock_response.questions = []  # empty — triggers the mismatch check
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
         with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_quiz(
-                "Python", ["Vars"], "beginner", 10, "gemini", "key", "gemini-flash"
-            )
+            result = generate_weekly_quiz("Python", 1, ["Vars"], 5, "gemini", "key", "gemini-flash")
         assert result is None
 
 # ── services/newsletter.py issue_todays_newsletters skill-with-no-tasks skip ──

@@ -92,7 +92,7 @@ def update_llm_settings(
                 if record:
                     record.api_key = encrypt_api_key(api_key)
                     if model is not None:
-                        record.llm_model = model or None
+                        record.llm_model = model
                     session.add(record)
                 else:
                     session.add(
@@ -116,7 +116,7 @@ def update_llm_settings(
                     )
                 ).first()
                 if record:
-                    record.llm_model = model or None
+                    record.llm_model = model
                     session.add(record)
 
         session.commit()

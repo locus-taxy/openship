@@ -8,17 +8,9 @@
 
 ## What Is Openship?
 
-The internet is an ocean — vast, deep, and full of treasure. But oceans without a map and a vessel are just water. Most learners today are treading water: endless browser tabs, half-finished tutorials, YouTube rabbit holes, blog posts and scattered chats with LLMs that lead nowhere. The knowledge is out there, but there's no ship to carry you through it with purpose.
+Openship is a fully open-source, AI-powered learning platform built by the team at **Locus**.
 
-That's where **Openship** comes in.
-
-Think of Openship as your personal vessel on the sea of learning. You choose the destination — the skill you want to master. You set the pace — how many days, how many hours. Openship then charts your course: a structured **Month → Week → Day** route through the waters, with AI-written lessons waiting at every waypoint. You're not lost at sea anymore. You're navigating.
-
-Built by the team at **Locus**, Openship is a fully open-source, AI-powered personalized learning platform. And it might just be the most thoughtful approach to self-directed learning available today.
-
-Openship takes a skill you want to learn and the time you can realistically commit, then builds a structured **Month → Week → Day** curriculum — completely tailored to you. Every chapter is generated on demand by the AI model of your choice, written specifically for your learning path. Once all chapters are done, an AI-generated final quiz validates what you've learned — pass it to reach 100% completion.
-
-It's not a video course. It's not a content aggregator. It's a dynamic learning engine that generates your syllabus, writes your lessons, tracks your progress, and grows with you.
+You pick a skill and set how many days and hours per day you can commit. Openship generates a structured **Month / Week / Day** curriculum, writes AI lessons for each chapter on demand, and runs weekly quizzes to track your mastery. Each new week is generated based on your quiz results, so the plan adapts to what you actually know rather than following a fixed template.
 
 ---
 
@@ -30,97 +22,79 @@ https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
 
 ## How it works
 
-1. **Configure** — add your LLM provider API key (Anthropic, OpenAI, Google Gemini, or Mistral) in Settings
-2. **Enroll** — choose a skill, set your duration, daily time commitment, and quiz difficulty
-3. **Generate** — your AI model creates a structured syllabus organized by month, week, and day — and auto-generates a final quiz in the background
-4. **Learn** — open any chapter, generate its content on demand, and mark days complete as you go
-5. **Quiz** — once all chapters are done, take the AI-generated final quiz; pass it to reach 100% completion
-6. **Track** — the analytics dashboard shows your overall progress across all courses
+1. **Configure** - add your LLM provider API key (Anthropic, OpenAI, Google Gemini, or Mistral) in Settings
+2. **Enroll** - choose a skill, set your duration and daily time commitment
+3. **Generate** - your AI model creates a structured syllabus organized by month, week, and day; Week 1 is unlocked immediately with a pre-generated quiz
+4. **Learn** - open any chapter, generate its content on demand, and mark days complete as you go
+5. **Weekly quiz** - after finishing all chapters in a week, take an AI-generated quiz; your score determines how the next week is planned: weak topics get extra focus, forgotten ones get spaced repetition
+6. **Adaptive next week** - the platform generates the next week on demand, personalized using your quiz results and mastery data
+7. **Final quiz** - once all weeks are complete, a final quiz covers the topics you struggled with most; pass it to reach 100%
+8. **Track** - the analytics dashboard shows your overall progress across all courses
 
 ---
 
-## Why Openship Stands Out
+## Key Features
 
-### 1. Bring Your Own AI — No Lock-in
+### 1. Bring Your Own AI
 
-Unlike most AI tools that hide their model and charge you a subscription, Openship lets you plug in your own API key for whichever provider you prefer. Switch from Claude to GPT to Gemini mid-journey if you want. You own your experience.
+Plug in your own API key for Anthropic, OpenAI, Google Gemini, or Mistral. Switch providers at any time. No subscriptions, no lock-in.
 
-### 2. Structure That Actually Fits Your Life
+### 2. Adaptive ML Engine
 
-No more "complete this 40-hour course at your own pace" ambiguity. You tell Openship how many days you have and how many hours per day — it builds a plan that respects your constraints. The curriculum isn't generic; it's shaped around your schedule.
+Three components work together to personalize each week:
 
-### 3. On-Demand Lessons, Not Static Content
+- **Bayesian Knowledge Tracing (BKT)** - tracks per-topic mastery after every quiz answer; low-scoring topics are automatically included in the next week's plan
+- **Forgetting Curve** - identifies topics not seen recently and schedules them for spaced repetition
+- **Thompson Sampling Bandit** - selects a content style per week (`Visual-Heavy`, `Example-Heavy`, `Diagram-Heavy`, or `Story-Driven`) and updates based on quiz scores
 
-Content isn't pre-written and locked. Each chapter is generated when you open it — meaning the AI writes specifically for that lesson in the context of your full syllabus. Code examples include syntax highlighting. Tables render cleanly. It reads like a textbook written for you, not for the median student.
+### 3. On-Demand Chapter Content
 
-### 4. Real Progress Tracking
+Each chapter is generated when you open it, not pre-written. Content includes syntax-highlighted code, diagrams, tables, and examples written specifically for that lesson in the context of your full syllabus.
 
-Mark chapters complete, watch your progress bar move, check your analytics dashboard across all active courses. Completion rates, hours planned, tasks remaining — it's all there. This is the accountability layer that most self-study methods completely lack.
+### 4. Progress Tracking
 
-### 5. Share What You Build
+Mark chapters complete, track quiz scores, and monitor all active courses from the analytics dashboard.
 
-Generated a great syllabus for learning Rust in 30 days or becoming a data analyst in 3 months? Share it publicly with one click. Other learners can view your syllabus without even needing an account.
+### 5. Shareable Syllabi
 
-### 6. Your API Keys Stay Yours
+Share any syllabus publicly with one link. No account required to view.
 
-Openship stores LLM API keys with partial encryption — the key prefix is stored in plaintext while only the sensitive suffix is encrypted using a server-side Fernet key. A database breach alone isn't enough to reconstruct a full key. Security was a first-class consideration, not an afterthought.
+### 6. Secure API Key Storage
 
-## Who Should Use and Contribute to Openship?
-
-**Learners** — anyone building a new skill on their own time. Developers switching stacks, students filling gaps, professionals upskilling, curious people with limited hours but real ambition.
-
-**Developers** — the stack is approachable (FastAPI, React, TypeScript) and the project structure is clean. Whether you want to add a new LLM provider, improve the analytics dashboard, build better mobile UX, or add export features, there's meaningful work to do.
-
-**Teams and educators** — Openship's architecture is designed to extend. A team learning infrastructure, a bootcamp building structured paths, an educator who wants to generate and share custom curricula — the foundation is already here.
+LLM API keys are partially encrypted at rest: the prefix is stored in plaintext, the sensitive suffix is encrypted with a server-side Fernet key. A database breach alone is not enough to reconstruct a key.
 
 ---
-
-## Why Star and Contribute?
-
-Open source only works when people show up. Openship is early enough that individual contributions have outsized impact. Your PR doesn't get lost in a 500-issue backlog — it shapes the direction of the project.
-
-Here's what's at stake if this grows:
-
-- A free, self-hostable alternative to expensive e-learning subscriptions
-- A platform that respects user privacy (your keys, your data, your server)
-- A community-built learning engine that any AI provider can plug into
-- A reference implementation of a clean FastAPI + React application that developers can learn from
-
-Starring the repo signals to other developers that this is worth their attention. Contributing — even one good PR — moves the project forward in a way that benefits every future learner.
-
----
-
-## Get Started in Three Commands
-
-```bash
-git clone https://github.com/locus-taxy/openship.git
-cd openship
-make setup
-```
-
-Add your database URL and secrets to `.env`, run `make dev`, open your browser, add your LLM API key in Settings, and enroll in your first skill.
-
-That's it.
-
----
-*Openship is MIT-licensed and open to contributions. See CONTRIBUTING.md for how to get involved.*
-
 
 ## Features
 
-- **Multi-provider LLM support** — bring your own API key for Anthropic (Claude), OpenAI (GPT), Google Gemini, or Mistral; switch providers and models at any time from the UI
-- **Personalized syllabus generation** — AI produces a structured 3-level plan (month / week / day) tailored to the skill and your schedule
-- **On-demand chapter content** — rich AI-written lessons generated per chapter with syntax-highlighted code blocks, tables, and examples
-- **AI-generated final quiz** — automatically created in the background when a course is generated; multiple-choice questions drawn from the actual topics you studied; difficulty set at enrollment (beginner / intermediate / advanced)
-- **Quiz gating** — Final Quiz appears only after all chapters are complete; passing it brings the course to 100%
-- **Unlimited quiz retries** — questions are shuffled on each retry; every attempt is recorded with score history
-- **Progress tracking** — mark chapters complete; progress bar accounts for both chapters and quiz pass; analytics update in real-time
-- **Analytics dashboard** — overview of all courses: completion rates, in-progress courses, hours planned, tasks remaining
-- **Course management** — delete any enrolled course (removes all chapters, progress, quiz, and attempts)
-- **Shareable syllabi** — generate a public link to share any syllabus with others
-- **Resizable chapter sidebar** — collapsible and draggable sidebar with chapter tree navigation
-- **JWT authentication** — cookie-based auth with access and refresh tokens, enforced globally via middleware
-- **Fully responsive** — works on mobile, tablet, and desktop
+### Core learning loop
+- **Multi-provider LLM support** - Anthropic (Claude), OpenAI (GPT), Google Gemini, Mistral; switch providers and models from the UI
+- **Personalized syllabus generation** - AI produces a structured month / week / day plan tailored to the skill and your schedule
+- **On-demand chapter content** - AI-written lessons generated per chapter with code blocks, diagrams, tables, and examples
+- **Progressive week unlock** - only Week 1 is generated upfront; subsequent weeks are generated after the previous week's quiz, personalized to your results
+
+### Adaptive ML engine
+- **Bayesian Knowledge Tracing** - per-topic mastery model updated after every quiz submission; weak topics fed into the next week's plan
+- **Forgetting curve** - spaced repetition scheduling based on time since last exposure; forgotten topics resurface automatically
+- **Thompson Sampling bandit** - picks a chapter content style per week and updates from quiz feedback
+- **Remediation planning** - low quiz score triggers extra review days at the start of the next week
+
+### Quizzes
+- **Weekly quizzes** - AI-generated 5-question quiz per week covering that week's topics; unlocks the next week on completion
+- **Final quiz** - personalized to the topics you struggled with most; appears after all weeks are complete; pass it to reach 100%
+- **Quiz variant pools** - each question is generated in multiple variants; a different variant is sampled per attempt so retakes feel fresh
+- **Score history** - every attempt recorded with timestamp and score; best score tracked per quiz
+
+### Progress and analytics
+- **Progress tracking** - mark chapters complete; progress bar accounts for chapters and quiz pass
+- **Analytics dashboard** - overview of all courses: completion rates, hours planned, tasks remaining
+
+### Other
+- **Shareable syllabi** - public link to share any syllabus (no account required to view)
+- **Course management** - delete any enrolled course (removes all chapters, progress, quizzes, and attempts)
+- **Resizable chapter sidebar** - collapsible and draggable sidebar with chapter tree navigation
+- **JWT authentication** - cookie-based auth with access and refresh tokens, enforced globally via middleware
+- **Fully responsive** - works on mobile, tablet, and desktop
 
 ---
 
@@ -130,9 +104,10 @@ That's it.
 |-------|-----------|
 | API | FastAPI + Uvicorn |
 | AI | Anthropic, OpenAI, Google Gemini, Mistral (via `instructor`) |
-| Database | PostgreSQL · SQLModel ORM · Alembic migrations |
+| ML | Bayesian Knowledge Tracing, Thompson Sampling, Ebbinghaus Forgetting Curve |
+| Database | PostgreSQL, SQLModel ORM, Alembic migrations |
 | Frontend | React 18 + TypeScript + Vite |
-| UI Components | shadcn/ui · Radix UI · Tailwind CSS |
+| UI Components | shadcn/ui, Radix UI, Tailwind CSS |
 | State | Zustand |
 | Auth | JWT (httponly cookies) + bcrypt |
 | Routing | React Router v6 |
@@ -157,20 +132,20 @@ make setup
 ```
 
 `make setup` runs `scripts/setup.sh` which:
-1. Creates `.env` from `.env.example` if one doesn't exist
+1. Creates `.env` from `.env.example` if one does not exist
 2. Creates a Python virtual environment at `.venv` and installs all deps
 3. Runs `npm install` in `ui/` for the frontend
 4. Configures Husky git hooks (requires a git clone)
 
-Then edit `.env` with your database URL and secrets (see [Environment Variables](#environment-variables)), and start:
+Edit `.env` with your database URL and secrets (see [Environment Variables](#environment-variables)), then start:
 
 ```bash
 make dev
 ```
 
-> **macOS** — `make dev` opens two separate Terminal windows (API on `:3005`, UI on `:5173`) using `osascript`. It waits for the API to be ready before launching the UI.
+> **macOS** - `make dev` opens two separate Terminal windows (API on `:3005`, UI on `:5173`). It waits for the API to be ready before launching the UI.
 >
-> **Linux** — run `make run-api` and `make run-ui` in two separate shells instead.
+> **Linux** - run `make run-api` and `make run-ui` in two separate shells instead.
 
 For a full walkthrough including PostgreSQL setup and troubleshooting see **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
 
@@ -179,11 +154,11 @@ For a full walkthrough including PostgreSQL setup and troubleshooting see **[doc
 | Command | Description |
 |---------|-------------|
 | `make setup` | One-time setup: venv, deps, `.env`, Husky hooks |
-| `make dev` | Start API + UI (macOS — opens two Terminal windows) |
+| `make dev` | Start API + UI (macOS) |
 | `make run-api` | FastAPI only, with hot reload on `:3005` |
 | `make run-ui` | Vite dev server only on `:5173` |
 | `make format` | Auto-format Python with Black via pre-commit |
-| `make format-check` | CI-style format check — fails if not clean |
+| `make format-check` | CI-style format check |
 | `make install` | Alias for `make setup` |
 
 ---
@@ -196,12 +171,12 @@ Copy `.env.example` to `.env` and set at minimum:
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | SQLAlchemy connection string (PostgreSQL) |
 | `JWT_SECRET_KEY` | Yes | Random string, minimum 32 characters |
-| `LLM_ENCRYPTION_KEY` | Yes | Fernet key for encrypting stored API keys — generate with: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `LLM_ENCRYPTION_KEY` | Yes | Fernet key for encrypting stored API keys. Generate with: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `RUN_MIGRATIONS_ON_STARTUP` | No | Run `alembic upgrade head` on startup (default: `true`) |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime (default: `2`) |
 | `JWT_REFRESH_TOKEN_EXPIRE_HOURS` | No | Refresh token lifetime (default: `7`) |
 
-> **LLM API keys** are not stored in `.env`. Users add their own API key per provider through the Settings panel in the UI after logging in. Keys are partially encrypted at rest: the key prefix is stored in plaintext while only the last 5 characters are encrypted using `LLM_ENCRYPTION_KEY` (Fernet/AES-128-CBC). A database leak alone is not sufficient to reconstruct a key — the server-side `LLM_ENCRYPTION_KEY` is also required.
+> **LLM API keys** are not stored in `.env`. Users add their own key per provider through the Settings panel in the UI. Keys are partially encrypted at rest using `LLM_ENCRYPTION_KEY` (Fernet/AES-128-CBC). A database leak alone is not sufficient to reconstruct a key.
 
 ---
 
@@ -209,6 +184,7 @@ Copy `.env.example` to `.env` and set at minimum:
 
 Interactive docs (Swagger UI) are available at `http://localhost:3005/docs` when running locally.
 
+---
 
 ## Contributing
 
@@ -223,7 +199,7 @@ Contributions are welcome. Please read **[CONTRIBUTING.md](CONTRIBUTING.md)** fo
 
 ## Security
 
-**Do not open public issues for security vulnerabilities.**
+Do not open public issues for security vulnerabilities.
 
 See **[SECURITY.md](SECURITY.md)** for the responsible disclosure policy and contact information.
 

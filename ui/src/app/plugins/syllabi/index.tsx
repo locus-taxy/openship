@@ -35,6 +35,8 @@ interface Syllabus {
     total_tasks: number
     completed_tasks: number
     quiz_status: string  // "not_generated" | "available" | "passed"
+    total_weeks: number
+    weekly_quizzes_passed: number
     matching_chapters?: MatchingChapter[]
 }
 
@@ -45,27 +47,40 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, onDeleted, searchQue
     onDeleted: (skillId: number) => void
     searchQuery: string
 }) {
-    const [generating, setGenerating] = useState(false)
     const [confirmOpen, setConfirmOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const { toast } = useToast()
-    const { setSettingsOpen } = useStore((s: any) => s)
+    const { setSettingsOpen, generatingSkills, addGeneratingSkill, removeGeneratingSkill } = useStore((s: any) => s)
     const chapters = item.matching_chapters ?? []
+
+    const generating: boolean = !!generatingSkills?.[item.skill_id]
+
+    // When generating transitions true→false (request finished, possibly in a different
+    // component instance after navigation), tell the parent to re-fetch so the card
+    // shows the real syllabus instead of the stale "no syllabus" state.
+    const prevGenerating = useRef(generating)
+    useEffect(() => {
+        const was = prevGenerating.current
+        prevGenerating.current = generating
+        if (was && !generating) onSyllabusGenerated(item.skill_id)
+    }, [generating]) // eslint-disable-line react-hooks/exhaustive-deps
+
     const hasMatchingChapters = searchQuery.trim() !== "" && chapters.length > 0
 
     const quizPassed = item.quiz_status === "passed"
-    const totalSteps = item.total_tasks > 0 ? item.total_tasks + 1 : 0
-    const completedSteps = item.completed_tasks + (quizPassed ? 1 : 0)
+    // Fixed denominator: course days + weekly quizzes + final quiz
+    const totalSteps = item.days > 0 ? item.days + item.total_weeks + 1 : 0
+    const completedSteps = item.completed_tasks + item.weekly_quizzes_passed + (quizPassed ? 1 : 0)
     const progress = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
     const hasSyllabus = item.total_tasks > 0
-    const isCompleted = item.total_tasks > 0 && item.completed_tasks === item.total_tasks && quizPassed
-    const isInProgress = hasSyllabus && !isCompleted && (item.completed_tasks > 0 || item.quiz_status === "passed")
+    const isCompleted = totalSteps > 0 && completedSteps >= totalSteps
+    const isInProgress = hasSyllabus && !isCompleted && (item.completed_tasks > 0 || item.weekly_quizzes_passed > 0 || quizPassed)
 
     async function handleGenerate(e?: React.MouseEvent) {
         e?.stopPropagation()
         setConfirmOpen(false)
-        setGenerating(true)
+        addGeneratingSkill(item.skill_id)
         try {
             await api.post("/py/generate-syllabus", { skill: item.skill })
             onSyllabusGenerated(item.skill_id)
@@ -88,7 +103,7 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, onDeleted, searchQue
                 toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate syllabus." })
             }
         } finally {
-            setGenerating(false)
+            removeGeneratingSkill(item.skill_id)
         }
     }
 
@@ -431,8 +446,16 @@ export default function SyllabiPage() {
 
     // Compute stats
     const total = syllabi.length
-    const completed = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === s.total_tasks && s.quiz_status === "passed").length
-    const inProgress = syllabi.filter(s => s.total_tasks > 0 && !(s.completed_tasks === s.total_tasks && s.quiz_status === "passed") && (s.completed_tasks > 0 || s.quiz_status === "passed")).length
+    const completed = syllabi.filter(s => {
+        const ts = s.days > 0 ? s.days + s.total_weeks + 1 : 0
+        const cs = s.completed_tasks + s.weekly_quizzes_passed + (s.quiz_status === "passed" ? 1 : 0)
+        return ts > 0 && cs >= ts
+    }).length
+    const inProgress = syllabi.filter(s => {
+        const ts = s.days > 0 ? s.days + s.total_weeks + 1 : 0
+        const cs = s.completed_tasks + s.weekly_quizzes_passed + (s.quiz_status === "passed" ? 1 : 0)
+        return s.total_tasks > 0 && (ts === 0 || cs < ts) && (s.completed_tasks > 0 || s.weekly_quizzes_passed > 0 || s.quiz_status === "passed")
+    }).length
 
     return (
         <div className="p-4 sm:p-6 space-y-6">

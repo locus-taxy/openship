@@ -1,5 +1,4 @@
 import logging
-import threading
 
 from fastapi import HTTPException
 from models.user import User
@@ -13,58 +12,19 @@ from services.skill import (
     get_public_syllabus_detail,
     toggle_skill_share,
     delete_skill,
+    update_skill_weeks,
 )
 from services.llm import (
     generate_syllabus_json,
-    generate_quiz,
+    generate_weekly_quiz,
     get_user_api_key,
     get_user_model,
     get_user_provider_name,
 )
-from services.daily_task import store_syllabus_tasks
-from services import quiz as quiz_service
+from services.daily_task import store_syllabus_tasks, clear_syllabus_tasks
+from services.quiz import get_topics_for_week, create_quiz, clear_all_quizzes, WEEKLY_QUIZ_QUESTIONS
 
 logger = logging.getLogger(__name__)
-
-def _auto_generate_quiz(
-    skill_id: int,
-    skill_name: str,
-    difficulty: str,
-    days: int,
-    provider: str,
-    api_key: str,
-    model: str,
-):
-    """Background thread: generate and store quiz immediately after syllabus creation."""
-    try:
-        if quiz_service.get_quiz_by_skill(skill_id) is not None:
-            return  # already exists (shouldn't happen, but guard anyway)
-
-        topics = quiz_service.get_topics_for_skill(skill_id)
-        if not topics:
-            logger.warning("Auto-quiz skipped for skill %s: no topics found", skill_id)
-            return
-
-        num_questions = quiz_service.get_num_questions(days)
-        generated = generate_quiz(
-            skill=skill_name,
-            topics=topics,
-            difficulty=difficulty,
-            num_questions=num_questions,
-            provider=provider,
-            api_key=api_key,
-            model=model,
-        )
-        if generated is None:
-            logger.warning("Auto-quiz generation returned None for skill %s", skill_id)
-            return
-
-        quiz_service.create_quiz(skill_id, difficulty, generated.questions)
-        logger.info(
-            "Auto-quiz created for skill %s (%d questions)", skill_id, len(generated.questions)
-        )
-    except Exception as e:
-        logger.error("Auto-quiz generation failed for skill %s: %s", skill_id, e)
 
 def list_syllabi(current_user: User):
     return get_all_syllabi(email=current_user.email)
@@ -112,13 +72,17 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     if skill_id is None:
         raise HTTPException(status_code=404, detail="Skill ID not found")
 
+    provider = get_user_provider_name(current_user)
+    api_key = get_user_api_key(current_user)
+    model = get_user_model(current_user)
+
     syllabus_data = generate_syllabus_json(
         payload.skill,
         skill["days"],
         skill["hours"],
-        provider=get_user_provider_name(current_user),
-        api_key=get_user_api_key(current_user),
-        model=get_user_model(current_user),
+        provider=provider,
+        api_key=api_key,
+        model=model,
     )
     if not isinstance(syllabus_data, (list, tuple)):
         logger.warning(
@@ -136,23 +100,55 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
             detail="LLM returned an empty syllabus. Try again or shorten the plan (days).",
         )
 
+    # Clear old tasks and quizzes before storing new ones (prevents duplicates on re-generate).
+    # NOTE: these three calls are NOT atomic — if store_syllabus_tasks fails the DB is left empty.
+    # Making them transactional requires all three service functions to share a single Session,
+    # which is a larger refactor. Risk is low in practice (store failure would be a DB error after
+    # a successful LLM call) and the user can simply regenerate to recover.
+    clear_syllabus_tasks(skill_id)
+    clear_all_quizzes(skill_id)
+
     if not store_syllabus_tasks(
-        str(current_user.id), payload.skill, syllabus_data, skill["hours"], skill_id
+        str(current_user.id),
+        payload.skill,
+        syllabus_data,
+        skill["hours"],
+        skill_id,
+        only_week=1,
     ):
         raise HTTPException(
             status_code=500,
             detail="Syllabus was generated but could not be saved to the database",
         )
 
-    # Kick off quiz generation in the background so the user isn't blocked
-    provider = get_user_provider_name(current_user)
-    api_key = get_user_api_key(current_user)
-    model = get_user_model(current_user)
-    if provider and api_key:
-        difficulty = skill.get("quiz_difficulty", "beginner")
-        threading.Thread(
-            target=_auto_generate_quiz,
-            args=(skill_id, payload.skill, difficulty, skill["days"], provider, api_key, model),
-        ).start()
+    # Count total weeks across all months and set progressive unlock tracking
+    total_weeks = sum(len(month.get("weeks", [])) for month in syllabus_data)
+    update_skill_weeks(skill_id, generated_weeks=1, total_weeks=total_weeks)
+
+    # Pre-generate Week 1 quiz so it's ready when the user completes all Week 1 chapters
+    pool_size = 1 if provider == "mistral" else 2
+    try:
+        week1_topics = get_topics_for_week(skill_id, 1)
+        if week1_topics:
+            generated = generate_weekly_quiz(
+                skill=payload.skill,
+                week=1,
+                topics=week1_topics,
+                num_questions=WEEKLY_QUIZ_QUESTIONS,
+                provider=provider,
+                api_key=api_key,
+                model=model,
+                pool_size=pool_size,
+            )
+            if generated:
+                topic_map = {
+                    i: week1_topics[(i - 1) % len(week1_topics)]
+                    for i in range(1, len(generated.questions) + 1)
+                }
+                create_quiz(
+                    skill_id, generated.questions, week=1, topic_map=topic_map, pool_size=pool_size
+                )
+    except Exception as exc:
+        logger.warning("Week 1 quiz pre-generation failed (non-fatal): %s", exc)
 
     return {"status": "success", "message": f"Syllabus generated for '{payload.skill}'"}

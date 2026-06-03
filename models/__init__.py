@@ -7,8 +7,11 @@ from models.user_model_price import UserModelPrice
 from models.quiz import Quiz
 from models.quiz_question import QuizQuestion
 from models.quiz_attempt import QuizAttempt
+from models.topic_knowledge import TopicKnowledge
+from models.content_style_arms import ContentStyleArm
 
 __all__ = [
+    "ContentStyleArm",
     "DailyTask",
     "LlmUsageLog",
     "PricingSnapshot",
@@ -16,6 +19,7 @@ __all__ = [
     "QuizAttempt",
     "QuizQuestion",
     "Skill",
+    "TopicKnowledge",
     "User",
     "UserModelPrice",
 ]

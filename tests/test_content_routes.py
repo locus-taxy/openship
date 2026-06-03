@@ -107,6 +107,7 @@ class TestGenerateChapter:
         chapter = _make_chapter(user_id=str(test_user.id))
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
             patch("controllers.content.generate_chapter_content", return_value=(None, None, None)),
             patch("controllers.content.get_user_provider_name", return_value="gemini"),
             patch("controllers.content.get_user_api_key", return_value="key"),
@@ -121,6 +122,7 @@ class TestGenerateChapter:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
             patch(
                 "controllers.content.generate_chapter_content",
                 return_value=(mock_result, None, None),

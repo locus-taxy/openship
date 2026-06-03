@@ -308,6 +308,7 @@ class TestGenerateChapterCoveragePaths:
             "_user_id": user_id,
             "id": 1,
             "skill": "Python",
+            "skill_id": 1,
             "topic": "Vars",
             "task": "Learn vars",
         }
@@ -320,6 +321,7 @@ class TestGenerateChapterCoveragePaths:
         chapter = self._make_chapter()
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
             patch("controllers.content.generate_chapter_content", return_value=None),
             patch("controllers.content.get_user_provider_name", return_value="gemini"),
             patch("controllers.content.get_user_api_key", return_value="key"),
@@ -339,6 +341,7 @@ class TestGenerateChapterCoveragePaths:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
             patch(
                 "controllers.content.generate_chapter_content",
                 return_value=(mock_result, 200, 100),

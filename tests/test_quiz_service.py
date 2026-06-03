@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 import pytest
-from services.quiz import get_num_questions, record_attempt, PASS_SCORES
-from models.quiz import Quiz
+from services.quiz import get_num_questions, record_attempt
+from models.quiz import Quiz, WEEKLY_PASS_SCORE, FINAL_PASS_SCORE
 from models.quiz_question import QuizQuestion
 
 class TestGetNumQuestions:
@@ -28,14 +28,11 @@ class TestGetNumQuestions:
         assert get_num_questions(180) == 15
 
 class TestPassScores:
-    def test_beginner_is_60(self):
-        assert PASS_SCORES["beginner"] == 60
+    def test_weekly_pass_score_is_60(self):
+        assert WEEKLY_PASS_SCORE == 60
 
-    def test_intermediate_is_70(self):
-        assert PASS_SCORES["intermediate"] == 70
-
-    def test_advanced_is_80(self):
-        assert PASS_SCORES["advanced"] == 80
+    def test_final_pass_score_is_70(self):
+        assert FINAL_PASS_SCORE == 70
 
 class TestRecordAttempt:
     def _make_questions(self, correct_options):

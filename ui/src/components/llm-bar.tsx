@@ -103,11 +103,11 @@ export function LlmBar({ fullWidth = false }: { fullWidth?: boolean }) {
 
     async function handleVerifyCustomModel() {
         const m = customModelInput.trim();
-        if (!m || !llm_provider) return;
+        if (!m || !data?.llm_provider) return;
         setVerifying(true);
         setVerifyResult(null);
         const { success, data: rd } = await postRequest(
-            `/py/auth/me/models/verify?provider=${llm_provider}&model=${encodeURIComponent(m)}`, {}
+            `/py/auth/me/models/verify?provider=${data.llm_provider}&model=${encodeURIComponent(m)}`, {}
         );
         setVerifying(false);
         if (!success) { setVerifyResult({ ok: false, reason: "Verification request failed." }); return; }
