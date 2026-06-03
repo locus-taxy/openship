@@ -2,8 +2,6 @@ import logging
 import time
 from datetime import date
 from fastapi import HTTPException
-
-logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -75,7 +73,7 @@ def generate_skill_content(payload: GenerateContentRequest, current_user: User):
                 model=get_user_model(current_user),
             )
             if not _html_result or len(_html_result) != 3:
-                print(f"Failed to generate content for task {task['id']}")
+                logger.warning("Failed to generate content for task %s", task["id"])
                 failed_tasks.append(task["id"])
                 continue
             html, input_tokens, output_tokens = _html_result

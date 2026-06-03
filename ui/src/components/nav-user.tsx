@@ -692,9 +692,9 @@ export function NavUser() {
                                                 <label className="text-xs text-muted-foreground">Currency code</label>
                                                 <Input
                                                     placeholder="USD"
-                                                    maxLength={8}
+                                                    maxLength={3}
                                                     value={displayCurrency}
-                                                    onChange={e => setDisplayCurrency(e.target.value.toUpperCase())}
+                                                    onChange={e => setDisplayCurrency(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
                                                 />
                                             </div>
                                             <div className="space-y-1">
