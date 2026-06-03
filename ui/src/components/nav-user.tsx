@@ -706,6 +706,7 @@ export function NavUser() {
                                                     placeholder="1.0"
                                                     value={exchangeRate}
                                                     onChange={e => setExchangeRate(e.target.value)}
+                                                    onWheel={e => e.currentTarget.blur()}
                                                 />
                                             </div>
                                         </div>
