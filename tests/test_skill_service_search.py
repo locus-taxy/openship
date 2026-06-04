@@ -28,7 +28,20 @@ class TestSearchSyllabi:
         from models.quiz import Quiz
 
         session = MagicMock()
-        skill_row = (1, "user-1", "test@example.com", "Python", 30, 2, None, 5, 3, "not_generated")
+        skill_row = (
+            1,
+            "user-1",
+            "test@example.com",
+            "Python",
+            30,
+            2,
+            None,
+            5,
+            3,
+            "not_generated",
+            4,
+            1,
+        )
 
         # First exec: skill id matches (Skill.id query)
         # Second exec: task rows (DailyTask query - returns empty)
@@ -63,7 +76,20 @@ class TestSearchSyllabi:
         task.topic = "Variables"
         task.task = "Learn vars"
 
-        skill_row = (1, "user-1", "test@example.com", "Python", 30, 2, None, 5, 3, "not_generated")
+        skill_row = (
+            1,
+            "user-1",
+            "test@example.com",
+            "Python",
+            30,
+            2,
+            None,
+            5,
+            3,
+            "not_generated",
+            4,
+            1,
+        )
 
         skill_ids_exec = MagicMock()
         skill_ids_exec.all.return_value = []  # no direct skill name matches

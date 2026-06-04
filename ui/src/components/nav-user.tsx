@@ -658,6 +658,7 @@ export function NavUser() {
                                                                 value={apiKey}
                                                                 onChange={(e) => setApiKey(e.target.value)}
                                                                 className="pr-10 font-mono text-sm"
+                                                                autoComplete="new-password"
                                                                 autoFocus={editingKey}
                                                                 onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") { setEditingKey(false); setApiKey(""); } }}
                                                             />
@@ -692,9 +693,9 @@ export function NavUser() {
                                                 <label className="text-xs text-muted-foreground">Currency code</label>
                                                 <Input
                                                     placeholder="USD"
-                                                    maxLength={8}
+                                                    maxLength={3}
                                                     value={displayCurrency}
-                                                    onChange={e => setDisplayCurrency(e.target.value.toUpperCase())}
+                                                    onChange={e => setDisplayCurrency(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
                                                 />
                                             </div>
                                             <div className="space-y-1">
@@ -706,6 +707,7 @@ export function NavUser() {
                                                     placeholder="1.0"
                                                     value={exchangeRate}
                                                     onChange={e => setExchangeRate(e.target.value)}
+                                                    onWheel={e => e.currentTarget.blur()}
                                                 />
                                             </div>
                                         </div>

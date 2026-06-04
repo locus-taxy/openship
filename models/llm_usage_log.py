@@ -16,6 +16,8 @@ class LlmUsageLog(SQLModel, table=True):
     model: str
     input_tokens: Optional[int] = Field(default=None)
     output_tokens: Optional[int] = Field(default=None)
+    input_price_per_1m_usd: Optional[float] = Field(default=None)
+    output_price_per_1m_usd: Optional[float] = Field(default=None)
     cost_usd: Optional[float] = Field(default=None)
     created_at: datetime = Field(
         default=None,

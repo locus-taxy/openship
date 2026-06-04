@@ -1,7 +1,7 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
-from controllers.syllabus import generate_syllabus, _auto_generate_quiz
+from controllers.syllabus import generate_syllabus
 from schemas.skill import GenerateSyllabusRequest
 from models.user import User
 
@@ -16,7 +16,7 @@ def _make_user(user_id=1):
     )
 
 def _make_skill(**kwargs):
-    d = {"days": 30, "hours": 2, "quiz_difficulty": "beginner"}
+    d = {"days": 30, "hours": 2}
     d.update(kwargs)
     return d
 
@@ -91,12 +91,35 @@ class TestGenerateSyllabus:
             patch("controllers.syllabus.get_user_provider_name", return_value="gemini"),
             patch("controllers.syllabus.get_user_api_key", return_value="key"),
             patch("controllers.syllabus.get_user_model", return_value="gemini-flash"),
+            patch("controllers.syllabus.clear_syllabus_tasks"),
+            patch("controllers.syllabus.clear_all_quizzes"),
+            patch("controllers.syllabus.update_skill_weeks"),
+            patch("controllers.syllabus.get_topics_for_week", return_value=[]),
         ):
             with pytest.raises(HTTPException) as exc:
                 generate_syllabus(GenerateSyllabusRequest(skill="Python"), user)
             assert exc.value.status_code == 500
 
-    def test_success_without_provider_skips_thread(self):
+    def test_success_returns_ok(self):
+        user = _make_user()
+        syllabus_data = [{"month": 1, "weeks": []}]
+        with (
+            patch("controllers.syllabus.get_skill", return_value=_make_skill()),
+            patch("controllers.syllabus.get_skill_id_by_email_and_skill", return_value=1),
+            patch("controllers.syllabus.generate_syllabus_json", return_value=syllabus_data),
+            patch("controllers.syllabus.store_syllabus_tasks", return_value=True),
+            patch("controllers.syllabus.get_user_provider_name", return_value="gemini"),
+            patch("controllers.syllabus.get_user_api_key", return_value="key"),
+            patch("controllers.syllabus.get_user_model", return_value="gemini-flash"),
+            patch("controllers.syllabus.clear_syllabus_tasks"),
+            patch("controllers.syllabus.clear_all_quizzes"),
+            patch("controllers.syllabus.update_skill_weeks"),
+            patch("controllers.syllabus.get_topics_for_week", return_value=[]),
+        ):
+            result = generate_syllabus(GenerateSyllabusRequest(skill="Python"), user)
+        assert result["status"] == "success"
+
+    def test_success_without_provider_still_returns_ok(self):
         user = _make_user()
         syllabus_data = [{"month": 1, "weeks": []}]
         with (
@@ -107,13 +130,43 @@ class TestGenerateSyllabus:
             patch("controllers.syllabus.get_user_provider_name", return_value=None),
             patch("controllers.syllabus.get_user_api_key", return_value=None),
             patch("controllers.syllabus.get_user_model", return_value=None),
-            patch("controllers.syllabus.threading") as mock_threading,
+            patch("controllers.syllabus.clear_syllabus_tasks"),
+            patch("controllers.syllabus.clear_all_quizzes"),
+            patch("controllers.syllabus.update_skill_weeks"),
+            patch("controllers.syllabus.get_topics_for_week", return_value=[]),
         ):
             result = generate_syllabus(GenerateSyllabusRequest(skill="Python"), user)
         assert result["status"] == "success"
-        mock_threading.Thread.assert_not_called()
 
-    def test_success_with_provider_starts_quiz_thread(self):
+    def test_success_pregenerates_week1_quiz_when_topics_exist(self):
+        """Covers lines 133-149: pre-generate week1 quiz path."""
+        from unittest.mock import MagicMock
+
+        user = _make_user()
+        syllabus_data = [{"month": 1, "weeks": [{"week": 1, "daily_plan": []}]}]
+        generated_quiz = MagicMock()
+        generated_quiz.questions = [MagicMock()]
+        with (
+            patch("controllers.syllabus.get_skill", return_value=_make_skill()),
+            patch("controllers.syllabus.get_skill_id_by_email_and_skill", return_value=1),
+            patch("controllers.syllabus.generate_syllabus_json", return_value=syllabus_data),
+            patch("controllers.syllabus.store_syllabus_tasks", return_value=True),
+            patch("controllers.syllabus.get_user_provider_name", return_value="gemini"),
+            patch("controllers.syllabus.get_user_api_key", return_value="key"),
+            patch("controllers.syllabus.get_user_model", return_value="gemini-flash"),
+            patch("controllers.syllabus.clear_syllabus_tasks"),
+            patch("controllers.syllabus.clear_all_quizzes"),
+            patch("controllers.syllabus.update_skill_weeks"),
+            patch("controllers.syllabus.get_topics_for_week", return_value=["Variables", "Loops"]),
+            patch("controllers.syllabus.generate_weekly_quiz", return_value=generated_quiz),
+            patch("controllers.syllabus.create_quiz") as mock_create,
+        ):
+            result = generate_syllabus(GenerateSyllabusRequest(skill="Python"), user)
+        assert result["status"] == "success"
+        mock_create.assert_called_once()
+
+    def test_success_when_week1_quiz_generate_returns_none(self):
+        """Covers lines 142-147: generate_weekly_quiz returns None so create_quiz is skipped."""
         user = _make_user()
         syllabus_data = [{"month": 1, "weeks": []}]
         with (
@@ -122,56 +175,35 @@ class TestGenerateSyllabus:
             patch("controllers.syllabus.generate_syllabus_json", return_value=syllabus_data),
             patch("controllers.syllabus.store_syllabus_tasks", return_value=True),
             patch("controllers.syllabus.get_user_provider_name", return_value="gemini"),
-            patch("controllers.syllabus.get_user_api_key", return_value="api-key"),
+            patch("controllers.syllabus.get_user_api_key", return_value="key"),
             patch("controllers.syllabus.get_user_model", return_value="gemini-flash"),
-            patch("controllers.syllabus.threading") as mock_threading,
+            patch("controllers.syllabus.clear_syllabus_tasks"),
+            patch("controllers.syllabus.clear_all_quizzes"),
+            patch("controllers.syllabus.update_skill_weeks"),
+            patch("controllers.syllabus.get_topics_for_week", return_value=["Variables"]),
+            patch("controllers.syllabus.generate_weekly_quiz", return_value=None),
+            patch("controllers.syllabus.create_quiz") as mock_create,
         ):
             result = generate_syllabus(GenerateSyllabusRequest(skill="Python"), user)
         assert result["status"] == "success"
-        mock_threading.Thread.assert_called_once()
-        mock_threading.Thread.return_value.start.assert_called_once()
+        mock_create.assert_not_called()
 
-class TestAutoGenerateQuiz:
-    def test_returns_early_when_quiz_already_exists(self):
-        existing_quiz = MagicMock()
-        with patch("controllers.syllabus.quiz_service") as mock_svc:
-            mock_svc.get_quiz_by_skill.return_value = existing_quiz
-            _auto_generate_quiz(1, "Python", "beginner", 30, "gemini", "key", "model")
-            mock_svc.create_quiz.assert_not_called()
-
-    def test_returns_early_when_no_topics(self):
-        with patch("controllers.syllabus.quiz_service") as mock_svc:
-            mock_svc.get_quiz_by_skill.return_value = None
-            mock_svc.get_topics_for_skill.return_value = []
-            _auto_generate_quiz(1, "Python", "beginner", 30, "gemini", "key", "model")
-            mock_svc.create_quiz.assert_not_called()
-
-    def test_returns_early_when_llm_returns_none(self):
+    def test_success_when_week1_quiz_generation_raises(self):
+        """Covers line 148-149: exception during quiz pre-generation is non-fatal."""
+        user = _make_user()
+        syllabus_data = [{"month": 1, "weeks": []}]
         with (
-            patch("controllers.syllabus.quiz_service") as mock_svc,
-            patch("controllers.syllabus.generate_quiz", return_value=None),
+            patch("controllers.syllabus.get_skill", return_value=_make_skill()),
+            patch("controllers.syllabus.get_skill_id_by_email_and_skill", return_value=1),
+            patch("controllers.syllabus.generate_syllabus_json", return_value=syllabus_data),
+            patch("controllers.syllabus.store_syllabus_tasks", return_value=True),
+            patch("controllers.syllabus.get_user_provider_name", return_value="gemini"),
+            patch("controllers.syllabus.get_user_api_key", return_value="key"),
+            patch("controllers.syllabus.get_user_model", return_value="gemini-flash"),
+            patch("controllers.syllabus.clear_syllabus_tasks"),
+            patch("controllers.syllabus.clear_all_quizzes"),
+            patch("controllers.syllabus.update_skill_weeks"),
+            patch("controllers.syllabus.get_topics_for_week", side_effect=RuntimeError("db error")),
         ):
-            mock_svc.get_quiz_by_skill.return_value = None
-            mock_svc.get_topics_for_skill.return_value = ["Variables", "Loops"]
-            mock_svc.get_num_questions.return_value = 10
-            _auto_generate_quiz(1, "Python", "beginner", 30, "gemini", "key", "model")
-            mock_svc.create_quiz.assert_not_called()
-
-    def test_creates_quiz_on_success(self):
-        generated = MagicMock()
-        generated.questions = [MagicMock(), MagicMock()]
-        with (
-            patch("controllers.syllabus.quiz_service") as mock_svc,
-            patch("controllers.syllabus.generate_quiz", return_value=generated),
-        ):
-            mock_svc.get_quiz_by_skill.return_value = None
-            mock_svc.get_topics_for_skill.return_value = ["Variables", "Loops"]
-            mock_svc.get_num_questions.return_value = 10
-            _auto_generate_quiz(1, "Python", "beginner", 30, "gemini", "key", "model")
-            mock_svc.create_quiz.assert_called_once_with(1, "beginner", generated.questions)
-
-    def test_handles_exception_without_raising(self):
-        with patch("controllers.syllabus.quiz_service") as mock_svc:
-            mock_svc.get_quiz_by_skill.side_effect = RuntimeError("DB down")
-            # Should not raise
-            _auto_generate_quiz(1, "Python", "beginner", 30, "gemini", "key", "model")
+            result = generate_syllabus(GenerateSyllabusRequest(skill="Python"), user)
+        assert result["status"] == "success"

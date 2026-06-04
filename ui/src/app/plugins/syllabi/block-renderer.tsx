@@ -5,7 +5,7 @@ import "highlight.js/styles/atom-one-dark.css"
 import { Loader2, Pencil, Play, X } from "lucide-react"
 import { isRunnable, executeCode } from "@/services/executor"
 
-mermaid.initialize({ startOnLoad: false, theme: "dark" })
+mermaid.initialize({ startOnLoad: false, theme: "dark", suppressErrors: true })
 
 export type BlockType =
     | "heading" | "paragraph" | "code"

@@ -7,6 +7,8 @@ from services.skill import (
     get_email_id_from_skill_id,
     get_skill_id_by_email_and_skill,
     get_public_syllabus_detail,
+    update_skill_weeks,
+    unlock_next_week,
 )
 from models.skill import Skill
 from models.daily_task import DailyTask
@@ -38,7 +40,6 @@ class TestGetSyllabusDetail:
             skill="Python",
             days=30,
             hours=2,
-            quiz_difficulty="beginner",
         )
         # Task in month 1, week 1, day 1
         task = DailyTask(
@@ -58,10 +59,12 @@ class TestGetSyllabusDetail:
         )
         session = MagicMock()
         session.get.return_value = skill
+        # exec calls: (1) final quiz → .first() = None
+        #             (2) weekly quizzes → .all() = []
+        #             (3) daily tasks → .all() = [task]
         exec_mock = MagicMock()
-        # First exec call = quiz; second = tasks
-        exec_mock.first.side_effect = [None, None]  # no quiz, then tasks iteration
-        exec_mock.all.return_value = [task]
+        exec_mock.first.side_effect = [None]
+        exec_mock.all.side_effect = [[], [task]]
         session.exec.return_value = exec_mock
         patcher = _patch_session(session)
         try:
@@ -70,14 +73,16 @@ class TestGetSyllabusDetail:
             assert result["skill"] == "Python"
             assert "_user_id" in result
             assert "months" in result
+            assert result["weekly_quiz_statuses"] == {}
         finally:
             patcher.stop()
 
 class TestGetAllSyllabi:
     def test_returns_list_of_skill_dicts(self):
         session = MagicMock()
-        # Simulate a row tuple
-        row = (1, "user-1", "test@example.com", "Python", 30, 2, None, 5, 3, "not_generated")
+        # Simulate a row tuple: id, user_id, email, skill, days, hours, created_at,
+        # total_tasks, completed_tasks, quiz_status, total_weeks, weekly_quizzes_passed
+        row = (1, "user-1", "test@example.com", "Python", 30, 2, None, 5, 3, "not_generated", 4, 1)
         exec_mock = MagicMock()
         exec_mock.all.return_value = [row]
         session.exec.return_value = exec_mock
@@ -88,6 +93,8 @@ class TestGetAllSyllabi:
             assert result[0]["skill"] == "Python"
             assert result[0]["total_tasks"] == 5
             assert result[0]["completed_tasks"] == 3
+            assert result[0]["total_weeks"] == 4
+            assert result[0]["weekly_quizzes_passed"] == 1
         finally:
             patcher.stop()
 
@@ -215,5 +222,119 @@ class TestGetPublicSyllabusDetail:
             assert result["skill"] == "Python"
             assert "email" not in result
             assert "_user_id" not in result
+        finally:
+            patcher.stop()
+
+class TestUpdateSkillWeeks:
+    def test_updates_generated_and_total_weeks_when_skill_found(self):
+        skill = Skill(
+            id=1,
+            user_id="u1",
+            email="test@example.com",
+            skill="Python",
+            days=28,
+            hours=2,
+        )
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_session(session)
+        try:
+            update_skill_weeks(skill_id=1, generated_weeks=2, total_weeks=4)
+            assert skill.generated_weeks == 2
+            assert skill.total_weeks == 4
+            session.add.assert_called_once_with(skill)
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+    def test_does_nothing_when_skill_not_found(self):
+        session = MagicMock()
+        session.get.return_value = None
+        patcher = _patch_session(session)
+        try:
+            update_skill_weeks(skill_id=999, generated_weeks=1, total_weeks=4)
+            session.add.assert_not_called()
+            session.commit.assert_not_called()
+        finally:
+            patcher.stop()
+
+class TestUnlockNextWeek:
+    def test_increments_generated_weeks_when_conditions_met(self):
+        skill = Skill(
+            id=1,
+            user_id="u1",
+            email="test@example.com",
+            skill="Python",
+            days=28,
+            hours=2,
+        )
+        skill.total_weeks = 4
+        skill.generated_weeks = 1
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_session(session)
+        try:
+            result, unlocked = unlock_next_week(skill_id=1, completed_week=1)
+            assert result == 2
+            assert unlocked is True
+            assert skill.generated_weeks == 2
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+    def test_returns_current_generated_weeks_when_not_matching(self):
+        """No increment when generated_weeks != completed_week."""
+        skill = Skill(
+            id=1,
+            user_id="u1",
+            email="test@example.com",
+            skill="Python",
+            days=28,
+            hours=2,
+        )
+        skill.total_weeks = 4
+        skill.generated_weeks = 3  # already ahead
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_session(session)
+        try:
+            result, unlocked = unlock_next_week(skill_id=1, completed_week=1)
+            assert result == 3
+            assert unlocked is False
+            session.commit.assert_not_called()
+        finally:
+            patcher.stop()
+
+    def test_returns_zero_when_skill_not_found(self):
+        session = MagicMock()
+        session.get.return_value = None
+        patcher = _patch_session(session)
+        try:
+            result, unlocked = unlock_next_week(skill_id=999, completed_week=1)
+            assert result == 0
+            assert unlocked is False
+        finally:
+            patcher.stop()
+
+    def test_does_not_increment_when_total_weeks_zero(self):
+        """No-op for non-progressive courses (total_weeks == 0)."""
+        skill = Skill(
+            id=1,
+            user_id="u1",
+            email="test@example.com",
+            skill="Python",
+            days=28,
+            hours=2,
+        )
+        skill.total_weeks = 0
+        skill.generated_weeks = 1
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_session(session)
+        try:
+            result, unlocked = unlock_next_week(skill_id=1, completed_week=1)
+            assert result == 1
+            assert unlocked is False
+            session.commit.assert_not_called()
         finally:
             patcher.stop()

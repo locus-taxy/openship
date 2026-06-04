@@ -18,6 +18,8 @@ def log_llm_usage(
     output_tokens: Optional[int],
     cost_usd: Optional[float],
     ref_id: Optional[int] = None,
+    input_price_per_1m_usd: Optional[float] = None,
+    output_price_per_1m_usd: Optional[float] = None,
 ) -> None:
     try:
         with Session(engine) as session:
@@ -29,6 +31,8 @@ def log_llm_usage(
                 model=model,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                input_price_per_1m_usd=input_price_per_1m_usd,
+                output_price_per_1m_usd=output_price_per_1m_usd,
                 cost_usd=cost_usd,
             )
             session.add(row)
@@ -56,6 +60,8 @@ def get_chapter_cost(task_id: int) -> Dict[str, Any]:
                     "model": r.model,
                     "input_tokens": r.input_tokens,
                     "output_tokens": r.output_tokens,
+                    "input_price_per_1m_usd": r.input_price_per_1m_usd,
+                    "output_price_per_1m_usd": r.output_price_per_1m_usd,
                     "cost_usd": r.cost_usd,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
