@@ -849,7 +849,7 @@ export default function SyllabusDetailPage() {
         ? Object.values(detail.weekly_quiz_statuses as Record<string, string>).filter(s => s === "passed").length
         : 0
     // Progress = chapter completions + final quiz only (weekly quizzes excluded)
-    const totalSteps = detail ? detail.days + 1 : 0
+    const totalSteps = allTasks.length > 0 ? allTasks.length + 1 : 0
     const completedSteps = completedCount + (quizPassed ? 1 : 0)
     const overallProgress = totalSteps > 1 ? Math.round((completedSteps / totalSteps) * 100) : 0
 
