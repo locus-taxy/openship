@@ -69,13 +69,13 @@ function SyllabusCard({ item, onSyllabusGenerated, onStart, onDeleted, searchQue
     const hasMatchingChapters = searchQuery.trim() !== "" && chapters.length > 0
 
     const quizPassed = item.quiz_status === "passed"
-    // Fixed denominator: course days + weekly quizzes + final quiz
-    const totalSteps = item.days > 0 ? item.days + item.total_weeks + 1 : 0
-    const completedSteps = item.completed_tasks + item.weekly_quizzes_passed + (quizPassed ? 1 : 0)
+    // Progress = chapter completions + final quiz only (weekly quizzes excluded)
+    const totalSteps = item.total_tasks > 0 ? item.total_tasks + 1 : 0
+    const completedSteps = item.completed_tasks + (quizPassed ? 1 : 0)
     const progress = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
     const hasSyllabus = item.total_tasks > 0
     const isCompleted = totalSteps > 0 && completedSteps >= totalSteps
-    const isInProgress = hasSyllabus && !isCompleted && (item.completed_tasks > 0 || item.weekly_quizzes_passed > 0 || quizPassed)
+    const isInProgress = hasSyllabus && !isCompleted && (item.completed_tasks > 0 || quizPassed)
 
     async function handleGenerate(e?: React.MouseEvent) {
         e?.stopPropagation()
@@ -447,14 +447,14 @@ export default function SyllabiPage() {
     // Compute stats
     const total = syllabi.length
     const completed = syllabi.filter(s => {
-        const ts = s.days > 0 ? s.days + s.total_weeks + 1 : 0
-        const cs = s.completed_tasks + s.weekly_quizzes_passed + (s.quiz_status === "passed" ? 1 : 0)
+        const ts = s.total_tasks > 0 ? s.total_tasks + 1 : 0
+        const cs = s.completed_tasks + (s.quiz_status === "passed" ? 1 : 0)
         return ts > 0 && cs >= ts
     }).length
     const inProgress = syllabi.filter(s => {
-        const ts = s.days > 0 ? s.days + s.total_weeks + 1 : 0
-        const cs = s.completed_tasks + s.weekly_quizzes_passed + (s.quiz_status === "passed" ? 1 : 0)
-        return s.total_tasks > 0 && (ts === 0 || cs < ts) && (s.completed_tasks > 0 || s.weekly_quizzes_passed > 0 || s.quiz_status === "passed")
+        const ts = s.total_tasks > 0 ? s.total_tasks + 1 : 0
+        const cs = s.completed_tasks + (s.quiz_status === "passed" ? 1 : 0)
+        return s.total_tasks > 0 && (ts === 0 || cs < ts) && (s.completed_tasks > 0 || s.quiz_status === "passed")
     }).length
 
     return (
