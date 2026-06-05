@@ -357,3 +357,76 @@ class TestGenerateChapterCoveragePaths:
         ):
             result = generate_chapter(GenerateChapterContentRequest(task_id=1), user)
         assert result["status"] == "success"
+
+    def test_pricing_snapshot_created_with_correct_args(self):
+        """create_pricing_snapshot is called with provider/model/rates/source and
+        the returned id is forwarded to add_blocks_to_db."""
+        from controllers.content import generate_chapter
+        from schemas.skill import GenerateChapterContentRequest
+
+        user = self._make_user()
+        chapter = self._make_chapter()
+        mock_result = MagicMock()
+        mock_result.blocks = []
+        with (
+            patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
+            patch(
+                "controllers.content.generate_chapter_content",
+                return_value=(mock_result, 300, 150),
+            ),
+            patch("controllers.content.get_user_provider_name", return_value="gemini"),
+            patch("controllers.content.get_user_api_key", return_value="key"),
+            patch("controllers.content.get_user_model", return_value="gemini-pro"),
+            patch("controllers.content.lookup_model_price", return_value=(0.5, 1.5)),
+            patch("controllers.content.get_user_model_price", return_value=None),
+            patch("controllers.content.compute_generation_cost_usd", return_value=0.0003),
+            patch("controllers.content.log_llm_usage"),
+            patch("controllers.content.create_pricing_snapshot", return_value=42) as mock_snap,
+            patch("controllers.content.add_blocks_to_db", return_value=True) as mock_add,
+        ):
+            result = generate_chapter(GenerateChapterContentRequest(task_id=1), user)
+
+        assert result["status"] == "success"
+        mock_snap.assert_called_once_with(
+            provider="gemini",
+            model="gemini-pro",
+            input_per_1m_usd=0.5,
+            output_per_1m_usd=1.5,
+            source="auto",
+        )
+        _, kwargs = mock_add.call_args
+        assert kwargs.get("pricing_id") == 42
+
+    def test_generation_succeeds_when_pricing_snapshot_fails(self):
+        """If create_pricing_snapshot returns None (DB error), generation still
+        completes — pricing_id is None but the chapter content is saved."""
+        from controllers.content import generate_chapter
+        from schemas.skill import GenerateChapterContentRequest
+
+        user = self._make_user()
+        chapter = self._make_chapter()
+        mock_result = MagicMock()
+        mock_result.blocks = []
+        with (
+            patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.sample_style", return_value="balanced"),
+            patch(
+                "controllers.content.generate_chapter_content",
+                return_value=(mock_result, 100, 50),
+            ),
+            patch("controllers.content.get_user_provider_name", return_value="gemini"),
+            patch("controllers.content.get_user_api_key", return_value="key"),
+            patch("controllers.content.get_user_model", return_value="gemini-flash"),
+            patch("controllers.content.lookup_model_price", return_value=(1.0, 2.0)),
+            patch("controllers.content.get_user_model_price", return_value=None),
+            patch("controllers.content.compute_generation_cost_usd", return_value=0.0001),
+            patch("controllers.content.log_llm_usage"),
+            patch("controllers.content.create_pricing_snapshot", return_value=None),
+            patch("controllers.content.add_blocks_to_db", return_value=True) as mock_add,
+        ):
+            result = generate_chapter(GenerateChapterContentRequest(task_id=1), user)
+
+        assert result["status"] == "success"
+        _, kwargs = mock_add.call_args
+        assert kwargs.get("pricing_id") is None
