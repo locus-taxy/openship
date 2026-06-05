@@ -18,7 +18,11 @@ You pick a skill and set how many days and hours per day you can commit. Openshi
 
 
 
-https://github.com/user-attachments/assets/842b43cf-74a0-4c9e-b975-4949542dbee5
+
+
+https://github.com/user-attachments/assets/c4f19506-851a-422c-bc63-a0e2252c8e78
+
+
 
 
 
