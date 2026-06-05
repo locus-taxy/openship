@@ -99,7 +99,7 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 - **Chapter cost badge** - the chapter view shows a live cost badge (e.g. `₹0.0042 · 2×`) that accumulates across regenerations and converts to the user's chosen display currency
 - **Manual pricing overrides** - when a model is not listed on ai-model-pricing.com, users can enter $/1M input and output prices directly in settings; stored in `user_model_prices` and used as a fallback
 - **Auto-fetched pricing** - prices are fetched from ai-model-pricing.com with three-tier model matching (exact → forward-prefix → reverse-prefix); cache is held for the lifetime of the server process
-- **Refresh Prices button** - clears the in-memory price cache and re-fetches instantly without restarting
+- **Refresh Prices button** - clears the in-memory price cache so prices are re-fetched on the next pricing lookup
 - **Currency settings** - display currency and exchange rate configurable per user; all stored values remain in USD
 
 ### Other
