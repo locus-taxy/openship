@@ -16,7 +16,11 @@ You pick a skill and set how many days and hours per day you can commit. Openshi
 
 ## Demo
 
-https://github.com/user-attachments/assets/cd3fc567-a654-41c8-a33d-fb354fd51b38
+
+
+https://github.com/user-attachments/assets/842b43cf-74a0-4c9e-b975-4949542dbee5
+
+
 
 ---
 
@@ -86,8 +90,17 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 - **Score history** - every attempt recorded with timestamp and score; best score tracked per quiz
 
 ### Progress and analytics
-- **Progress tracking** - mark chapters complete; progress bar accounts for chapters and quiz pass
+- **Progress tracking** - mark chapters complete; progress bar accounts for chapters and final quiz pass (weekly quizzes excluded from progress denominator)
 - **Analytics dashboard** - overview of all courses: completion rates, hours planned, tasks remaining
+
+### LLM cost analytics
+- **Per-generation cost logging** - every LLM call (chapter, syllabus, quiz) is logged to `llm_usage_logs` with input/output token counts, provider, model, and computed `cost_usd`
+- **Immutable pricing snapshots** - the exact input/output price per million tokens used at generation time is frozen in a `pricing_snapshots` row and linked to each chapter via `daily_tasks.pricing_id`; historical costs stay accurate even after pricing changes
+- **Chapter cost badge** - the chapter view shows a live cost badge (e.g. `₹0.0042 · 2×`) that accumulates across regenerations and converts to the user's chosen display currency
+- **Manual pricing overrides** - when a model is not listed on ai-model-pricing.com, users can enter $/1M input and output prices directly in settings; stored in `user_model_prices` and used as a fallback
+- **Auto-fetched pricing** - prices are fetched from ai-model-pricing.com with three-tier model matching (exact → forward-prefix → reverse-prefix); cache is held for the lifetime of the server process
+- **Refresh Prices button** - clears the in-memory price cache and re-fetches instantly without restarting
+- **Currency settings** - display currency and exchange rate configurable per user; all stored values remain in USD
 
 ### Other
 - **Shareable syllabi** - public link to share any syllabus (no account required to view)
