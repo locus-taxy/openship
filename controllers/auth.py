@@ -1,3 +1,4 @@
+import math
 from typing import Optional
 from fastapi import HTTPException, Response
 from config import JWT_ACCESS_TOKEN_EXPIRE_MINUTES, JWT_REFRESH_TOKEN_EXPIRE_HOURS
@@ -21,7 +22,15 @@ from services.user import (
     get_provider_by_name,
     get_provider_by_id,
     get_all_saved_provider_ids,
+    update_currency_settings,
+    get_currency_settings,
 )
+from services.pricing import (
+    lookup_model_price,
+    lookup_model_info,
+    invalidate_cache as invalidate_pricing_cache,
+)
+from services.user_pricing import get_user_model_price, save_user_model_price
 from services.password import verify_password
 from services.jwt import create_access_token, create_refresh_token, decode_token
 
@@ -141,12 +150,16 @@ def get_settings(current_user: User):
         p: (row.id in saved_ids if row else False) for p, row in all_provider_rows.items()
     }
 
+    currency, rate = get_currency_settings(current_user.id)
+
     return {
         "llm_provider": active_name,
         "llm_model": active_model or DEFAULT_MODELS.get(active_name or ""),
         "provider_keys": provider_keys,
         "supported_providers": supported_providers,
         "provider_models": PROVIDER_MODELS,
+        "display_currency": currency,
+        "currency_exchange_rate": rate,
     }
 
 def save_settings(
@@ -171,6 +184,40 @@ def save_settings(
         "llm_model": m or DEFAULT_MODELS.get(p or ""),
         "has_key": has_key,
     }
+
+def get_model_pricing(provider: str, model: str, current_user: User):
+    """Return auto-fetched pricing, falling back to the user's saved manual override."""
+    info = lookup_model_info(provider, model)
+    manual = get_user_model_price(current_user.id, provider, model)
+    return {
+        "provider": provider,
+        "model": model,
+        **info,
+        "manual_input_per_1m_usd": manual[0] if manual else None,
+        "manual_output_per_1m_usd": manual[1] if manual else None,
+    }
+
+def save_manual_pricing(
+    current_user: User, provider: str, model: str, input_per_1m_usd: float, output_per_1m_usd: float
+):
+    if not (math.isfinite(input_per_1m_usd) and math.isfinite(output_per_1m_usd)):
+        raise HTTPException(status_code=422, detail="Prices must be finite numbers")
+    if input_per_1m_usd < 0 or output_per_1m_usd < 0:
+        raise HTTPException(status_code=422, detail="Prices must be non-negative")
+    save_user_model_price(current_user.id, provider, model, input_per_1m_usd, output_per_1m_usd)
+    return {"status": "success"}
+
+def save_currency(current_user: User, payload):
+    update_currency_settings(
+        current_user.id,
+        payload.display_currency,
+        payload.currency_exchange_rate,
+    )
+    return {"status": "success"}
+
+def refresh_pricing_cache():
+    invalidate_pricing_cache()
+    return {"status": "success", "message": "Pricing cache cleared — next request will re-fetch"}
 
 def list_models(current_user: User, provider: str):
     """Return available models for the given provider using the user's stored key."""

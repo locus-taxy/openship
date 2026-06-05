@@ -130,7 +130,7 @@ class TestSubmitWeeklyQuizRoute:
                 patch("controllers.quiz.get_week_content_style", return_value="balanced"),
                 patch("controllers.quiz.sample_style", return_value="balanced"),
                 patch("controllers.quiz.update_arm"),
-                patch("controllers.quiz.unlock_next_week", return_value=0),
+                patch("controllers.quiz.unlock_next_week", return_value=(0, False)),
                 patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=[]),
             ):
                 response = auth_client.post("/quiz/1/week/1/submit", json={"answers": {"1": "A"}})

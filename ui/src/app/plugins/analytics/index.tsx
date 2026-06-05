@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router"
+import { useEffect, useState } from "react"
+import { useNavigate, useLocation } from "react-router"
 import {
     BookOpen, Clock,
-    Flame, Award, ChevronRight, Zap, BarChart2, CalendarDays, Sparkles, PlayCircle, TrendingUp
+    Flame, Award, ChevronRight, Zap, BarChart2, CalendarDays, Sparkles, PlayCircle, TrendingUp,
+    Cpu, DollarSign,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -65,16 +66,24 @@ export default function AnalyticsPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<Error | null>(null)
     const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0 })
+    const [costData, setCostData] = useState<{
+        total_input_tokens: number
+        total_output_tokens: number
+        total_cost_usd: number
+        total_cost_display: number
+        display_currency: string
+    } | null>(null)
+    const [refreshTick, setRefreshTick] = useState(0)
     const { setPluginName } = useStore((state: any) => state)
     const { user } = useAuthStore()
-    const fetchedRef = useRef(false)
     const navigate = useNavigate()
+    const location = useLocation()
 
     useEffect(() => { setPluginName("Analytics") }, [setPluginName])
 
     useEffect(() => {
-        if (fetchedRef.current) return
-        fetchedRef.current = true
+        setLoading(true)
+        setCostData(null)
         getRequest("/py/syllabi")
             .then(({ success, data }) => {
                 if (success) setSyllabi(data)
@@ -85,7 +94,10 @@ export default function AnalyticsPage() {
         getRequest("/py/streak").then(({ success, data }) => {
             if (success) setStreak(data)
         })
-    }, [])
+        getRequest(`/py/analytics/cost?t=${Date.now()}`).then(({ success, data }) => {
+            if (success) setCostData(data)
+        })
+    }, [location.key, refreshTick])
 
     const totalCourses = syllabi.length
     const inProgress = syllabi.filter(s => getStatus(s.completed_tasks, s.total_tasks, s.quiz_status ?? "not_generated") === "in-progress")
@@ -246,8 +258,14 @@ export default function AnalyticsPage() {
                                 }
                             </p>
                         </div>
-                        <div className="hidden md:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                            <Zap className="h-7 w-7" />
+                        <div className="hidden md:flex shrink-0 items-center justify-center relative">
+                            <span className="text-6xl leading-none select-none">🔥</span>
+                            {streak.current_streak > 0 && (
+                                <span className="absolute text-lg font-black text-white mt-4"
+                                    style={{ textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>
+                                    {streak.current_streak}
+                                </span>
+                            )}
                         </div>
                     </div>
                     <div className="mt-5 flex flex-wrap gap-2">
@@ -351,6 +369,46 @@ export default function AnalyticsPage() {
                                 <p className="text-xs text-muted-foreground mt-0.5">Longest Streak</p>
                             </div>
                         </div>
+
+                        {/* Tokens used */}
+                        {costData && (costData.total_input_tokens + costData.total_output_tokens) > 0 && (
+                            <div className="rounded-2xl border border-border/60 bg-card p-3 sm:p-5 flex items-center gap-3 sm:gap-4">
+                                <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/10">
+                                    <Cpu className="h-4 w-4 sm:h-5 sm:w-5 text-cyan-500" />
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-xl sm:text-2xl font-black">
+                                        {((costData.total_input_tokens + costData.total_output_tokens) / 1000).toFixed(1)}K
+                                    </p>
+                                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">Tokens Used</p>
+                                </div>
+                                <button
+                                    onClick={() => setRefreshTick(t => t + 1)}
+                                    title="Refresh stats"
+                                    className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                >
+                                    <TrendingUp className="h-3.5 w-3.5 rotate-90" />
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Total spent */}
+                        {costData && costData.total_cost_usd > 0 && (
+                            <div className="rounded-2xl border border-border/60 bg-card p-3 sm:p-5 flex items-center gap-3 sm:gap-4">
+                                <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-500/10">
+                                    <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-rose-500" />
+                                </div>
+                                <div>
+                                    <p className="text-xl sm:text-2xl font-black">
+                                        {costData.total_cost_display.toFixed(4)}
+                                        {costData.display_currency !== "USD" && (
+                                            <span className="text-sm font-semibold ml-1 text-muted-foreground">{costData.display_currency}</span>
+                                        )}
+                                    </p>
+                                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">Total Spent</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 

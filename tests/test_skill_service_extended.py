@@ -274,8 +274,9 @@ class TestUnlockNextWeek:
         session.get.return_value = skill
         patcher = _patch_session(session)
         try:
-            result = unlock_next_week(skill_id=1, completed_week=1)
+            result, unlocked = unlock_next_week(skill_id=1, completed_week=1)
             assert result == 2
+            assert unlocked is True
             assert skill.generated_weeks == 2
             session.commit.assert_called_once()
         finally:
@@ -297,8 +298,9 @@ class TestUnlockNextWeek:
         session.get.return_value = skill
         patcher = _patch_session(session)
         try:
-            result = unlock_next_week(skill_id=1, completed_week=1)
+            result, unlocked = unlock_next_week(skill_id=1, completed_week=1)
             assert result == 3
+            assert unlocked is False
             session.commit.assert_not_called()
         finally:
             patcher.stop()
@@ -308,8 +310,9 @@ class TestUnlockNextWeek:
         session.get.return_value = None
         patcher = _patch_session(session)
         try:
-            result = unlock_next_week(skill_id=999, completed_week=1)
+            result, unlocked = unlock_next_week(skill_id=999, completed_week=1)
             assert result == 0
+            assert unlocked is False
         finally:
             patcher.stop()
 
@@ -329,8 +332,9 @@ class TestUnlockNextWeek:
         session.get.return_value = skill
         patcher = _patch_session(session)
         try:
-            result = unlock_next_week(skill_id=1, completed_week=1)
+            result, unlocked = unlock_next_week(skill_id=1, completed_week=1)
             assert result == 1
+            assert unlocked is False
             session.commit.assert_not_called()
         finally:
             patcher.stop()

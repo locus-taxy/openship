@@ -1,7 +1,7 @@
 """add_content_style_to_daily_tasks
 
-Revision ID: p4q5r6s7t8u9
-Revises: o3p4q5r6s7t8
+Revision ID: d4e5f6a7b8c9
+Revises: c3d4e5f6a7b8
 Create Date: 2026-05-26
 
 Adds content_style (nullable text) to daily_tasks.
@@ -12,8 +12,8 @@ Stores which bandit arm style was used when generating the chapter
 from alembic import op
 import sqlalchemy as sa
 
-revision = "p4q5r6s7t8u9"
-down_revision = "o3p4q5r6s7t8"
+revision = "d4e5f6a7b8c9"
+down_revision = "c3d4e5f6a7b8"
 branch_labels = None
 depends_on = None
 

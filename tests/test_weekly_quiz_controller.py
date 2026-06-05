@@ -287,7 +287,7 @@ class TestSubmitWeeklyQuiz:
                 patch("controllers.quiz.get_week_content_style", return_value="balanced"),
                 patch("controllers.quiz.sample_style", return_value="balanced"),
                 patch("controllers.quiz.update_arm"),
-                patch("controllers.quiz.unlock_next_week", return_value=0),
+                patch("controllers.quiz.unlock_next_week", return_value=(0, False)),
                 patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=[]),
             ):
                 payload = QuizSubmitRequest(answers={1: "A"})
@@ -323,7 +323,7 @@ class TestSubmitWeeklyQuiz:
                 patch("controllers.quiz.get_week_content_style", return_value="theory_first"),
                 patch("controllers.quiz.sample_style", return_value="theory_first"),
                 patch("controllers.quiz.update_arm"),
-                patch("controllers.quiz.unlock_next_week", return_value=0),
+                patch("controllers.quiz.unlock_next_week", return_value=(0, False)),
                 patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=[]),
             ):
                 payload = QuizSubmitRequest(answers={1: "A"})
@@ -362,8 +362,8 @@ class TestSubmitWeeklyQuiz:
                 patch("controllers.quiz.sample_style", return_value="balanced"),
                 patch("controllers.quiz.update_arm"),
                 patch(
-                    "controllers.quiz.unlock_next_week", return_value=2
-                ),  # week+1=2 == new_generated
+                    "controllers.quiz.unlock_next_week", return_value=(2, True)
+                ),  # week+1=2 newly unlocked
                 patch("controllers.quiz.get_user_provider_name", return_value="gemini"),
                 patch("controllers.quiz.get_user_api_key", return_value="key"),
                 patch("controllers.quiz.get_user_model", return_value="gemini-flash"),
@@ -409,7 +409,7 @@ class TestSubmitWeeklyQuiz:
                 patch("controllers.quiz.get_week_content_style", return_value="balanced"),
                 patch("controllers.quiz.sample_style", return_value="balanced"),
                 patch("controllers.quiz.update_arm"),
-                patch("controllers.quiz.unlock_next_week", return_value=2),
+                patch("controllers.quiz.unlock_next_week", return_value=(2, True)),
                 patch("controllers.quiz.get_user_provider_name", return_value="gemini"),
                 patch("controllers.quiz.get_user_api_key", return_value="key"),
                 patch("controllers.quiz.get_user_model", return_value="gemini-flash"),

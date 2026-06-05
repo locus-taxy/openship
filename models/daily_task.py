@@ -21,6 +21,13 @@ class DailyTask(SQLModel, table=True):
     hours: Optional[int] = None
     newsletter: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     content_blocks: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    input_tokens: Optional[int] = Field(default=None)
+    output_tokens: Optional[int] = Field(default=None)
+    generation_cost_usd: Optional[float] = Field(default=None)
+    pricing_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(Integer, ForeignKey("pricing_snapshots.id"), nullable=True),
+    )
     content_style: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     completed: bool = Field(default=False)
     stop_sending: bool = Field(default=False)

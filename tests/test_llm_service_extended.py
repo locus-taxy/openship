@@ -301,24 +301,36 @@ class TestGenerateChapterContent:
 
     def test_returns_content_on_success(self):
         mock_response = MagicMock()
+        mock_raw = MagicMock()
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_chapter_content(
+        mock_client.chat.completions.create_with_completion.return_value = (mock_response, mock_raw)
+        with (
+            patch("services.llm._build_client", return_value=mock_client),
+            patch("services.llm.extract_token_counts", return_value=(100, 200)),
+        ):
+            result, inp, out = generate_chapter_content(
                 "Learn vars", "Variables", "Python", "gemini", "key", "gemini-flash"
             )
         assert result is mock_response
+        assert inp == 100
+        assert out == 200
 
     def test_returns_none_on_generic_exception(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("network failure")
+        mock_client.chat.completions.create_with_completion.side_effect = Exception(
+            "network failure"
+        )
         with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_chapter_content("desc", "title", "Python", "openai", "key", "gpt-4o")
+            result, inp, out = generate_chapter_content(
+                "desc", "title", "Python", "openai", "key", "gpt-4o"
+            )
         assert result is None
+        assert inp is None
+        assert out is None
 
     def test_raises_422_on_truncation_error(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception(
+        mock_client.chat.completions.create_with_completion.side_effect = Exception(
             "incompleteoutput due to a max_tokens length limit"
         )
         with patch("services.llm._build_client", return_value=mock_client):
@@ -328,7 +340,7 @@ class TestGenerateChapterContent:
 
     def test_reraises_http_exception(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = HTTPException(
+        mock_client.chat.completions.create_with_completion.side_effect = HTTPException(
             status_code=429, detail="quota"
         )
         with patch("services.llm._build_client", return_value=mock_client):
@@ -345,22 +357,30 @@ class TestGenerateChapterHtml:
     def test_returns_html_on_success(self):
         mock_response = MagicMock()
         mock_response.html = "<p>Hello</p>"
+        mock_raw = MagicMock()
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_chapter_html(
+        mock_client.chat.completions.create_with_completion.return_value = (mock_response, mock_raw)
+        with (
+            patch("services.llm._build_client", return_value=mock_client),
+            patch("services.llm.extract_token_counts", return_value=(50, 100)),
+        ):
+            html, inp, out = generate_chapter_html(
                 "Learn vars", "Variables", "Python", "gemini", "key", "gemini-flash"
             )
-        assert result == "<p>Hello</p>"
+        assert html == "<p>Hello</p>"
+        assert inp == 50
+        assert out == 100
 
     def test_returns_none_on_exception(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("server error")
+        mock_client.chat.completions.create_with_completion.side_effect = Exception("server error")
         with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_chapter_html(
+            html, inp, out = generate_chapter_html(
                 "desc", "title", "Python", "anthropic", "key", "claude-opus-4-7"
             )
-        assert result is None
+        assert html is None
+        assert inp is None
+        assert out is None
 
 class TestVerifyModel:
     def test_returns_ok_true_on_success(self):
@@ -606,7 +626,7 @@ class TestGenerateChapterContentTruncation:
 
     def test_raises_422_on_finish_reason_max_tokens(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception(
+        mock_client.chat.completions.create_with_completion.side_effect = Exception(
             "finish_reason.max_tokens exceeded"
         )
         with patch("services.llm._build_client", return_value=mock_client):
@@ -615,11 +635,11 @@ class TestGenerateChapterContentTruncation:
         assert ei.value.status_code == 422
 
 class TestGenerateChapterHtmlHttpException:
-    """Covers line 759 — generate_chapter_html reraises HTTPException."""
+    """Covers generate_chapter_html reraises HTTPException."""
 
     def test_reraises_http_exception(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = HTTPException(
+        mock_client.chat.completions.create_with_completion.side_effect = HTTPException(
             status_code=400, detail="invalid key"
         )
         with patch("services.llm._build_client", return_value=mock_client):

@@ -1,7 +1,7 @@
 """add_pool_group_to_quiz_questions
 
-Revision ID: o3p4q5r6s7t8
-Revises: n2o3p4q5r6s7
+Revision ID: c3d4e5f6a7b8
+Revises: b2c3d4e5f6a7
 Create Date: 2026-05-26
 
 Adds pool_group (nullable int) to quiz_questions.
@@ -13,8 +13,8 @@ presents a fresh variant instead of the same question.
 from alembic import op
 import sqlalchemy as sa
 
-revision = "o3p4q5r6s7t8"
-down_revision = "n2o3p4q5r6s7"
+revision = "c3d4e5f6a7b8"
+down_revision = "b2c3d4e5f6a7"
 branch_labels = None
 depends_on = None
 

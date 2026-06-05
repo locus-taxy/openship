@@ -1,1 +1,0 @@
-login: sqlite3 openship.db

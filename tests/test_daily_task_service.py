@@ -8,6 +8,8 @@ from services.daily_task import (
     mark_task_completed,
     get_tasks_based_on_skill_id,
     get_tasks_for_generating_newsletter,
+    get_total_cost_for_user,
+    get_cost_summary_for_skill,
 )
 from models.daily_task import DailyTask
 
@@ -219,5 +221,145 @@ class TestAddContentToDb:
             assert result is True
             assert "<script>" not in task.newsletter
             assert "<p>" in task.newsletter
+        finally:
+            patcher.stop()
+
+    def test_returns_false_on_negative_input_tokens(self):
+        task = DailyTask(id=1, user_id="u", skill="Python", skill_id=1)
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = add_content_to_db("<p>html</p>", task_id=1, input_tokens=-1)
+            assert result is False
+        finally:
+            patcher.stop()
+
+    def test_returns_false_on_negative_output_tokens(self):
+        task = DailyTask(id=1, user_id="u", skill="Python", skill_id=1)
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = add_content_to_db("<p>html</p>", task_id=1, output_tokens=-5)
+            assert result is False
+        finally:
+            patcher.stop()
+
+    def test_returns_false_on_negative_cost(self):
+        task = DailyTask(id=1, user_id="u", skill="Python", skill_id=1)
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = add_content_to_db("<p>html</p>", task_id=1, generation_cost_usd=-0.01)
+            assert result is False
+        finally:
+            patcher.stop()
+
+    def test_stores_optional_fields_when_provided(self):
+        task = DailyTask(id=1, user_id="u", skill="Python", skill_id=1)
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = add_content_to_db(
+                "<p>html</p>",
+                task_id=1,
+                input_tokens=100,
+                output_tokens=200,
+                generation_cost_usd=0.001,
+            )
+            assert result is True
+            assert task.input_tokens == 100
+            assert task.output_tokens == 200
+            assert task.generation_cost_usd == 0.001
+        finally:
+            patcher.stop()
+
+class TestGetTotalCostForUser:
+    def _make_task(self, input_tokens, output_tokens, cost_usd):
+        t = DailyTask(id=1, user_id="u1", skill="Python", skill_id=1)
+        t.input_tokens = input_tokens
+        t.output_tokens = output_tokens
+        t.generation_cost_usd = cost_usd
+        return t
+
+    def test_aggregates_costs_across_all_tasks(self):
+        task1 = self._make_task(100, 200, 0.01)
+        task2 = self._make_task(50, 100, 0.005)
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = [task1, task2]
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_total_cost_for_user("u1")
+            assert result["total_input_tokens"] == 150
+            assert result["total_output_tokens"] == 300
+            assert result["total_cost_usd"] == pytest.approx(0.015)
+        finally:
+            patcher.stop()
+
+    def test_returns_zeros_when_no_tasks(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = []
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_total_cost_for_user("unknown-user")
+            assert result["total_input_tokens"] == 0
+            assert result["total_output_tokens"] == 0
+            assert result["total_cost_usd"] == 0.0
+        finally:
+            patcher.stop()
+
+    def test_handles_none_values(self):
+        task = self._make_task(None, None, None)
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = [task]
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_total_cost_for_user("u1")
+            assert result["total_input_tokens"] == 0
+            assert result["total_cost_usd"] == 0.0
+        finally:
+            patcher.stop()
+
+class TestGetCostSummaryForSkill:
+    def _make_task(self, input_tokens, output_tokens, cost_usd):
+        t = DailyTask(id=1, user_id="u1", skill="Python", skill_id=5)
+        t.input_tokens = input_tokens
+        t.output_tokens = output_tokens
+        t.generation_cost_usd = cost_usd
+        return t
+
+    def test_aggregates_costs_for_skill(self):
+        task = self._make_task(200, 400, 0.02)
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = [task]
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_cost_summary_for_skill(5)
+            assert result["total_input_tokens"] == 200
+            assert result["total_output_tokens"] == 400
+            assert result["total_cost_usd"] == pytest.approx(0.02)
+        finally:
+            patcher.stop()
+
+    def test_returns_zeros_for_empty_skill(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = []
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_cost_summary_for_skill(999)
+            assert result["total_cost_usd"] == 0.0
         finally:
             patcher.stop()

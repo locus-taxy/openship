@@ -290,9 +290,9 @@ def submit_weekly_quiz(
     # ─────────────────────────────────────────────────────────────────────────
 
     # Unlock next week and schedule ML generation for it (progressive courses only)
-    new_generated_weeks = unlock_next_week(skill_id, week)
+    new_generated_weeks, newly_unlocked = unlock_next_week(skill_id, week)
     next_week = week + 1
-    if new_generated_weeks == next_week and next_week <= skill.total_weeks:
+    if newly_unlocked and next_week <= skill.total_weeks:
         provider = get_user_provider_name(current_user)
         api_key = get_user_api_key(current_user)
         model = get_user_model(current_user)
@@ -344,7 +344,7 @@ def submit_weekly_quiz(
         results=results,
         topic_scores={t: TopicScore(**s) for t, s in raw_topic_scores.items()},
         next_week_style=next_style,
-        next_week_unlocked=new_generated_weeks if new_generated_weeks == next_week else None,
+        next_week_unlocked=new_generated_weeks if newly_unlocked else None,
     )
 
 # ── Final quiz ─────────────────────────────────────────────────────────────────

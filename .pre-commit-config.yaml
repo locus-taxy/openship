@@ -14,7 +14,7 @@ repos:
         exclude: ^(ui/|\.venv/)
       - id: pytest
         name: Unit tests
-        entry: .venv/bin/python -m pytest --tb=short -v --cov-fail-under=99
+        entry: .venv/bin/pytest --tb=short -v --cov-fail-under=99
         language: system
         pass_filenames: false
         always_run: true

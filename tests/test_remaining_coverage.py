@@ -110,11 +110,15 @@ class TestGenerateSkillContentInnerErrors:
                 return_value={"_user_id": "1", "skill_id": 1, "skill": "Python", "months": []},
             ),
             patch("controllers.content.get_tasks_for_generating_newsletter", return_value=tasks),
-            patch("controllers.content.generate_chapter_html", return_value="<p>html</p>"),
+            patch(
+                "controllers.content.generate_chapter_html",
+                return_value=("<p>html</p>", None, None),
+            ),
             patch("controllers.content.add_content_to_db", return_value=False),
             patch("controllers.content.get_user_provider_name", return_value="gemini"),
             patch("controllers.content.get_user_api_key", return_value="key"),
             patch("controllers.content.get_user_model", return_value="gemini-flash"),
+            patch("controllers.content.log_llm_usage"),
             patch("controllers.content.time"),
         ):
             result = generate_skill_content(GenerateContentRequest(skill_id=1), user)
@@ -178,7 +182,7 @@ class TestGenerateSkillContentInnerErrors:
             call_count[0] += 1
             if call_count[0] == 1:
                 raise RuntimeError("unexpected error")
-            return "<p>html</p>"
+            return "<p>html</p>", None, None
 
         with (
             patch(
@@ -191,6 +195,7 @@ class TestGenerateSkillContentInnerErrors:
             patch("controllers.content.get_user_provider_name", return_value="gemini"),
             patch("controllers.content.get_user_api_key", return_value="key"),
             patch("controllers.content.get_user_model", return_value="gemini-flash"),
+            patch("controllers.content.log_llm_usage"),
             patch("controllers.content.time"),
         ):
             result = generate_skill_content(GenerateContentRequest(skill_id=1), user)
@@ -263,10 +268,14 @@ class TestGenerateChapterContentWithCause:
         outer.__cause__ = inner
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = outer
+        mock_client.chat.completions.create_with_completion.side_effect = outer
         with patch("services.llm._build_client", return_value=mock_client):
-            result = generate_chapter_content("desc", "title", "Python", "openai", "key", "gpt-4o")
+            result, inp, out = generate_chapter_content(
+                "desc", "title", "Python", "openai", "key", "gpt-4o"
+            )
         assert result is None
+        assert inp is None
+        assert out is None
 
 # ── services/llm.py generate_weekly_quiz returns None on empty response ───────
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { useParams } from "react-router"
 import {
     BookOpen, ChevronDown, ChevronRight, FileText,
@@ -9,116 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import axios from "axios"
 import { sanitizeHtml } from "@/lib/sanitize"
-import hljs from "highlight.js"
-import "highlight.js/styles/atom-one-dark.css"
+import { BlockRenderer, type ContentBlock } from "./block-renderer"
 
-// ─── Block rendering (for structured content_blocks) ─────────────────────────
-
-type BlockType = "heading" | "paragraph" | "code" | "bullet_list" | "numbered_list" | "table" | "note" | "quote" | "divider" | "diagram"
-
-interface ContentBlock {
-    type: BlockType
-    content?: string
-    level?: number
-    language?: string
-    items?: string[]
-    headers?: string[]
-    rows?: string[][]
-}
-
-function InlineText({ text }: { text: string }) {
-    const parts = text.split(/(`[^`]+`)/g)
-    return (
-        <>
-            {parts.map((part, i) => {
-                if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
-                    return <code key={i} className="bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-[0.82em] font-mono">{part.slice(1, -1)}</code>
-                const boldParts = part.split(/(\*\*[^*]+\*\*)/g)
-                if (boldParts.length > 1)
-                    return boldParts.map((bp, j) =>
-                        bp.startsWith("**") && bp.endsWith("**") && bp.length > 4
-                            ? <strong key={`${i}-${j}`}>{bp.slice(2, -2)}</strong>
-                            : <span key={`${i}-${j}`}>{bp}</span>
-                    )
-                return <span key={i}>{part}</span>
-            })}
-        </>
-    )
-}
-
-function PublicCodeBlock({ code, language }: { code: string; language: string }) {
-    const ref = useRef<HTMLElement>(null)
-    const [copied, setCopied] = useState(false)
-
-    useEffect(() => {
-        if (!ref.current) return
-        ref.current.textContent = code
-        try {
-            if (language) ref.current.innerHTML = hljs.highlight(code, { language }).value
-            else hljs.highlightElement(ref.current)
-        } catch { hljs.highlightElement(ref.current) }
-        ref.current.classList.add("hljs")
-    }, [code, language])
-
-    const lines = code.split("\n")
-    if (lines[lines.length - 1] === "") lines.pop()
-
-    async function handleCopy() {
-        try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* denied */ }
-    }
-
-    const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
-    const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
-
-    return (
-        <div className="relative rounded-xl border border-white/10 bg-[#282c34] text-sm shadow-lg overflow-hidden">
-            <button onClick={handleCopy} title="Copy code"
-                dangerouslySetInnerHTML={{ __html: copied ? ICON_CHECK : ICON_COPY }}
-                style={{ position: "absolute", top: 10, right: 10, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, padding: "5px 8px", cursor: "pointer", color: copied ? "#4ade80" : "#9da5b4", display: "flex", alignItems: "center", justifyContent: "center" }}
-            />
-            <div className="flex overflow-x-auto">
-                <div className="flex flex-col shrink-0 select-none text-right px-3 py-4 text-[#636d83] text-xs leading-[1.6] border-r border-white/[0.08] min-w-[2.5rem]">
-                    {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
-                </div>
-                <div className="flex-1 overflow-x-auto px-5 py-4 min-w-0">
-                    <code ref={ref} className="font-mono text-xs leading-[1.6] whitespace-pre block" />
-                </div>
-            </div>
-        </div>
-    )
-}
-
-function BlockItem({ block }: { block: ContentBlock }) {
-    switch (block.type) {
-        case "heading": {
-            const text = block.content ?? ""
-            if (block.level === 1) return <h1 className="text-2xl font-bold tracking-tight text-foreground mt-6 mb-3"><InlineText text={text} /></h1>
-            if (block.level === 3) return <h3 className="text-base font-semibold text-foreground mt-4 mb-1.5"><InlineText text={text} /></h3>
-            return <h2 className="text-xl font-semibold text-foreground mt-5 mb-2 border-b border-border/50 pb-2"><InlineText text={text} /></h2>
-        }
-        case "paragraph": return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
-        case "code": return <PublicCodeBlock code={block.content ?? ""} language={block.language ?? ""} />
-        case "diagram": return <PublicCodeBlock code={block.content ?? ""} language="plaintext" />
-        case "bullet_list": return <ul className="list-disc pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
-        case "numbered_list": return <ol className="list-decimal pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
-        case "table": return (
-            <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full border-collapse text-sm">
-                    <thead className="bg-muted/50"><tr>{block.headers?.map((h, i) => <th key={i} className="border border-border px-4 py-2.5 text-left font-semibold text-foreground"><InlineText text={h} /></th>)}</tr></thead>
-                    <tbody>{block.rows?.map((row, i) => <tr key={i} className={i % 2 === 1 ? "bg-muted/20" : ""}>{row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600"><InlineText text={cell} /></td>)}</tr>)}</tbody>
-                </table>
-            </div>
-        )
-        case "note": return <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3"><p className="text-sm text-foreground/80 leading-7"><InlineText text={block.content ?? ""} /></p></div>
-        case "quote": return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 italic"><InlineText text={block.content ?? ""} /></blockquote>
-        case "divider": return <hr className="border-border my-2" />
-        default: return null
-    }
-}
-
-function BlockRenderer({ blocks }: { blocks: ContentBlock[] }) {
-    return <div className="space-y-4">{blocks.map((block, i) => <BlockItem key={i} block={block} />)}</div>
-}
 
 interface PublicTask {
     id: number
@@ -152,8 +44,6 @@ interface PublicSyllabus {
 // ─── Content Panel (right) ────────────────────────────────────────────────────
 
 function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
-    const proseRef = useRef<HTMLDivElement>(null)
-
     const blocks: ContentBlock[] | null = (() => {
         if (!chapter.content_blocks) return null
         try {
@@ -162,73 +52,7 @@ function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
         } catch { return null }
     })()
 
-    const hasContent = blocks !== null || !!chapter.newsletter
-
-    useEffect(() => {
-        const container = proseRef.current
-        if (!container || !chapter.newsletter) return
-
-        container.querySelectorAll("pre").forEach((pre) => {
-            if (pre.dataset.processed) return
-            pre.dataset.processed = "true"
-
-            const codeEl = pre.querySelector("code") as HTMLElement | null
-            if (!codeEl) return
-
-            hljs.highlightElement(codeEl)
-
-            const rawText = codeEl.innerText
-            const lineSpans = codeEl.innerHTML.split("\n")
-            if (lineSpans[lineSpans.length - 1] === "") lineSpans.pop()
-
-            codeEl.innerHTML = lineSpans
-                .map((line, i) =>
-                    `<span class="hljs-line" style="display:table-row">`
-                    + `<span style="display:table-cell;user-select:none;padding-right:16px;min-width:2.5rem;text-align:right;color:#636d83;font-size:0.75rem;line-height:1.6">${i + 1}</span>`
-                    + `<span style="display:table-cell;width:100%;line-height:1.6">${line}</span>`
-                    + `</span>`
-                )
-                .join("\n")
-
-            codeEl.style.display = "table"
-            codeEl.style.width = "100%"
-
-            Object.assign(pre.style, {
-                position: "relative", borderRadius: "10px",
-                padding: "0", overflow: "hidden", background: "transparent",
-            })
-
-            const scrollWrap = document.createElement("div")
-            scrollWrap.style.cssText = "overflow-x:auto;padding:1rem 1.25rem"
-            pre.insertBefore(scrollWrap, codeEl)
-            scrollWrap.appendChild(codeEl)
-
-            const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
-            const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
-
-            const btn = document.createElement("button")
-            btn.title = "Copy code"
-            btn.innerHTML = ICON_COPY
-            Object.assign(btn.style, {
-                position: "absolute", top: "10px", right: "10px",
-                background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: "6px", padding: "5px 8px", cursor: "pointer",
-                color: "#9da5b4", display: "flex", alignItems: "center",
-                justifyContent: "center", transition: "all 0.15s",
-            })
-            btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(255,255,255,0.15)"; btn.style.color = "#fff" })
-            btn.addEventListener("mouseleave", () => { btn.style.background = "rgba(255,255,255,0.08)"; btn.style.color = "#9da5b4" })
-            btn.addEventListener("click", async () => {
-                try {
-                    await navigator.clipboard.writeText(rawText)
-                    btn.innerHTML = ICON_CHECK
-                    btn.style.color = "#4ade80"
-                    setTimeout(() => { btn.innerHTML = ICON_COPY; btn.style.color = "#9da5b4" }, 2000)
-                } catch { /* clipboard denied */ }
-            })
-            pre.appendChild(btn)
-        })
-    }, [chapter.id])
+    const hasContent = !!chapter.newsletter || !!blocks
 
     return (
         <div className="flex flex-col h-full">
@@ -257,7 +81,6 @@ function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
                                 <BlockRenderer blocks={blocks} />
                             ) : chapter.newsletter ? (
                                 <div
-                                    ref={proseRef}
                                     className="prose prose-base max-w-none
                                         prose-headings:text-foreground prose-headings:font-semibold prose-headings:tracking-tight
                                         prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4
@@ -282,7 +105,7 @@ function ChapterContentPanel({ chapter }: { chapter: PublicTask }) {
                                         prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2 prose-td:text-zinc-600
                                         prose-tr:even:bg-muted/20
                                         [&_table]:overflow-hidden [&_table]:rounded-lg [&_table]:border [&_table]:border-border"
-                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.newsletter) }}
+                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.newsletter!) }}
                                 />
                             ) : null}
                         </div>
@@ -347,7 +170,7 @@ function ChapterNav({ syllabus, activeChapterId, onSelectChapter }: {
                                     }`}
                                 >
                                     <span className={`mt-1.5 h-2 w-2 rounded-full flex-shrink-0 ${
-                                        chapter.newsletter ? "bg-indigo-400" : "bg-muted-foreground/30"
+                                        (chapter.newsletter || chapter.content_blocks) ? "bg-indigo-400" : "bg-muted-foreground/30"
                                     }`} />
                                     <span className="leading-snug">
                                         <span className="text-xs text-muted-foreground mr-1">D{chapter.day}.</span>

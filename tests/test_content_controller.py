@@ -129,11 +129,15 @@ class TestGenerateChapter:
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
             patch("controllers.content.sample_style", return_value="balanced"),
-            patch("controllers.content.generate_chapter_content", return_value=mock_result),
+            patch(
+                "controllers.content.generate_chapter_content",
+                return_value=(mock_result, None, None),
+            ),
             patch("controllers.content.add_blocks_to_db", return_value=False),
             patch("controllers.content.get_user_provider_name", return_value="gemini"),
             patch("controllers.content.get_user_api_key", return_value="key"),
             patch("controllers.content.get_user_model", return_value="gemini-flash"),
+            patch("controllers.content.log_llm_usage"),
         ):
             with pytest.raises(HTTPException) as exc:
                 generate_chapter(GenerateChapterContentRequest(task_id=1), user)
@@ -166,7 +170,10 @@ class TestGenerateChapter:
             patch("controllers.content.get_chapter_content", return_value=chapter),
             patch("controllers.content.get_week_content_style", return_value="balanced"),
             patch("controllers.content.claim_week_style") as mock_claim,
-            patch("controllers.content.generate_chapter_content", return_value=mock_result),
+            patch(
+                "controllers.content.generate_chapter_content",
+                return_value=(mock_result, None, None),
+            ),
             patch("controllers.content.add_blocks_to_db", return_value=True),
             patch("controllers.content.get_user_provider_name", return_value="gemini"),
             patch("controllers.content.get_user_api_key", return_value="key"),

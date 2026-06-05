@@ -111,6 +111,7 @@ class TestGetSettings:
             patch("controllers.auth.get_provider_by_id", return_value=None),
             patch("controllers.auth.get_provider_model", return_value=None),
             patch("controllers.auth.get_provider_by_name", return_value=None),
+            patch("controllers.auth.get_currency_settings", return_value=("USD", 1.0)),
         ):
             response = auth_client.get("/auth/me/settings")
         assert response.status_code == 200

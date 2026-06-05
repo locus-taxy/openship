@@ -84,11 +84,6 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
         api_key=api_key,
         model=model,
     )
-    if syllabus_data is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate syllabus. Check server logs for details.",
-        )
     if not isinstance(syllabus_data, (list, tuple)):
         logger.warning(
             "Unexpected syllabus type from LLM: %s (expected a list of months).",

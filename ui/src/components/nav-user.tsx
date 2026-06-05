@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
 import { Button } from "./ui/button";
 import {
     LogOutIcon, UserCircle, Settings, Eye, EyeOff,
-    KeyRound, CheckCircle2, Loader2, X, ChevronDown, Pencil, Trash2,
+    KeyRound, CheckCircle2, Loader2, X, ChevronDown, Pencil, Trash2, RotateCcw,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import useAuthStore from "@/store/authStore";
 import useStore from "@/store";
 import { ThemeToggle } from "./theme-toggle";
-import { getRequest, putRequest, postRequest } from "@/services";
+import { getRequest, putRequest, postRequest, patchRequest } from "@/services";
 
 interface Provider { value: string; label: string }
 
@@ -30,6 +30,163 @@ interface SettingsData {
     provider_keys: Record<string, boolean>;
     supported_providers: Provider[];
     provider_models: Record<string, string[]>;
+    display_currency: string;
+    currency_exchange_rate: number;
+}
+
+function PricingDisplay({ provider, activeModel }: {
+    provider: string
+    activeModel: string
+}) {
+    const [loading, setLoading] = useState(false)
+    const [autoInput, setAutoInput] = useState<number | null>(null)
+    const [autoOutput, setAutoOutput] = useState<number | null>(null)
+    const [matchedModelId, setMatchedModelId] = useState<string | null>(null)
+    const [manualInput, setManualInput] = useState("")
+    const [manualOutput, setManualOutput] = useState("")
+    const [saving, setSaving] = useState(false)
+    const [saved, setSaved] = useState(false)
+    const [refreshing, setRefreshing] = useState(false)
+    const { toast } = useToast()
+
+    async function fetchPricing() {
+        if (!provider || !activeModel) return
+        setLoading(true)
+        setAutoInput(null)
+        setAutoOutput(null)
+        setMatchedModelId(null)
+        setManualInput("")
+        setManualOutput("")
+        setSaved(false)
+        const { success, data } = await getRequest(`/py/auth/me/pricing?provider=${provider}&model=${encodeURIComponent(activeModel)}`)
+        if (success) {
+            setAutoInput(data.input_per_1m_usd ?? null)
+            setAutoOutput(data.output_per_1m_usd ?? null)
+            setMatchedModelId(data.matched_model_id ?? null)
+            if (data.manual_input_per_1m_usd != null) setManualInput(String(data.manual_input_per_1m_usd))
+            if (data.manual_output_per_1m_usd != null) setManualOutput(String(data.manual_output_per_1m_usd))
+        }
+        setLoading(false)
+    }
+
+    useEffect(() => { fetchPricing() }, [provider, activeModel])
+
+    async function handleRefresh() {
+        setRefreshing(true)
+        try {
+            await postRequest("/py/auth/me/pricing/refresh", {})
+            await fetchPricing()
+            toast({ title: "Pricing refreshed" })
+        } catch {
+            toast({ variant: "destructive", title: "Refresh failed", description: "Could not refresh pricing data." })
+        } finally {
+            setRefreshing(false)
+        }
+    }
+
+    async function handleSaveManual() {
+        const inp = parseFloat(manualInput)
+        const out = parseFloat(manualOutput)
+        if (!inp || !out || inp <= 0 || out <= 0) {
+            toast({ variant: "destructive", title: "Invalid prices", description: "Enter positive numbers for both input and output." })
+            return
+        }
+        setSaving(true)
+        const { success } = await putRequest(
+            `/py/auth/me/pricing/manual?provider=${provider}&model=${encodeURIComponent(activeModel)}&input_per_1m_usd=${inp}&output_per_1m_usd=${out}`,
+            {}
+        )
+        setSaving(false)
+        if (success) { setSaved(true); toast({ title: "Pricing saved" }) }
+    }
+
+    if (!provider || !activeModel) return null
+
+    return (
+        <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Pricing / 1M tokens</p>
+                <div className="flex items-center gap-2">
+                    {loading
+                        ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        : autoInput != null
+                            ? <span className="text-[10px] text-muted-foreground/60">auto · ai-model-pricing.com</span>
+                            : <span className="text-[10px] text-amber-500/80">not in pricing database</span>
+                    }
+                    <button
+                        type="button"
+                        onClick={handleRefresh}
+                        disabled={refreshing || loading}
+                        title="Refresh prices from ai-model-pricing.com"
+                        className="text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-40"
+                    >
+                        {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                    </button>
+                </div>
+            </div>
+
+            {!loading && autoInput != null ? (
+                <>
+                    {matchedModelId && matchedModelId !== activeModel && (
+                        <p className="text-[10px] text-muted-foreground/60 font-mono">matched: {matchedModelId}</p>
+                    )}
+                    <div className="flex gap-3">
+                        <div className="flex-1 rounded-lg border border-border bg-background px-3 py-2">
+                            <p className="text-[10px] text-muted-foreground mb-0.5">Input</p>
+                            <p className="text-sm font-semibold font-mono">${autoInput}</p>
+                        </div>
+                        <div className="flex-1 rounded-lg border border-border bg-background px-3 py-2">
+                            <p className="text-[10px] text-muted-foreground mb-0.5">Output</p>
+                            <p className="text-sm font-semibold font-mono">${autoOutput ?? "—"}</p>
+                        </div>
+                    </div>
+                </>
+            ) : !loading ? (
+                <div className="space-y-2">
+                    <p className="text-[10px] text-muted-foreground">
+                        No pricing found for <span className="font-mono">{activeModel}</span>. Enter manually to track costs:
+                    </p>
+                    <div className="flex gap-2">
+                        <div className="flex-1 space-y-1">
+                            <label className="text-[10px] text-muted-foreground">Input ($/1M)</label>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                placeholder="e.g. 0.30"
+                                value={manualInput}
+                                onChange={e => { setManualInput(e.target.value); setSaved(false) }}
+                                className="h-8 text-xs font-mono"
+                            />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                            <label className="text-[10px] text-muted-foreground">Output ($/1M)</label>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                placeholder="e.g. 2.50"
+                                value={manualOutput}
+                                onChange={e => { setManualOutput(e.target.value); setSaved(false) }}
+                                className="h-8 text-xs font-mono"
+                            />
+                        </div>
+                        <div className="flex items-end">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={saving || !manualInput || !manualOutput}
+                                onClick={handleSaveManual}
+                                className="h-8 text-xs"
+                            >
+                                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <CheckCircle2 className="h-3 w-3 text-emerald-500" /> : "Save"}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    )
 }
 
 export function NavUser() {
@@ -49,6 +206,8 @@ export function NavUser() {
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [providerOpen, setProviderOpen] = useState(false);
     const [modelOpen, setModelOpen] = useState(false);
+    const providerDropdownRef = useRef<HTMLDivElement>(null);
+    const modelDropdownRef = useRef<HTMLDivElement>(null);
     const [liveModels, setLiveModels] = useState<Record<string, string[]>>({});
     const [loadingModels, setLoadingModels] = useState(false);
     const [customModelInput, setCustomModelInput] = useState("");
@@ -56,6 +215,9 @@ export function NavUser() {
     const [verifying, setVerifying] = useState(false);
     const [verifyResult, setVerifyResult] = useState<{ ok: boolean; reason?: string } | null>(null);
     const [modelSearch, setModelSearch] = useState("");
+    const [displayCurrency, setDisplayCurrency] = useState("USD");
+    const [exchangeRate, setExchangeRate] = useState("1.0");
+    const [savingCurrency, setSavingCurrency] = useState(false);
 
     async function loadSettings() {
         const { success, data } = await getRequest("/py/auth/me/settings");
@@ -63,6 +225,8 @@ export function NavUser() {
             setSettings(data);
             setSelectedProvider(data.llm_provider ?? "");
             setSelectedModel(data.llm_model ?? "");
+            setDisplayCurrency(data.display_currency ?? "USD");
+            setExchangeRate(data.currency_exchange_rate?.toString() ?? "1.0");
         }
     }
 
@@ -75,6 +239,20 @@ export function NavUser() {
             setLiveModels(prev => ({ ...prev, [provider]: data.models }));
         }
     }
+
+    useEffect(() => {
+        if (!providerOpen && !modelOpen) return;
+        function handleOutsideClick(e: MouseEvent) {
+            if (providerOpen && providerDropdownRef.current && !providerDropdownRef.current.contains(e.target as Node)) {
+                setProviderOpen(false);
+            }
+            if (modelOpen && modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+                setModelOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleOutsideClick);
+        return () => document.removeEventListener("mousedown", handleOutsideClick);
+    }, [providerOpen, modelOpen]);
 
     useEffect(() => {
         if (!settingsOpen) return;
@@ -90,7 +268,7 @@ export function NavUser() {
         setConfirmDelete(false);
     }, [settingsOpen]);
 
-    // When provider changes: fetch live models, reset editing state
+    // When provider changes: fetch live models, reset editing state, load pricing
     useEffect(() => {
         if (!settings || !selectedProvider) return;
         setEditingKey(false);
@@ -194,8 +372,28 @@ export function NavUser() {
 
     const NAV_ITEMS = [
         { id: "llm" as const,     label: "Model Management", icon: Settings },
-        { id: "account" as const, label: "Account",           icon: UserCircle },
+        { id: "account" as const, label: "Account",          icon: UserCircle },
     ];
+
+    async function handleSaveCurrency() {
+        const rate = parseFloat(exchangeRate);
+        if (!Number.isFinite(rate) || rate <= 0) {
+            toast({ variant: "destructive", title: "Invalid exchange rate", description: "Enter a valid positive exchange rate." });
+            return;
+        }
+        setSavingCurrency(true);
+        const { success } = await patchRequest("/py/auth/me/settings/currency", {
+            display_currency: displayCurrency.toUpperCase(),
+            currency_exchange_rate: rate,
+        });
+        setSavingCurrency(false);
+        if (success) {
+            await loadSettings();
+            toast({ title: "Currency settings saved" });
+        } else {
+            toast({ variant: "destructive", title: "Failed to save currency settings" });
+        }
+    }
 
     return (
         <>
@@ -274,7 +472,7 @@ export function NavUser() {
                                     {/* Provider selector */}
                                     <div className="space-y-1.5">
                                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Provider</p>
-                                        <div className="relative">
+                                        <div className="relative" ref={providerDropdownRef}>
                                             <button
                                                 type="button"
                                                 onClick={() => { setProviderOpen(o => !o); setModelOpen(false); }}
@@ -315,7 +513,7 @@ export function NavUser() {
                                             {availableModels.length > 0 && (
                                                 <div className="space-y-1.5">
                                                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Model</p>
-                                                    <div className="relative">
+                                                    <div className="relative" ref={modelDropdownRef}>
                                                         <button
                                                             type="button"
                                                             onClick={() => { setModelOpen(o => !o); setProviderOpen(false); setModelSearch(""); }}
@@ -404,6 +602,14 @@ export function NavUser() {
                                                 </div>
                                             )}
 
+                                            {/* Inline pricing — shown as soon as a model is selected */}
+                                            {currentProviderHasKey && selectedModel && (
+                                                <PricingDisplay
+                                                    provider={selectedProvider}
+                                                    activeModel={selectedModel}
+                                                />
+                                            )}
+
                                             {/* API Key */}
                                             <div className="space-y-2">
                                                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">API Key</p>
@@ -452,6 +658,7 @@ export function NavUser() {
                                                                 value={apiKey}
                                                                 onChange={(e) => setApiKey(e.target.value)}
                                                                 className="pr-10 font-mono text-sm"
+                                                                autoComplete="new-password"
                                                                 autoFocus={editingKey}
                                                                 onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") { setEditingKey(false); setApiKey(""); } }}
                                                             />
@@ -473,8 +680,42 @@ export function NavUser() {
                                             <Button onClick={handleSave} disabled={saving || (!currentProviderHasKey && !apiKey.trim()) || (editingKey && !apiKey.trim())} className="w-full">
                                                 {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : editingKey ? "Update Key" : currentProviderHasKey ? "Save Model" : "Save Key & Model"}
                                             </Button>
+
                                         </>
                                     )}
+
+                                    {/* Currency settings — always visible in Model Management */}
+                                    <div className="space-y-3 border-t pt-5">
+                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Display Currency</p>
+                                        <p className="text-xs text-muted-foreground">Costs are stored in USD. Enter a rate to display them in your local currency.</p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-1">
+                                                <label className="text-xs text-muted-foreground">Currency code</label>
+                                                <Input
+                                                    placeholder="USD"
+                                                    maxLength={3}
+                                                    value={displayCurrency}
+                                                    onChange={e => setDisplayCurrency(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs text-muted-foreground">1 USD =</label>
+                                                <Input
+                                                    type="number"
+                                                    min="0.0001"
+                                                    step="0.0001"
+                                                    placeholder="1.0"
+                                                    value={exchangeRate}
+                                                    onChange={e => setExchangeRate(e.target.value)}
+                                                    onWheel={e => e.currentTarget.blur()}
+                                                />
+                                            </div>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground/70 italic">Exchange rate is applied to displayed costs only. Stored values are always in USD.</p>
+                                        <Button onClick={handleSaveCurrency} disabled={savingCurrency} className="w-full">
+                                            {savingCurrency ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : "Save Currency Settings"}
+                                        </Button>
+                                    </div>
                                 </div>
                             )}
 
