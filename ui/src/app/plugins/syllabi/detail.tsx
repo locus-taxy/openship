@@ -848,9 +848,9 @@ export default function SyllabusDetailPage() {
     const weeklyQuizzesPassed = detail
         ? Object.values(detail.weekly_quiz_statuses as Record<string, string>).filter(s => s === "passed").length
         : 0
-    // Fixed denominator: expected course days + weekly quizzes + final quiz
-    const totalSteps = detail ? detail.days + detail.total_weeks + 1 : 0
-    const completedSteps = completedCount + weeklyQuizzesPassed + (quizPassed ? 1 : 0)
+    // Progress = chapter completions + final quiz only (weekly quizzes excluded)
+    const totalSteps = allTasks.length > 0 ? allTasks.length + 1 : 0
+    const completedSteps = completedCount + (quizPassed ? 1 : 0)
     const overallProgress = totalSteps > 1 ? Math.round((completedSteps / totalSteps) * 100) : 0
 
     // Restore chapter from URL param, fallback to first chapter
