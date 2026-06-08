@@ -125,7 +125,8 @@ def _extract_all_text(blocks: List[Any]) -> str:
             parts.extend(b.headers)
         if getattr(b, "rows", None):
             for row in b.rows:
-                parts.extend(str(cell) for cell in row)
+                if isinstance(row, (list, tuple)):
+                    parts.extend(str(cell) for cell in row)
     return " ".join(parts).lower()
 
 def _blocks_to_text(blocks: List[Any]) -> str:

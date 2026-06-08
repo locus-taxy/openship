@@ -117,7 +117,7 @@ export function CodeBlock({ code, language }: { code: string; language: string }
  */
 function sanitizeDiagram(code: string): string {
     const cleanLabel = (s: string) =>
-        s.replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ")
+        s.replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "")
 
     // Pass 1 — smart multi-line label merge.
     // Only merge when the NEXT line has no Mermaid operators (-->  --- subgraph end).
