@@ -179,7 +179,7 @@ def validate_content_with_llm(
                     "- issues: list of specific problems (empty list if valid)\n\n"
                     "Mark invalid if any of the following are true:\n"
                     "- Content is off-topic or does not teach the stated task\n"
-                    "- Code examples have syntax errors or are wrong for the language\n"
+                    "- Examples or explanations contain factual errors or are wrong for the topic\n"
                     "- Explanations contain factual errors\n"
                     "- Content is generic filler not specific to this task\n\n"
                     f"Chapter content:\n{content_text}"
