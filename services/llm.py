@@ -962,13 +962,18 @@ def generate_chapter_content(
                 if attempt == 0:
                     logger.info("Retrying after LLM judge failure...")
                     continue
-                logger.error(
-                    "LLM judge failed on all attempts [topic=%r score=%d issues=%s]",
+                # Both attempts failed the LLM judge, but both passed the heuristic
+                # checks (word count, no placeholders, on-topic, no duplicates).
+                # The judge is a quality signal, not a hard gate — content that is
+                # structurally sound should always reach the user. Log a warning and
+                # pass through rather than blocking with a blank chapter.
+                logger.warning(
+                    "LLM judge failed on both attempts [topic=%r score=%d issues=%s] — "
+                    "content passed heuristics; passing through to avoid blank chapter",
                     task_title,
                     validation.score,
                     issues_str,
                 )
-                return None, None, None
             logger.info("LLM judge PASSED [attempt=%d score=%d]", attempt + 1, validation.score)
         except Exception as judge_exc:
             # Judge failure (e.g. API error) does not block valid content —

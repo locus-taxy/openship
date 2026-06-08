@@ -13,6 +13,7 @@ from services.content_validator import (
     _blocks_to_text,
     MIN_WORDS,
     LLM_JUDGE_PASS_SCORE,
+    _PLACEHOLDER_RE,
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -153,15 +154,32 @@ class TestValidateContentHeuristics:
         assert "too short" in result.reason
         assert str(MIN_WORDS) in result.reason
 
-    def test_fails_on_placeholder_todo(self):
+    def test_fails_on_placeholder_todo_annotation(self):
+        # "todo:" (with colon) is the developer annotation pattern — always a placeholder.
         words = " ".join(["arrays"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block("paragraph", content="TODO: add more content here"),
-        ]
-        result = validate_content_heuristics(blocks, "Arrays")
-        assert result.passed is False
-        assert "todo" in result.reason
+        for text in ["TODO: add more content here", "todo: fill in later", "Todo:placeholder"]:
+            blocks = [
+                _make_block("paragraph", content=words),
+                _make_block("paragraph", content=text),
+            ]
+            result = validate_content_heuristics(blocks, "Arrays")
+            assert result.passed is False, f"Expected failure for: {text!r}"
+            assert "todo" in result.reason.lower()
+
+    def test_todo_without_colon_does_not_trigger_placeholder_check(self):
+        # "todo list", "TodoMVC", "Build a Todo App" are legitimate in any course.
+        words = " ".join(["productivity"] * 80)
+        for text in [
+            "A todo list helps you stay organised and focused",
+            "TodoMVC is a benchmark project for JavaScript frameworks",
+            "Build a simple Todo App as your first React project",
+        ]:
+            blocks = [
+                _make_block("paragraph", content=words),
+                _make_block("paragraph", content=text),
+            ]
+            result = validate_content_heuristics(blocks, "productivity")
+            assert result.passed is True, f"False positive for: {text!r}"
 
     def test_fails_on_placeholder_lorem_ipsum(self):
         words = " ".join(["arrays"] * 100)
@@ -202,20 +220,25 @@ class TestValidateContentHeuristics:
         result = validate_content_heuristics(blocks, "swift")
         assert result.passed is True
 
-    def test_fails_on_code_block_without_code_signals(self):
+    def test_code_block_content_not_checked_for_syntax(self):
+        # Code blocks are never inspected for syntax — any content is fine.
+        # The LLM judge (layer 2) is responsible for code quality evaluation.
         words = " ".join(["arrays"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block("code", content="just some plain text here"),
-        ]
-        result = validate_content_heuristics(blocks, "Arrays")
-        assert result.passed is False
-        assert "code" in result.reason.lower()
-
-    def test_passes_when_code_block_has_signals(self):
-        blocks = _good_blocks()
-        result = validate_content_heuristics(blocks, "arrays")
-        assert result.passed is True
+        for content in [
+            "just plain prose in a code block",
+            "docker run hello-world",
+            "FROM ubuntu:22.04",
+            "kubectl get pods",
+            "$ ls -la",
+            "apiVersion: apps/v1",
+            "mix ingredients well",  # non-tech course
+        ]:
+            blocks = [
+                _make_block("paragraph", content=words),
+                _make_block("code", content=content),
+            ]
+            result = validate_content_heuristics(blocks, "arrays")
+            assert result.passed is True, f"Failed unexpectedly for code content: {content!r}"
 
     def test_fails_when_no_topic_keyword_in_content(self):
         # Content has enough words but none match the task keywords
@@ -233,8 +256,8 @@ class TestValidateContentHeuristics:
         result = validate_content_heuristics(blocks, "in C++")
         assert result.passed is True
 
-    def test_fails_on_duplicate_block_content(self):
-        same = "This is the exact same paragraph content repeated here."
+    def test_fails_on_duplicate_prose_content(self):
+        same = "This is the exact same paragraph content repeated here verbatim."
         words = " ".join(["arrays"] * 100)
         blocks = [
             _make_block("paragraph", content=words),
@@ -244,6 +267,32 @@ class TestValidateContentHeuristics:
         result = validate_content_heuristics(blocks, "arrays")
         assert result.passed is False
         assert "duplicate" in result.reason.lower()
+
+    def test_repeated_short_heading_does_not_fail(self):
+        # "Introduction", "Example", "Summary" can appear as headings in multiple
+        # sections — this must not be flagged as duplicate content.
+        words = " ".join(["arrays"] * 100)
+        blocks = [
+            _make_block("paragraph", content=words),
+            _make_block("heading", content="Introduction", level=2),
+            _make_block("heading", content="Introduction", level=2),
+            _make_block("heading", content="Example", level=3),
+            _make_block("heading", content="Example", level=3),
+        ]
+        result = validate_content_heuristics(blocks, "arrays")
+        assert result.passed is True
+
+    def test_repeated_short_prose_does_not_fail(self):
+        # Short prose blocks (≤ 30 chars) like "Note:" or "See above." can repeat
+        # without being flagged — only substantive content is checked.
+        words = " ".join(["arrays"] * 100)
+        blocks = [
+            _make_block("paragraph", content=words),
+            _make_block("note", content="See previous section."),
+            _make_block("note", content="See previous section."),
+        ]
+        result = validate_content_heuristics(blocks, "arrays")
+        assert result.passed is True
 
     def test_code_block_with_empty_content_not_flagged(self):
         # Empty code blocks are filtered upstream; if one slips through, skip the check
@@ -263,75 +312,6 @@ class TestValidateContentHeuristics:
             _make_block("paragraph", content="Use the placeholder modifier on TextField"),
         ]
         result = validate_content_heuristics(blocks, "swift introduction")
-        assert result.passed is True
-
-    def test_swift_let_passes_code_signal_check(self):
-        words = " ".join(["swift"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block("code", content='let name = "Swift"\nprint(name)', language="swift"),
-        ]
-        result = validate_content_heuristics(blocks, "swift introduction")
-        assert result.passed is True
-
-    def test_swift_import_passes_code_signal_check(self):
-        words = " ".join(["swift"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block("code", content="import UIKit\nlet view = UIView()", language="swift"),
-        ]
-        result = validate_content_heuristics(blocks, "swift introduction")
-        assert result.passed is True
-
-    def test_swift_func_passes_code_signal_check(self):
-        words = " ".join(["swift"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block(
-                "code",
-                content="func greet(name: String) -> String {\n    return name\n}",
-                language="swift",
-            ),
-        ]
-        result = validate_content_heuristics(blocks, "swift introduction")
-        assert result.passed is True
-
-    def test_swift_zero_arg_call_passes(self):
-        words = " ".join(["swift"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block("code", content="viewDidLoad()\nsetupUI()", language="swift"),
-        ]
-        result = validate_content_heuristics(blocks, "swift")
-        assert result.passed is True
-
-    def test_kotlin_val_passes_code_signal_check(self):
-        words = " ".join(["kotlin"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block("code", content='val name: String = "Kotlin"', language="kotlin"),
-        ]
-        result = validate_content_heuristics(blocks, "kotlin introduction")
-        assert result.passed is True
-
-    def test_html_closing_tag_passes_code_signal_check(self):
-        words = " ".join(["html"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block("code", content="<ul>\n  <li>Item</li>\n</ul>", language="html"),
-        ]
-        result = validate_content_heuristics(blocks, "html introduction")
-        assert result.passed is True
-
-    def test_sql_without_semicolon_passes_code_signal_check(self):
-        words = " ".join(["select"] * 100)
-        blocks = [
-            _make_block("paragraph", content=words),
-            _make_block(
-                "code", content="SELECT name, age FROM users WHERE active = 1", language="sql"
-            ),
-        ]
-        result = validate_content_heuristics(blocks, "select from users table")
         assert result.passed is True
 
 # ── validate_content_with_llm ─────────────────────────────────────────────────

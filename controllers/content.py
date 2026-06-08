@@ -173,12 +173,14 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
             or len(_content_result) != 3
         ):
             raise HTTPException(
-                status_code=500, detail=f"Failed to generate content for task {payload.task_id}"
+                status_code=503,
+                detail="Chapter generation failed after multiple attempts. Please try again.",
             )
         result, input_tokens, output_tokens = _content_result
         if not result:
             raise HTTPException(
-                status_code=500, detail=f"Failed to generate content for task {payload.task_id}"
+                status_code=503,
+                detail="Chapter generation failed after multiple attempts. Please try again.",
             )
 
         cost_usd = None

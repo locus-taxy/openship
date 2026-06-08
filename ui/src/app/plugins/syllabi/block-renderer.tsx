@@ -111,6 +111,22 @@ export function CodeBlock({ code, language }: { code: string; language: string }
     )
 }
 
+/** Strip Mermaid-only directives that add zero meaning as plain text. */
+function stripDiagramMeta(code: string): string {
+    return code
+        .split("\n")
+        .filter(line => {
+            const t = line.trim().toLowerCase()
+            return !t.startsWith("style ")
+                && !t.startsWith("classdef ")
+                && !t.startsWith("linkstyle ")
+                && !t.startsWith("click ")
+                && !t.startsWith("%%")
+        })
+        .join("\n")
+        .trim()
+}
+
 export function MermaidBlock({ code }: { code: string }) {
     const id = useId()
     const ref = useRef<HTMLDivElement>(null)
@@ -120,18 +136,27 @@ export function MermaidBlock({ code }: { code: string }) {
         let cancelled = false
         const renderId = `mermaid-${id.replace(/[^a-zA-Z0-9]/g, "")}`
 
+        function showFallback() {
+            if (cancelled || !ref.current) return
+            const pre = document.createElement("pre")
+            pre.className = "text-xs text-muted-foreground whitespace-pre-wrap p-4"
+            pre.textContent = stripDiagramMeta(code)
+            ref.current.replaceChildren(pre)
+        }
+
         mermaid.render(renderId, code)
             .then(({ svg }) => {
-                if (!cancelled && ref.current) ref.current.innerHTML = svg
-            })
-            .catch(() => {
-                if (!cancelled && ref.current) {
-                    const pre = document.createElement("pre")
-                    pre.className = "text-xs text-muted-foreground whitespace-pre-wrap p-4"
-                    pre.textContent = code
-                    ref.current.replaceChildren(pre)
+                if (cancelled || !ref.current) return
+                // Mermaid v11 resolves (not rejects) with error SVG on syntax errors.
+                // Detect the error markers and fall back to plain text instead of
+                // rendering the bomb + "Syntax error in text" UI.
+                if (!svg || svg.includes("error-icon") || svg.includes("Syntax error")) {
+                    showFallback()
+                } else {
+                    ref.current.innerHTML = svg
                 }
             })
+            .catch(showFallback)
 
         return () => { cancelled = true }
     }, [code, id])

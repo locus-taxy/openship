@@ -421,12 +421,15 @@ class TestGenerateChapterContentValidation:
         )
         assert result is mock_response
 
-    def test_returns_none_when_judge_fails_both_attempts(self):
-        result, _ = self._run(
+    def test_passes_content_through_when_judge_fails_both_attempts(self):
+        # LLM judge is a quality signal, not a hard gate. If heuristics pass but the
+        # judge fails twice, we still return content rather than giving the user a
+        # blank chapter. Better mediocre content than no content.
+        result, mock_response = self._run(
             heuristic_side_effect=[self._PASS_HEURISTIC, self._PASS_HEURISTIC],
             judge_side_effect=[self._FAIL_JUDGE, self._FAIL_JUDGE],
         )
-        assert result is None
+        assert result is mock_response
 
     def test_passes_content_through_when_judge_raises_exception(self):
         result, mock_response = self._run(

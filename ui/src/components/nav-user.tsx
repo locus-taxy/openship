@@ -6,7 +6,7 @@ import {
     LogOutIcon, UserCircle, Settings, Eye, EyeOff,
     KeyRound, CheckCircle2, Loader2, X, ChevronDown, Pencil, Trash2, RotateCcw,
 } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -424,6 +424,7 @@ export function NavUser() {
 
             <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
                 <DialogContent className="w-[95vw] max-w-2xl h-[90vh] sm:h-[520px] p-0 gap-0 overflow-hidden flex flex-col">
+                    <DialogTitle className="sr-only">Settings</DialogTitle>
                     <div className="flex flex-1 overflow-hidden">
 
                         {/* Left nav */}

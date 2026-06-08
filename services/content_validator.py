@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, List
 
 from pydantic import BaseModel, field_validator
@@ -8,43 +9,23 @@ logger = logging.getLogger(__name__)
 MIN_WORDS = 80
 LLM_JUDGE_PASS_SCORE = 7
 
-PLACEHOLDER_STRINGS = [
-    "todo",
-    "insert here",
-    "lorem ipsum",
-    "your content here",
-    "add your code here",
-    "write your code here",
-    "fill in the blank",
-    "your code goes here",
-]
-
-# At least one of these must appear in a CODE block for it to be considered real code.
-# Covers C/C++/Rust/Go ({ ; -> =>), Python/Ruby (def ), Rust (fn ),
-# Swift/Go/Kotlin (func  struct  var  let  val ), JS/TS (const ),
-# HTML (</ />), SQL (SELECT ), and universal patterns (import  ()  print(  return ).
-CODE_SIGNALS = [
-    "{",
-    ";",
-    "->",
-    "=>",
-    "def ",
-    "fn ",
-    "func ",
-    "class ",
-    "struct ",
-    "var ",
-    "let ",
-    "val ",
-    "const ",
-    "import ",
-    "print(",
-    "return ",
-    "()",  # zero-argument function calls: viewDidLoad(), init(), main()
-    "</",  # HTML/XML closing tags: </div>, </body>
-    "/>",  # HTML self-closing tags: <br/>, <img/>
-    "SELECT ",  # SQL queries (uppercase as conventionally written)
-]
+# Patterns that indicate the AI left placeholder text instead of real content.
+# "todo" uses \b word boundaries so it does not false-positive on "TodoMVC",
+# "todo list" as a proper noun, or any word that merely contains "todo".
+_PLACEHOLDER_RE = re.compile(
+    # "todo:" catches developer annotation placeholders ("TODO: add content here",
+    # "todo: fill in the blank") without false-positiving on "todo list" or
+    # "Build a Todo App" which are legitimate content in any course.
+    r"\btodo\s*:"
+    r"|insert here"
+    r"|lorem ipsum"
+    r"|your content here"
+    r"|add your code here"
+    r"|write your code here"
+    r"|fill in the blank"
+    r"|your code goes here",
+    re.IGNORECASE,
+)
 
 class HeuristicResult(BaseModel):
     passed: bool
@@ -120,38 +101,39 @@ def validate_content_heuristics(blocks: List[Any], task_description: str) -> Heu
     logger.info("Heuristic check 1 passed (word count: %d words)", word_count)
 
     # 2. Placeholder text detection
-    for placeholder in PLACEHOLDER_STRINGS:
-        if placeholder in all_text:
-            reason = f"Placeholder text detected: '{placeholder}'"
-            logger.warning("Heuristic check 2 FAILED (placeholder): %s", reason)
-            return HeuristicResult(passed=False, reason=reason)
+    match = _PLACEHOLDER_RE.search(all_text)
+    if match:
+        reason = f"Placeholder text detected: '{match.group()}'"
+        logger.warning("Heuristic check 2 FAILED (placeholder): %s", reason)
+        return HeuristicResult(passed=False, reason=reason)
     logger.info("Heuristic check 2 passed (no placeholder text)")
 
-    # 3. Code blocks must contain recognisable code syntax
-    code_blocks = [b for b in blocks if getattr(b, "type", "") == "code"]
-    for b in code_blocks:
-        content = getattr(b, "content", "") or ""
-        if content and not any(sig in content for sig in CODE_SIGNALS):
-            reason = "Code block does not contain recognizable code syntax"
-            logger.warning("Heuristic check 3 FAILED (code syntax): %s", reason)
-            return HeuristicResult(passed=False, reason=reason)
-    logger.info("Heuristic check 3 passed (code blocks=%d all have valid syntax)", len(code_blocks))
-
-    # 4. At least one keyword from the task description appears in the content
+    # 3. At least one keyword from the task description appears in the content
     task_keywords = {w.lower() for w in task_description.split() if len(w) > 3}
     if task_keywords and not any(kw in all_text for kw in task_keywords):
         reason = "Content does not reference any keywords from the task description"
-        logger.warning("Heuristic check 4 FAILED (topic relevance): %s", reason)
+        logger.warning("Heuristic check 3 FAILED (topic relevance): %s", reason)
         return HeuristicResult(passed=False, reason=reason)
-    logger.info("Heuristic check 4 passed (topic keywords present)")
+    logger.info("Heuristic check 3 passed (topic keywords present)")
 
-    # 5. No exact duplicate block content
-    content_values = [b.content for b in blocks if getattr(b, "content", None)]
-    if len(content_values) != len(set(content_values)):
+    # 4. No exact duplicate content in prose blocks.
+    # Headings are excluded — "Introduction", "Summary", "Example" legitimately
+    # repeat as sub-headings across sections of the same chapter.
+    # Only flag duplicates when the repeated content is substantive (> 30 chars)
+    # to avoid false positives on short repeated labels like "Note:".
+    prose_types = {"paragraph", "note", "quote"}
+    prose_content = [
+        b.content
+        for b in blocks
+        if getattr(b, "type", "") in prose_types
+        and getattr(b, "content", None)
+        and len(b.content) > 30
+    ]
+    if len(prose_content) != len(set(prose_content)):
         reason = "Duplicate block content detected"
-        logger.warning("Heuristic check 5 FAILED (duplicates): %s", reason)
+        logger.warning("Heuristic check 4 FAILED (duplicates): %s", reason)
         return HeuristicResult(passed=False, reason=reason)
-    logger.info("Heuristic check 5 passed (no duplicate blocks)")
+    logger.info("Heuristic check 4 passed (no duplicate prose blocks)")
 
     return HeuristicResult(passed=True, reason="")
 
