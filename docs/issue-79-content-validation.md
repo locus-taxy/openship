@@ -52,8 +52,13 @@ generate_chapter_content()  ->  StructuredChapterContent (blocks)
   |       "your code goes here"
   |     Note: "todo" alone is NOT flagged — only "todo:" with a colon,
   |     so "Build a Todo App" or "todo list" are legitimate content.
-  |  3. At least one word (>3 chars) from the task description
-  |     appears in the content (basic topic relevance signal)
+  |  3. At least min(2, n_keywords) distinct keywords from the task
+  |     description appear in the content using whole-word matching
+  |     (regex word boundaries — "data" does not satisfy "database").
+  |     Stopwords and pedagogical framing words ("learn", "intro",
+  |     "introduction", "basics", "overview", "guide", etc.) are
+  |     excluded from keyword extraction so they do not dilute the
+  |     topic signal.
   |  4. No prose block (paragraph, note, quote, >30 chars) is an
   |     exact duplicate of another prose block
   |     (headings excluded — "Introduction" legitimately repeats)

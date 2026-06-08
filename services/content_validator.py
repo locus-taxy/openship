@@ -9,6 +9,78 @@ logger = logging.getLogger(__name__)
 MIN_WORDS = 80
 LLM_JUDGE_PASS_SCORE = 7
 
+# Words that carry no topic signal and should not count as keyword matches.
+# Includes common English function words AND pedagogical framing words that
+# appear in task titles ("Introduction to X", "Learn about X") but would never
+# appear as content keywords in the generated chapter body.
+_STOPWORDS = {
+    # function words
+    "about",
+    "after",
+    "also",
+    "been",
+    "before",
+    "being",
+    "between",
+    "both",
+    "does",
+    "each",
+    "from",
+    "have",
+    "here",
+    "into",
+    "its",
+    "itself",
+    "just",
+    "more",
+    "most",
+    "only",
+    "other",
+    "over",
+    "same",
+    "some",
+    "such",
+    "than",
+    "that",
+    "their",
+    "them",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "through",
+    "under",
+    "very",
+    "was",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "while",
+    "will",
+    "with",
+    "your",
+    # pedagogical framing words
+    "learn",
+    "study",
+    "explore",
+    "understand",
+    "using",
+    "intro",
+    "introduction",
+    "basics",
+    "overview",
+    "guide",
+    "tutorial",
+    "beginner",
+    "advanced",
+    "covering",
+    "covers",
+}
+
 # Patterns that indicate the AI left placeholder text instead of real content.
 # "todo" uses \b word boundaries so it does not false-positive on "TodoMVC",
 # "todo list" as a proper noun, or any word that merely contains "todo".
@@ -108,12 +180,25 @@ def validate_content_heuristics(blocks: List[Any], task_description: str) -> Heu
         return HeuristicResult(passed=False, reason=reason)
     logger.info("Heuristic check 2 passed (no placeholder text)")
 
-    # 3. At least one keyword from the task description appears in the content
-    task_keywords = {w.lower() for w in task_description.split() if len(w) > 3}
-    if task_keywords and not any(kw in all_text for kw in task_keywords):
-        reason = "Content does not reference any keywords from the task description"
-        logger.warning("Heuristic check 3 FAILED (topic relevance): %s", reason)
-        return HeuristicResult(passed=False, reason=reason)
+    # 3. Enough keywords from the task description appear in the content.
+    # Stopwords and short tokens are excluded. Matching uses word boundaries so
+    # "data" does not satisfy "database". At least min(2, n_keywords) distinct
+    # keywords must match to pass.
+    task_keywords = {
+        w.lower() for w in task_description.split() if len(w) > 3 and w.lower() not in _STOPWORDS
+    }
+    if task_keywords:
+        matched = sum(
+            1 for kw in task_keywords if re.search(r"\b" + re.escape(kw) + r"\b", all_text)
+        )
+        required = min(2, len(task_keywords))
+        if matched < required:
+            reason = (
+                f"Content does not reference enough keywords from the task description "
+                f"(matched {matched} of {required} required)"
+            )
+            logger.warning("Heuristic check 3 FAILED (topic relevance): %s", reason)
+            return HeuristicResult(passed=False, reason=reason)
     logger.info("Heuristic check 3 passed (topic keywords present)")
 
     # 4. No exact duplicate content in prose blocks.

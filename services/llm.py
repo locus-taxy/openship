@@ -974,7 +974,8 @@ def generate_chapter_content(
                     validation.score,
                     issues_str,
                 )
-            logger.info("LLM judge PASSED [attempt=%d score=%d]", attempt + 1, validation.score)
+            else:
+                logger.info("LLM judge PASSED [attempt=%d score=%d]", attempt + 1, validation.score)
         except Exception as judge_exc:
             # Judge failure (e.g. API error) does not block valid content —
             # we log and pass through rather than reject good chapters.
