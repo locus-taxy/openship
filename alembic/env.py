@@ -10,9 +10,7 @@ from alembic import context
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from config import DATABASE_URL
-from models.user import User
-from models.skill import Skill
-from models.daily_task import DailyTask
+import models  # noqa: F401 — registers all SQLModel tables in metadata for autogenerate
 
 config = context.config
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
