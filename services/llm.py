@@ -810,8 +810,17 @@ def generate_chapter_content(
     style: Optional[str] = None,
 ) -> Tuple[Optional[StructuredChapterContent], Optional[int], Optional[int]]:
     """Generate structured chapter content using Instructor.
-    Returns (StructuredChapterContent, input_tokens, output_tokens) or (None, None, None) on failure.
+
+    Runs up to 2 generation attempts. After each successful generation,
+    content is validated in two layers:
+      1. Heuristic pre-filter (word count, placeholder text, code syntax, topic keywords)
+      2. LLM-as-judge (relevance and factual correctness scored 1-10, pass >= 7)
+
+    Returns (StructuredChapterContent, input_tokens, output_tokens) on success,
+    (None, None, None) after two consecutive failures.
     """
+    from services.content_validator import validate_content_heuristics, validate_content_with_llm
+
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
@@ -821,52 +830,178 @@ def generate_chapter_content(
     # content (issue #69).  OpenAI caps at 16384; Mistral/Anthropic at 8192.
     chapter_max_tokens = 32768 if provider == "gemini" else 16384 if provider == "openai" else 8192
 
-    try:
-        client = _build_client(provider, api_key)
-        response, raw = client.chat.completions.create_with_completion(
-            model=model,
-            response_model=StructuredChapterContent,
-            messages=[
-                {
-                    "role": "system",
-                    "content": chapter_prompts.system_prompt(
-                        concise=provider == "mistral", style=style
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": chapter_prompts.user_prompt(task_title, skill, task_description),
-                },
-            ],
-            **_token_kwargs(provider, chapter_max_tokens),
-            max_retries=1,
-        )
-        input_tokens, output_tokens = extract_token_counts(raw, provider)
-        return response, input_tokens, output_tokens
-    except HTTPException:
-        raise
-    except Exception as e:
-        full_msg = _full_exc_msg(e)
-        cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
-        logger.error(
-            "Chapter (blocks) error [provider=%s type=%s]: %s%s",
+    logger.info(
+        "Chapter generation started [topic=%r skill=%r provider=%s model=%s style=%s]",
+        task_title,
+        skill,
+        provider,
+        model,
+        style or "balanced",
+    )
+
+    for attempt in range(2):
+        # ── Generation ────────────────────────────────────────────────────────
+        logger.info(
+            "Attempt %d/2 — calling LLM [provider=%s model=%s]",
+            attempt + 1,
             provider,
-            type(e).__name__,
-            str(e)[:800],
-            f" — caused by [{type(cause).__name__}]: {str(cause)[:400]}" if cause else "",
+            model,
         )
-        _raise_if_provider_error(provider, e)
-        if (
-            "incompleteoutput" in full_msg.replace(" ", "")
-            or "due to a max_tokens length limit" in full_msg
-            or "finish_reason.max_tokens" in full_msg
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="The chapter was too long and the response was cut off. Try regenerating — it usually works on the next attempt.",
+        try:
+            client = _build_client(provider, api_key)
+            response, raw = client.chat.completions.create_with_completion(
+                model=model,
+                response_model=StructuredChapterContent,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": chapter_prompts.system_prompt(
+                            concise=provider == "mistral", style=style
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": chapter_prompts.user_prompt(task_title, skill, task_description),
+                    },
+                ],
+                **_token_kwargs(provider, chapter_max_tokens),
+                max_retries=1,
             )
-        logger.exception("Chapter (blocks) generation failed [provider=%s]", provider)
-        return None, None, None
+            input_tokens, output_tokens = extract_token_counts(raw, provider)
+            logger.info(
+                "LLM returned %d block(s) [attempt=%d topic=%r]",
+                len(response.blocks),
+                attempt + 1,
+                task_title,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            full_msg = _full_exc_msg(e)
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            logger.error(
+                "Chapter generation error [attempt=%d provider=%s type=%s]: %s%s",
+                attempt + 1,
+                provider,
+                type(e).__name__,
+                str(e)[:800],
+                f" - caused by [{type(cause).__name__}]: {str(cause)[:400]}" if cause else "",
+            )
+            _raise_if_provider_error(provider, e)
+            if (
+                "incompleteoutput" in full_msg.replace(" ", "")
+                or "due to a max_tokens length limit" in full_msg
+                or "finish_reason.max_tokens" in full_msg
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="The chapter was too long and the response was cut off. Try regenerating — it usually works on the next attempt.",
+                )
+            logger.exception("Chapter (blocks) generation failed [provider=%s]", provider)
+            if attempt == 0:
+                logger.info("Retrying after generation error...")
+                continue
+            logger.error(
+                "Chapter generation failed on all attempts [topic=%r skill=%r provider=%s]",
+                task_title,
+                skill,
+                provider,
+            )
+            return None, None, None
+
+        # ── Layer 1: Heuristic validation ─────────────────────────────────────
+        logger.info("Running heuristic validation [attempt=%d]", attempt + 1)
+        heuristic = validate_content_heuristics(response.blocks, task_description)
+        if not heuristic.passed:
+            logger.warning(
+                "Heuristic validation FAILED [attempt=%d]: %s",
+                attempt + 1,
+                heuristic.reason,
+            )
+            if attempt == 0:
+                logger.info("Retrying after heuristic failure...")
+                continue
+            logger.error(
+                "Heuristic validation failed on all attempts [topic=%r reason=%s]",
+                task_title,
+                heuristic.reason,
+            )
+            return None, None, None
+        logger.info("Heuristic validation PASSED [attempt=%d]", attempt + 1)
+
+        # ── Layer 2: LLM-as-judge validation ──────────────────────────────────
+        logger.info(
+            "Running LLM judge [attempt=%d model=%s]",
+            attempt + 1,
+            model,
+        )
+        try:
+            validation = validate_content_with_llm(
+                blocks=response.blocks,
+                task_description=task_description,
+                skill=skill,
+                client=client,
+                model=model,
+            )
+            logger.info(
+                "LLM judge returned score=%d valid=%s [attempt=%d]",
+                validation.score,
+                validation.valid,
+                attempt + 1,
+            )
+            if not validation.valid:
+                issues_str = (
+                    "; ".join(validation.issues) if validation.issues else "score below threshold"
+                )
+                logger.warning(
+                    "LLM judge FAILED [attempt=%d score=%d]: %s",
+                    attempt + 1,
+                    validation.score,
+                    issues_str,
+                )
+                if attempt == 0:
+                    logger.info("Retrying after LLM judge failure...")
+                    continue
+                # Both attempts failed the LLM judge, but both passed the heuristic
+                # checks (word count, no placeholders, on-topic, no duplicates).
+                # The judge is a quality signal, not a hard gate — content that is
+                # structurally sound should always reach the user. Log a warning and
+                # pass through rather than blocking with a blank chapter.
+                logger.warning(
+                    "LLM judge failed on both attempts [topic=%r score=%d issues=%s] — "
+                    "content passed heuristics; passing through to avoid blank chapter",
+                    task_title,
+                    validation.score,
+                    issues_str,
+                )
+            else:
+                logger.info("LLM judge PASSED [attempt=%d score=%d]", attempt + 1, validation.score)
+        except Exception as judge_exc:
+            # Judge failure (e.g. API error) does not block valid content —
+            # we log and pass through rather than reject good chapters.
+            logger.warning(
+                "LLM judge raised exception [attempt=%d type=%s]: %s — passing content through",
+                attempt + 1,
+                type(judge_exc).__name__,
+                judge_exc,
+            )
+
+        logger.info(
+            "Chapter generation complete [topic=%r skill=%r blocks=%d attempt=%d]",
+            task_title,
+            skill,
+            len(response.blocks),
+            attempt + 1,
+        )
+        return response, input_tokens, output_tokens
+
+    logger.error(
+        "Chapter generation failed after all attempts [topic=%r skill=%r provider=%s]",
+        task_title,
+        skill,
+        provider,
+    )
+    return None, None, None
 
 def generate_chapter_html(
     task_description: str,

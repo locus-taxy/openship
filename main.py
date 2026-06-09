@@ -1,11 +1,17 @@
 import logging
+import logging.config
 from contextlib import asynccontextmanager
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    force=True,  # override uvicorn's handlers so our format takes effect
-)
+# Attach an explicit handler to app loggers so they are not affected by
+# uvicorn's reload subprocess reconfiguring root.  propagate stays True so
+# pytest's caplog (which hooks into root) still captures records in tests.
+_app_handler = logging.StreamHandler()
+_app_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+for _logger_name in ("openship", "services", "controllers"):
+    _lg = logging.getLogger(_logger_name)
+    _lg.setLevel(logging.INFO)
+    if not _lg.handlers:
+        _lg.addHandler(_app_handler)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

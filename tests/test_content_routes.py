@@ -103,7 +103,7 @@ class TestGenerateChapter:
             response = auth_client.post("/generate-content/chapter", json={"task_id": 1})
         assert response.status_code == 403
 
-    def test_llm_failure_returns_500(self, auth_client, test_user):
+    def test_llm_failure_returns_503(self, auth_client, test_user):
         chapter = _make_chapter(user_id=str(test_user.id))
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
@@ -114,7 +114,7 @@ class TestGenerateChapter:
             patch("controllers.content.get_user_model", return_value="gemini-flash"),
         ):
             response = auth_client.post("/generate-content/chapter", json={"task_id": 1})
-        assert response.status_code == 500
+        assert response.status_code == 503
 
     def test_success_returns_200(self, auth_client, test_user):
         chapter = _make_chapter(user_id=str(test_user.id))

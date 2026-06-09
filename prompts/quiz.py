@@ -75,6 +75,6 @@ def final_user_prompt(
         f"Rules:\n"
         f"- Each question must have exactly 4 options with labels A, B, C, D\n"
         f"- Focus on the topics the student found hardest — weight weaker topics more heavily\n"
-        f"- Vary question types: definitions, code reasoning, comparisons, edge cases\n"
+        f"- Vary question types: definitions, application reasoning, comparisons, edge cases\n"
         f"- The explanation should clarify why the correct answer is right (1-2 sentences)"
     )

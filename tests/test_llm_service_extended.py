@@ -304,9 +304,19 @@ class TestGenerateChapterContent:
         mock_raw = MagicMock()
         mock_client = MagicMock()
         mock_client.chat.completions.create_with_completion.return_value = (mock_response, mock_raw)
+        from services.content_validator import HeuristicResult, ContentValidationResult
+
         with (
             patch("services.llm._build_client", return_value=mock_client),
             patch("services.llm.extract_token_counts", return_value=(100, 200)),
+            patch(
+                "services.content_validator.validate_content_heuristics",
+                return_value=HeuristicResult(passed=True, reason=""),
+            ),
+            patch(
+                "services.content_validator.validate_content_with_llm",
+                return_value=ContentValidationResult(valid=True, score=9, issues=[]),
+            ),
         ):
             result, inp, out = generate_chapter_content(
                 "Learn vars", "Variables", "Python", "gemini", "key", "gemini-flash"
@@ -347,6 +357,111 @@ class TestGenerateChapterContent:
             with pytest.raises(HTTPException) as ei:
                 generate_chapter_content("desc", "title", "Python", "gemini", "key", "gemini-flash")
         assert ei.value.status_code == 429
+
+class TestGenerateChapterContentValidation:
+    """Integration tests for the validation + retry loop inside generate_chapter_content."""
+
+    from services.content_validator import HeuristicResult, ContentValidationResult
+
+    _PASS_HEURISTIC = HeuristicResult(passed=True, reason="")
+    _FAIL_HEURISTIC = HeuristicResult(passed=False, reason="too short: 5 words")
+    _PASS_JUDGE = ContentValidationResult(valid=True, score=9, issues=[])
+    _FAIL_JUDGE = ContentValidationResult(valid=False, score=4, issues=["off-topic"])
+
+    def _run(self, heuristic_side_effect, judge_side_effect=None):
+        mock_response = MagicMock()
+        mock_raw = MagicMock()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create_with_completion.return_value = (
+            mock_response,
+            mock_raw,
+        )
+        judge_se = judge_side_effect or [self._PASS_JUDGE]
+        with (
+            patch("services.llm._build_client", return_value=mock_client),
+            patch("services.llm.extract_token_counts", return_value=(100, 200)),
+            patch(
+                "services.content_validator.validate_content_heuristics",
+                side_effect=heuristic_side_effect,
+            ),
+            patch(
+                "services.content_validator.validate_content_with_llm",
+                side_effect=judge_se,
+            ),
+        ):
+            result, _, _ = generate_chapter_content(
+                "Learn arrays", "Arrays", "C++", "gemini", "key", "gemini-flash"
+            )
+        return result, mock_response
+
+    def test_returns_content_when_both_layers_pass_first_attempt(self):
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._PASS_HEURISTIC],
+            judge_side_effect=[self._PASS_JUDGE],
+        )
+        assert result is mock_response
+
+    def test_retries_when_heuristic_fails_first_attempt(self):
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._FAIL_HEURISTIC, self._PASS_HEURISTIC],
+            judge_side_effect=[self._PASS_JUDGE],
+        )
+        assert result is mock_response
+
+    def test_returns_none_when_heuristic_fails_both_attempts(self):
+        result, _ = self._run(
+            heuristic_side_effect=[self._FAIL_HEURISTIC, self._FAIL_HEURISTIC],
+        )
+        assert result is None
+
+    def test_retries_when_judge_fails_first_attempt(self):
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._PASS_HEURISTIC, self._PASS_HEURISTIC],
+            judge_side_effect=[self._FAIL_JUDGE, self._PASS_JUDGE],
+        )
+        assert result is mock_response
+
+    def test_passes_content_through_when_judge_fails_both_attempts(self):
+        # LLM judge is a quality signal, not a hard gate. If heuristics pass but the
+        # judge fails twice, we still return content rather than giving the user a
+        # blank chapter. Better mediocre content than no content.
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._PASS_HEURISTIC, self._PASS_HEURISTIC],
+            judge_side_effect=[self._FAIL_JUDGE, self._FAIL_JUDGE],
+        )
+        assert result is mock_response
+
+    def test_passes_content_through_when_judge_raises_exception(self):
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._PASS_HEURISTIC],
+            judge_side_effect=[RuntimeError("judge API down")],
+        )
+        assert result is mock_response
+
+    def test_generation_error_on_first_attempt_retries(self):
+        mock_response = MagicMock()
+        mock_raw = MagicMock()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create_with_completion.side_effect = [
+            Exception("transient network error"),
+            (mock_response, mock_raw),
+        ]
+        with (
+            patch("services.llm._build_client", return_value=mock_client),
+            patch("services.llm.extract_token_counts", return_value=(100, 200)),
+            patch(
+                "services.content_validator.validate_content_heuristics",
+                return_value=self._PASS_HEURISTIC,
+            ),
+            patch(
+                "services.content_validator.validate_content_with_llm",
+                return_value=self._PASS_JUDGE,
+            ),
+        ):
+            result, _, _ = generate_chapter_content(
+                "Learn arrays", "Arrays", "C++", "gemini", "key", "gemini-flash"
+            )
+        assert result is mock_response
 
 class TestGenerateChapterHtml:
     def test_raises_400_when_no_settings(self):
