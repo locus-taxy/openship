@@ -249,6 +249,20 @@ class TestLookupModelInfo:
         assert info["found"] is False
         assert info["input_per_1m_usd"] is None
 
+    @pytest.mark.parametrize(
+        "model,expected_input",
+        [
+            ("claude-haiku-4-5-20251001", 0.80),
+            ("claude-sonnet-4-6", 3.00),
+            ("claude-opus-4-7", 15.0),
+        ],
+    )
+    def test_found_true_for_claude4_models(self, model, expected_input):
+        info = pricing_module.lookup_model_info("anthropic", model)
+        assert info["found"] is True
+        assert info["input_per_1m_usd"] == expected_input
+        assert info["matched_model_id"] == model
+
 class TestInvalidateCache:
     def test_sets_cache_to_none(self):
         pricing_module._cache = [{"model_id": "existing"}]
