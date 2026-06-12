@@ -116,6 +116,7 @@ def _generate_next_week(
         prev_quiz = quiz_service.get_quiz_by_week(skill_id, next_week - 1)
         score_for_remediation = 100
         remediation_topics: list = []
+        prev_attempt = None
         if prev_quiz:
             prev_attempt = quiz_service.get_latest_attempt_results(prev_quiz.id, user_id_int)
             if prev_attempt:
@@ -127,8 +128,9 @@ def _generate_next_week(
                     t for t, s in prev_attempt["topic_scores"].items() if s["pct"] < pass_threshold
                 ]
 
-        # Fall back to top-3 BKT weak topics if no quiz attempt or all topics passed
-        if not remediation_topics:
+        # Fall back to top-3 BKT weak topics only when there is no prior attempt.
+        # If the user attempted and passed all topics, no remediation is needed.
+        if not remediation_topics and not prev_attempt:
             remediation_topics = weak[:3]
 
         remediation = calc_remediation_days(score_for_remediation, days_in_week)
