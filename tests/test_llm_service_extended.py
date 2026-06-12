@@ -117,6 +117,20 @@ class TestRaiseIfProviderError:
             _raise_if_provider_error("openai", exc)
         assert ei.value.status_code == 400
 
+    def test_raises_400_on_model_not_found_anthropic(self):
+        exc = Exception("not_found_error: model: claude-opus-4-7 not found")
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("anthropic", exc)
+        assert ei.value.status_code == 400
+        assert "does not have access to the selected model" in ei.value.detail
+
+    def test_raises_400_on_model_not_found_openai(self):
+        exc = Exception("model_not_found: The model gpt-9999 does not exist")
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("openai", exc)
+        assert ei.value.status_code == 400
+        assert "does not have access to the selected model" in ei.value.detail
+
     def test_does_not_raise_on_generic_error(self):
         exc = Exception("some random internal error")
         _raise_if_provider_error("gemini", exc)  # should not raise

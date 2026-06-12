@@ -44,7 +44,11 @@ _HARDCODED: Dict[Tuple[str, str], Tuple[float, float]] = {
     # OpenAI
     ("openai", "gpt-4o-mini"): (0.15, 0.6),
     ("openai", "gpt-4o"): (2.50, 10.0),
-    # Anthropic
+    # Anthropic — Claude 4.x
+    ("anthropic", "claude-haiku-4-5-20251001"): (0.80, 4.0),
+    ("anthropic", "claude-sonnet-4-6"): (3.00, 15.0),
+    ("anthropic", "claude-opus-4-7"): (15.0, 75.0),
+    # Anthropic — Claude 3.5 / 3 (legacy aliases, kept as fallback)
     ("anthropic", "claude-3-5-haiku-latest"): (0.80, 4.0),
     ("anthropic", "claude-3-5-sonnet-latest"): (3.00, 15.0),
     ("anthropic", "claude-3-opus-latest"): (15.0, 75.0),
