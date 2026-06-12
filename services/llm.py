@@ -41,7 +41,7 @@ PROVIDER_LABELS = {
 DEFAULT_MODELS = {
     "gemini": "gemini-2.5-flash-lite",
     "openai": "gpt-4o-mini",
-    "anthropic": "claude-3-5-haiku-latest",
+    "anthropic": "claude-haiku-4-5-20251001",
     "mistral": "mistral-small-latest",
 }
 
@@ -54,7 +54,14 @@ PROVIDER_MODELS = {
         "gemini-2.0-flash-lite",
     ],
     "openai": ["gpt-4o-mini", "gpt-4o"],
-    "anthropic": ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest", "claude-3-opus-latest"],
+    "anthropic": [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
+        "claude-opus-4-7",
+        "claude-3-5-haiku-latest",
+        "claude-3-5-sonnet-latest",
+        "claude-3-opus-latest",
+    ],
     "mistral": ["mistral-small-latest", "mistral-large-latest"],
 }
 
