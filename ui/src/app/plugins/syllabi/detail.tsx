@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
     ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
-    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap, Brain, Lock,
+    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap, Brain, Lock, Settings,
 } from "lucide-react"
 import { QuizPanel, WeeklyQuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
@@ -512,6 +512,7 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
     const [openMonths, setOpenMonths] = useState<Set<number>>(
         () => new Set(detail.months.map((m) => m.month))
     )
+    const { setSettingsOpen } = useStore((s: any) => s)
 
     function toggleMonth(month: number) {
         setOpenMonths((prev) => {
@@ -538,7 +539,17 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
 
             {/* LLM bar */}
             <div className="px-4 py-3 border-b shrink-0 space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Choose a model</p>
+                <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Choose a model</p>
+                    <button
+                        type="button"
+                        title="Open Settings"
+                        onClick={() => setSettingsOpen(true)}
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                        <Settings className="h-3.5 w-3.5" />
+                    </button>
+                </div>
                 <LlmBar fullWidth />
             </div>
 

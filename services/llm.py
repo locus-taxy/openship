@@ -466,6 +466,19 @@ def _raise_if_provider_error(provider: str, exc: Exception) -> None:
             detail=f"Your {PROVIDER_LABELS.get(provider, provider)} quota is exhausted or rate-limited. "
             "Please wait a while or check your plan/billing.",
         )
+    msg_lower = msg.lower()
+    if (
+        "model_not_found" in msg_lower
+        or "not_found_error" in msg_lower
+        or ("model" in msg_lower and "not found" in msg_lower)
+        or ("model" in msg_lower and "does not exist" in msg_lower)
+        or ("model" in msg_lower and "404" in msg)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your {PROVIDER_LABELS.get(provider, provider)} API key does not have access to the selected model. "
+            "Please choose a different model in Settings.",
+        )
     if (
         "401" in msg
         or "403" in msg
