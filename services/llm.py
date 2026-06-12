@@ -435,25 +435,58 @@ def _require_settings(provider: Optional[str], api_key: Optional[str]):
     return p, k
 
 def _full_exc_msg(exc: Exception) -> str:
-    """Collect the full message across the exception cause chain."""
+    """Collect messages across the full exception graph (both __cause__ and __context__)."""
     parts = []
+    stack = [exc]
     seen: set = set()
-    current: Exception | None = exc
-    while current is not None:
+    while stack:
+        current = stack.pop()
         if id(current) in seen:
-            break
+            continue
         seen.add(id(current))
         parts.append(str(current).lower())
-        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        if cause is not None:
+            stack.append(cause)
+        if context is not None:
+            stack.append(context)
     return " ".join(parts)
+
+def _get_status_code(exc: Exception) -> Optional[int]:
+    """Walk the full exception graph (both __cause__ and __context__) and return
+    the first HTTP status_code found. Anthropic and OpenAI SDK exceptions carry it
+    as an attribute; exploring both branches avoids missing it when __cause__ and
+    __context__ point to different exceptions."""
+    stack = [exc]
+    seen: set = set()
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        sc = getattr(current, "status_code", None)
+        if isinstance(sc, int):
+            return sc
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        if cause is not None:
+            stack.append(cause)
+        if context is not None:
+            stack.append(context)
+    return None
 
 def _raise_if_provider_error(provider: str, exc: Exception) -> None:
     """Convert common LLM API errors into meaningful HTTP exceptions."""
     msg = _full_exc_msg(exc)
-    # "rate" alone is too broad — "generate" contains "rate" and would false-positive.
-    # Match specific rate/quota patterns instead.
+    status_code = _get_status_code(exc)
+    label = PROVIDER_LABELS.get(provider, provider)
+
+    # Rate limit / quota — string matching covers Gemini "resource_exhausted"
+    # which doesn't carry a status_code attribute.
     if (
-        "429" in msg
+        status_code == 429
+        or "429" in msg
         or "resource_exhausted" in msg
         or "quota" in msg
         or "rate limit" in msg
@@ -463,32 +496,46 @@ def _raise_if_provider_error(provider: str, exc: Exception) -> None:
     ):
         raise HTTPException(
             status_code=429,
-            detail=f"Your {PROVIDER_LABELS.get(provider, provider)} quota is exhausted or rate-limited. "
+            detail=f"Your {label} quota is exhausted or rate-limited. "
             "Please wait a while or check your plan/billing.",
         )
-    msg_lower = msg.lower()
+
+    # Model not found — status_code 404 is the reliable signal;
+    # string patterns cover providers that don't set status_code.
     if (
-        "model_not_found" in msg_lower
-        or "not_found_error" in msg_lower
-        or ("model" in msg_lower and "not found" in msg_lower)
-        or ("model" in msg_lower and "does not exist" in msg_lower)
-        or ("model" in msg_lower and "404" in msg)
+        status_code == 404
+        or "model_not_found" in msg
+        or "not_found_error" in msg
+        or ("model" in msg and "not found" in msg)
+        or ("model" in msg and "does not exist" in msg)
     ):
         raise HTTPException(
             status_code=400,
-            detail=f"Your {PROVIDER_LABELS.get(provider, provider)} API key does not have access to the selected model. "
+            detail=f"Your {label} API key does not have access to the selected model. "
             "Please choose a different model in Settings.",
         )
+
+    # Billing / insufficient credits (403 with credit keywords)
+    if status_code == 403 and (
+        "credit" in msg or "billing" in msg or "payment" in msg or "funds" in msg
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your {label} account has insufficient credits. "
+            "Please add credits to your account and try again.",
+        )
+
+    # Invalid API key — 401, bare 403, or provider-specific key-error strings
     if (
-        "401" in msg
+        status_code in (401, 403)
+        or "401" in msg
         or "403" in msg
         or "api key not valid" in msg
         or ("invalid_argument" in msg and "key" in msg)
     ):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid {PROVIDER_LABELS.get(provider, provider)} API key. "
-            "Please update it in Settings.",
+            detail=f"Invalid {label} API key. " "Please update it in Settings.",
         )
 
 def _build_client(provider: str, api_key: str) -> instructor.Instructor:
