@@ -435,31 +435,45 @@ def _require_settings(provider: Optional[str], api_key: Optional[str]):
     return p, k
 
 def _full_exc_msg(exc: Exception) -> str:
-    """Collect the full message across the exception cause chain."""
+    """Collect messages across the full exception graph (both __cause__ and __context__)."""
     parts = []
+    stack = [exc]
     seen: set = set()
-    current: Exception | None = exc
-    while current is not None:
+    while stack:
+        current = stack.pop()
         if id(current) in seen:
-            break
+            continue
         seen.add(id(current))
         parts.append(str(current).lower())
-        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        if cause is not None:
+            stack.append(cause)
+        if context is not None:
+            stack.append(context)
     return " ".join(parts)
 
 def _get_status_code(exc: Exception) -> Optional[int]:
-    """Walk the exception chain and return the first HTTP status_code found.
-    Anthropic and OpenAI SDK exceptions carry this as an attribute."""
-    current: Optional[Exception] = exc
+    """Walk the full exception graph (both __cause__ and __context__) and return
+    the first HTTP status_code found. Anthropic and OpenAI SDK exceptions carry it
+    as an attribute; exploring both branches avoids missing it when __cause__ and
+    __context__ point to different exceptions."""
+    stack = [exc]
     seen: set = set()
-    while current is not None:
+    while stack:
+        current = stack.pop()
         if id(current) in seen:
-            break
+            continue
         seen.add(id(current))
         sc = getattr(current, "status_code", None)
         if isinstance(sc, int):
             return sc
-        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        if cause is not None:
+            stack.append(cause)
+        if context is not None:
+            stack.append(context)
     return None
 
 def _raise_if_provider_error(provider: str, exc: Exception) -> None:

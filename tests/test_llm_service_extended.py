@@ -177,6 +177,17 @@ class TestGetStatusCode:
     def test_returns_none_when_no_status_code(self):
         assert _get_status_code(Exception("no code")) is None
 
+    def test_finds_status_code_on_context_branch_when_cause_has_none(self):
+        """When __cause__ has no status_code but __context__ does, the code is found.
+        Regression: the old 'or' traversal silently skipped __context__."""
+        cause_exc = Exception("cause without code")
+        context_exc = Exception("context with code")
+        context_exc.status_code = 403  # type: ignore[attr-defined]
+        wrapper = Exception("wrapper")
+        wrapper.__cause__ = cause_exc  # type: ignore[attr-defined]
+        wrapper.__context__ = context_exc  # type: ignore[attr-defined]
+        assert _get_status_code(wrapper) == 403
+
 class TestRequireSettings:
     def test_raises_400_when_provider_missing(self):
         with pytest.raises(HTTPException) as ei:
