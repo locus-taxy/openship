@@ -6,6 +6,7 @@ from services.llm import (
     _key_hash,
     _norm,
     _full_exc_msg,
+    _get_status_code,
     _raise_if_provider_error,
     _require_settings,
     fetch_provider_models,
@@ -117,6 +118,15 @@ class TestRaiseIfProviderError:
             _raise_if_provider_error("openai", exc)
         assert ei.value.status_code == 400
 
+    def test_raises_400_on_model_not_found_via_status_code(self):
+        """SDK exception with status_code=404 is caught even if str() has no keywords."""
+        exc = Exception("instructor retry failed")
+        exc.status_code = 404  # type: ignore[attr-defined]
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("anthropic", exc)
+        assert ei.value.status_code == 400
+        assert "does not have access to the selected model" in ei.value.detail
+
     def test_raises_400_on_model_not_found_anthropic(self):
         exc = Exception("not_found_error: model: claude-opus-4-7 not found")
         with pytest.raises(HTTPException) as ei:
@@ -131,9 +141,41 @@ class TestRaiseIfProviderError:
         assert ei.value.status_code == 400
         assert "does not have access to the selected model" in ei.value.detail
 
+    def test_raises_400_on_insufficient_credits(self):
+        """403 with credit keywords → billing error, not 'invalid key'."""
+        exc = Exception("your credit balance is too low")
+        exc.status_code = 403  # type: ignore[attr-defined]
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("anthropic", exc)
+        assert ei.value.status_code == 400
+        assert "insufficient credits" in ei.value.detail
+
+    def test_raises_400_on_429_via_status_code(self):
+        exc = Exception("instructor retry failed")
+        exc.status_code = 429  # type: ignore[attr-defined]
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("openai", exc)
+        assert ei.value.status_code == 429
+
     def test_does_not_raise_on_generic_error(self):
         exc = Exception("some random internal error")
         _raise_if_provider_error("gemini", exc)  # should not raise
+
+class TestGetStatusCode:
+    def test_returns_status_code_from_direct_attribute(self):
+        exc = Exception("some error")
+        exc.status_code = 404  # type: ignore[attr-defined]
+        assert _get_status_code(exc) == 404
+
+    def test_returns_status_code_from_cause_chain(self):
+        cause = Exception("underlying")
+        cause.status_code = 403  # type: ignore[attr-defined]
+        wrapper = Exception("wrapper")
+        wrapper.__cause__ = cause  # type: ignore[attr-defined]
+        assert _get_status_code(wrapper) == 403
+
+    def test_returns_none_when_no_status_code(self):
+        assert _get_status_code(Exception("no code")) is None
 
 class TestRequireSettings:
     def test_raises_400_when_provider_missing(self):

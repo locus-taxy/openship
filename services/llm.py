@@ -447,13 +447,32 @@ def _full_exc_msg(exc: Exception) -> str:
         current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
     return " ".join(parts)
 
+def _get_status_code(exc: Exception) -> Optional[int]:
+    """Walk the exception chain and return the first HTTP status_code found.
+    Anthropic and OpenAI SDK exceptions carry this as an attribute."""
+    current: Optional[Exception] = exc
+    seen: set = set()
+    while current is not None:
+        if id(current) in seen:
+            break
+        seen.add(id(current))
+        sc = getattr(current, "status_code", None)
+        if isinstance(sc, int):
+            return sc
+        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+    return None
+
 def _raise_if_provider_error(provider: str, exc: Exception) -> None:
     """Convert common LLM API errors into meaningful HTTP exceptions."""
     msg = _full_exc_msg(exc)
-    # "rate" alone is too broad — "generate" contains "rate" and would false-positive.
-    # Match specific rate/quota patterns instead.
+    status_code = _get_status_code(exc)
+    label = PROVIDER_LABELS.get(provider, provider)
+
+    # Rate limit / quota — string matching covers Gemini "resource_exhausted"
+    # which doesn't carry a status_code attribute.
     if (
-        "429" in msg
+        status_code == 429
+        or "429" in msg
         or "resource_exhausted" in msg
         or "quota" in msg
         or "rate limit" in msg
@@ -463,32 +482,46 @@ def _raise_if_provider_error(provider: str, exc: Exception) -> None:
     ):
         raise HTTPException(
             status_code=429,
-            detail=f"Your {PROVIDER_LABELS.get(provider, provider)} quota is exhausted or rate-limited. "
+            detail=f"Your {label} quota is exhausted or rate-limited. "
             "Please wait a while or check your plan/billing.",
         )
-    msg_lower = msg.lower()
+
+    # Model not found — status_code 404 is the reliable signal;
+    # string patterns cover providers that don't set status_code.
     if (
-        "model_not_found" in msg_lower
-        or "not_found_error" in msg_lower
-        or ("model" in msg_lower and "not found" in msg_lower)
-        or ("model" in msg_lower and "does not exist" in msg_lower)
-        or ("model" in msg_lower and "404" in msg)
+        status_code == 404
+        or "model_not_found" in msg
+        or "not_found_error" in msg
+        or ("model" in msg and "not found" in msg)
+        or ("model" in msg and "does not exist" in msg)
     ):
         raise HTTPException(
             status_code=400,
-            detail=f"Your {PROVIDER_LABELS.get(provider, provider)} API key does not have access to the selected model. "
+            detail=f"Your {label} API key does not have access to the selected model. "
             "Please choose a different model in Settings.",
         )
+
+    # Billing / insufficient credits (403 with credit keywords)
+    if status_code == 403 and (
+        "credit" in msg or "billing" in msg or "payment" in msg or "funds" in msg
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your {label} account has insufficient credits. "
+            "Please add credits to your account and try again.",
+        )
+
+    # Invalid API key — 401, bare 403, or provider-specific key-error strings
     if (
-        "401" in msg
+        status_code in (401, 403)
+        or "401" in msg
         or "403" in msg
         or "api key not valid" in msg
         or ("invalid_argument" in msg and "key" in msg)
     ):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid {PROVIDER_LABELS.get(provider, provider)} API key. "
-            "Please update it in Settings.",
+            detail=f"Invalid {label} API key. " "Please update it in Settings.",
         )
 
 def _build_client(provider: str, api_key: str) -> instructor.Instructor:
