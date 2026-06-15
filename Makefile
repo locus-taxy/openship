@@ -24,8 +24,9 @@ install: setup
 full-setup:
 	@$(MAKE) setup
 	@$(MAKE) sandbox-build
+	@sed -i.bak 's/^SANDBOX_USE_DOCKER=false/SANDBOX_USE_DOCKER=true/' "$(ROOT)/.env" && rm -f "$(ROOT)/.env.bak"
 	@echo ""
-	@echo "All done! Set SANDBOX_USE_DOCKER=true in .env, then run 'make dev'."
+	@echo "All done! Docker sandbox is enabled. Run 'make dev' to start."
 
 setup:
 	@chmod +x "$(ROOT)/scripts/setup.sh"
