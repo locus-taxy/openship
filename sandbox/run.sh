@@ -163,9 +163,10 @@ case "$LANG" in
     haxe|hx)
         classname=$(grep -oP 'class\s+\K\w+' "$FILE" | head -1)
         classname="${classname:-Main}"
-        dest="$TMPDIR/${classname}.hx"
-        [ "$FILE" != "$dest" ] && cp "$FILE" "$dest"
-        cd "$TMPDIR" && haxe --main "$classname" --interp ;;
+        haxedir=$(mktemp -d /tmp/haxe.XXXXXX)
+        cp "$FILE" "$haxedir/${classname}.hx"
+        haxe --main "$classname" --interp --class-path "$haxedir"
+        rm -rf "$haxedir" ;;
 
     *)
         echo "Language '$LANG' is not supported in this sandbox." >&2

@@ -51,6 +51,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     groovy clojure nasm \
     && rm -rf /var/lib/apt/lists/*
 
+# ── SML + Octave (were missing from image) ───────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    smlnj octave \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Microsoft repo — PowerShell + .NET SDK ───────────────────────────────────
+RUN curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb \
+        -o /tmp/packages-microsoft-prod.deb \
+    && dpkg -i /tmp/packages-microsoft-prod.deb \
+    && rm /tmp/packages-microsoft-prod.deb \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        dotnet-sdk-8.0 powershell \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── CoffeeScript ──────────────────────────────────────────────────────────────
 RUN npm install -g coffeescript --silent
 
@@ -105,8 +119,12 @@ RUN ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/') \
     && rm "dartsdk-linux-${ARCH}-release.zip"
 
 # ── Deno ─────────────────────────────────────────────────────────────────────
-RUN curl -fsSL https://deno.land/install.sh | sh \
-    && ln -s /root/.deno/bin/deno /usr/local/bin/deno
+RUN ARCH=$(uname -m) \
+    && DENO_ARCH=$([ "$ARCH" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
+    && wget --no-check-certificate -q \
+        "https://github.com/denoland/deno/releases/latest/download/deno-${DENO_ARCH}-unknown-linux-gnu.zip" \
+    && unzip -q "deno-${DENO_ARCH}-unknown-linux-gnu.zip" -d /usr/local/bin \
+    && rm "deno-${DENO_ARCH}-unknown-linux-gnu.zip"
 
 # ── Julia ────────────────────────────────────────────────────────────────────
 RUN ARCH=$(uname -m) \
@@ -116,6 +134,15 @@ RUN ARCH=$(uname -m) \
     && ln -sf "/opt/julia-1.10.0/bin/julia" /usr/local/bin/julia \
     && rm "julia-1.10.0-linux-${ARCH}.tar.gz"
 
+# ── Odin ─────────────────────────────────────────────────────────────────────
+RUN ARCH=$(uname -m) \
+    && ODIN_ARCH=$([ "$ARCH" = "aarch64" ] && echo "arm64" || echo "amd64") \
+    && wget --no-check-certificate -q \
+        "https://github.com/odin-lang/Odin/releases/latest/download/odin-linux-${ODIN_ARCH}-nightly+2025-03-01.zip" \
+    && unzip -q "odin-linux-${ODIN_ARCH}-nightly+2025-03-01.zip" -d /opt/odin-tmp \
+    && mv /opt/odin-tmp/odin-linux-${ODIN_ARCH}-nightly+2025-03-01 /opt/odin \
+    && ln -s /opt/odin/odin /usr/local/bin/odin \
+    && rm -rf "odin-linux-${ODIN_ARCH}-nightly+2025-03-01.zip" /opt/odin-tmp
 
 # ── JS sandbox (esbuild + react + jsdom) ─────────────────────────────────────
 RUN mkdir -p /js-sandbox && cd /js-sandbox \
