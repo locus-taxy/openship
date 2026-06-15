@@ -8,3 +8,4 @@ __pycache__/
 *.db
 ui/dist/
 .coverage
+erl_crash.dump
