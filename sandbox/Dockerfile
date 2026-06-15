@@ -9,6 +9,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Optional corporate proxy CA (e.g. Zscaler) ───────────────────────────────
+# Pass via: docker build --build-arg CORPORATE_CA_CERT="$(cat sandbox/corporate-ca.crt)"
+# Or place the cert at sandbox/corporate-ca.crt and use make sandbox-build
+ARG CORPORATE_CA_CERT=""
+RUN if [ -n "$CORPORATE_CA_CERT" ]; then \
+    printf '%s' "$CORPORATE_CA_CERT" > /usr/local/share/ca-certificates/corporate-ca.crt \
+    && update-ca-certificates; fi
+
 # ── Scripting languages ───────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip \
@@ -51,19 +59,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     groovy clojure nasm \
     && rm -rf /var/lib/apt/lists/*
 
-# ── SML + Octave (were missing from image) ───────────────────────────────────
+# ── SML (polyml) + Octave ─────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    smlnj octave \
+    polyml octave \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Microsoft repo — PowerShell + .NET SDK ───────────────────────────────────
-RUN curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb \
-        -o /tmp/packages-microsoft-prod.deb \
-    && dpkg -i /tmp/packages-microsoft-prod.deb \
-    && rm /tmp/packages-microsoft-prod.deb \
-    && apt-get update && apt-get install -y --no-install-recommends \
-        dotnet-sdk-8.0 powershell \
+# ── .NET SDK 8 (in Ubuntu 24.04 default repos) ───────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dotnet-sdk-8.0 \
     && rm -rf /var/lib/apt/lists/*
+
+# ── PowerShell 7.4 LTS ───────────────────────────────────────────────────────
+RUN ARCH=$(uname -m) \
+    && PWSH_ARCH=$([ "$ARCH" = "aarch64" ] && echo "arm64" || echo "x64") \
+    && curl -fL \
+        "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-${PWSH_ARCH}.tar.gz" \
+        -o /tmp/pwsh.tar.gz \
+    && mkdir -p /opt/powershell \
+    && tar xzf /tmp/pwsh.tar.gz -C /opt/powershell \
+    && chmod +x /opt/powershell/pwsh \
+    && ln -sf /opt/powershell/pwsh /usr/local/bin/pwsh \
+    && rm /tmp/pwsh.tar.gz
 
 # ── CoffeeScript ──────────────────────────────────────────────────────────────
 RUN npm install -g coffeescript --silent
@@ -99,8 +115,10 @@ RUN ARCH=$(uname -m) && if [ "$ARCH" = "x86_64" ]; then \
     && rm swift-6.0.3-RELEASE-ubuntu24.04.tar.gz; \
     else echo "Skipping Swift on $ARCH"; fi
 
-# ── Crystal ──────────────────────────────────────────────────────────────────
-RUN curl -fsSL https://crystal-lang.org/install.sh | bash
+# ── Crystal (x86_64 only — no ARM64 Linux binary release) ────────────────────
+RUN ARCH=$(uname -m) && if [ "$ARCH" = "x86_64" ]; then \
+    curl -fsSL https://crystal-lang.org/install.sh | bash; \
+    else echo "Skipping Crystal on $ARCH (no Linux ARM64 release available)"; fi
 
 # ── Zig ──────────────────────────────────────────────────────────────────────
 RUN ARCH=$(uname -m) \
@@ -121,10 +139,11 @@ RUN ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/') \
 # ── Deno ─────────────────────────────────────────────────────────────────────
 RUN ARCH=$(uname -m) \
     && DENO_ARCH=$([ "$ARCH" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
-    && wget --no-check-certificate -q \
+    && curl -fL \
         "https://github.com/denoland/deno/releases/latest/download/deno-${DENO_ARCH}-unknown-linux-gnu.zip" \
-    && unzip -q "deno-${DENO_ARCH}-unknown-linux-gnu.zip" -d /usr/local/bin \
-    && rm "deno-${DENO_ARCH}-unknown-linux-gnu.zip"
+        -o /tmp/deno.zip \
+    && unzip -q /tmp/deno.zip -d /usr/local/bin \
+    && rm /tmp/deno.zip
 
 # ── Julia ────────────────────────────────────────────────────────────────────
 RUN ARCH=$(uname -m) \
@@ -133,16 +152,6 @@ RUN ARCH=$(uname -m) \
     && tar xzf "julia-1.10.0-linux-${ARCH}.tar.gz" -C /opt \
     && ln -sf "/opt/julia-1.10.0/bin/julia" /usr/local/bin/julia \
     && rm "julia-1.10.0-linux-${ARCH}.tar.gz"
-
-# ── Odin ─────────────────────────────────────────────────────────────────────
-RUN ARCH=$(uname -m) \
-    && ODIN_ARCH=$([ "$ARCH" = "aarch64" ] && echo "arm64" || echo "amd64") \
-    && wget --no-check-certificate -q \
-        "https://github.com/odin-lang/Odin/releases/latest/download/odin-linux-${ODIN_ARCH}-nightly+2025-03-01.zip" \
-    && unzip -q "odin-linux-${ODIN_ARCH}-nightly+2025-03-01.zip" -d /opt/odin-tmp \
-    && mv /opt/odin-tmp/odin-linux-${ODIN_ARCH}-nightly+2025-03-01 /opt/odin \
-    && ln -s /opt/odin/odin /usr/local/bin/odin \
-    && rm -rf "odin-linux-${ODIN_ARCH}-nightly+2025-03-01.zip" /opt/odin-tmp
 
 # ── JS sandbox (esbuild + react + jsdom) ─────────────────────────────────────
 RUN mkdir -p /js-sandbox && cd /js-sandbox \

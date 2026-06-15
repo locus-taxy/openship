@@ -9,3 +9,5 @@ __pycache__/
 ui/dist/
 .coverage
 erl_crash.dump
+sandbox/zscaler-ca.crt
+sandbox/corporate-ca.crt

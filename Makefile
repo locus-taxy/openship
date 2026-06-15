@@ -63,10 +63,19 @@ format-check:
 
 sandbox-build:
 	@echo "Building openship-sandbox Docker image (this takes a few minutes on first run)..."
-	docker build -t openship-sandbox "$(ROOT)/sandbox"
+	@CERT_ARG=""; \
+	if [ -f "$(ROOT)/sandbox/corporate-ca.crt" ]; then \
+	    CERT_ARG="--build-arg CORPORATE_CA_CERT=$$(cat $(ROOT)/sandbox/corporate-ca.crt)"; \
+	    echo "  (corporate CA cert detected — injecting into image)"; \
+	fi; \
+	docker build $$CERT_ARG -t openship-sandbox "$(ROOT)/sandbox"
 	@echo "Done — sandbox image built. Set SANDBOX_USE_DOCKER=true in .env to activate."
 
 sandbox-rebuild:
 	@echo "Rebuilding openship-sandbox Docker image from scratch..."
-	docker build --no-cache -t openship-sandbox "$(ROOT)/sandbox"
+	@CERT_ARG=""; \
+	if [ -f "$(ROOT)/sandbox/corporate-ca.crt" ]; then \
+	    CERT_ARG="--build-arg CORPORATE_CA_CERT=$$(cat $(ROOT)/sandbox/corporate-ca.crt)"; \
+	fi; \
+	docker build --no-cache $$CERT_ARG -t openship-sandbox "$(ROOT)/sandbox"
 	@echo "Done."

@@ -92,7 +92,7 @@ case "$LANG" in
             && "$TMPDIR/main" ;;
     powershell|pwsh|ps1)  pwsh "$FILE" ;;
     commonlisp|cl|lisp2)  sbcl --script "$FILE" ;;
-    sml|standardml)       sml "$FILE" ;;
+    sml|standardml)       poly --script "$FILE" ;;
     prolog|pl2)           swipl -q -f "$FILE" ;;
     octave|matlab)        octave --no-gui --norc "$FILE" ;;
     deno)                 deno run "$FILE" ;;
