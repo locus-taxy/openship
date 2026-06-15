@@ -46,6 +46,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     haxe r-base \
     && rm -rf /var/lib/apt/lists/*
 
+# ── New languages ─────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    groovy clojure nasm \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── CoffeeScript ──────────────────────────────────────────────────────────────
+RUN npm install -g coffeescript --silent
+
 # ── Rust ─────────────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends rustc cargo \
     && rm -rf /var/lib/apt/lists/*

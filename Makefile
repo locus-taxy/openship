@@ -4,11 +4,12 @@ VENV := .venv
 PIP := $(VENV)/bin/pip
 ROOT := $(abspath .)
 
-.PHONY: help setup dev run-api run-ui format format-check install sandbox-build sandbox-rebuild
+.PHONY: help setup full-setup dev run-api run-ui format format-check install sandbox-build sandbox-rebuild
 
 help:
 	@echo "Openship Makefile"
-	@echo "  make setup           Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env"
+	@echo "  make setup           Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env
+  make full-setup      Same as setup, then builds the Docker sandbox image (all languages ready to go)"
 	@echo "  make dev             Start API and UI in separate Terminal windows"
 	@echo "  make run-api         FastAPI only (reload)"
 	@echo "  make run-ui          Vite dev server only"
@@ -19,6 +20,12 @@ help:
 	@echo "  make install         Alias for setup"
 
 install: setup
+
+full-setup:
+	@$(MAKE) setup
+	@$(MAKE) sandbox-build
+	@echo ""
+	@echo "All done! Set SANDBOX_USE_DOCKER=true in .env, then run 'make dev'."
 
 setup:
 	@chmod +x "$(ROOT)/scripts/setup.sh"

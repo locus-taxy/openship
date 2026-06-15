@@ -80,6 +80,16 @@ case "$LANG" in
     tcl)                  tclsh "$FILE" ;;
     awk)                  awk -f "$FILE" ;;
     groovy)               groovy "$FILE" ;;
+    clojure|clj)          clojure -e "(load-file \"$FILE\")" ;;
+    coffeescript|coffee)  coffee "$FILE" ;;
+    nasm|asm|assembly)
+        if [ "$(uname -m)" != "x86_64" ]; then
+            echo "Assembly (NASM) is only supported on x86_64 hosts." >&2
+            exit 1
+        fi
+        nasm -f elf64 "$FILE" -o "$TMPDIR/main.o" \
+            && ld "$TMPDIR/main.o" -o "$TMPDIR/main" \
+            && "$TMPDIR/main" ;;
     powershell|pwsh|ps1)  pwsh "$FILE" ;;
     commonlisp|cl|lisp2)  sbcl --script "$FILE" ;;
     sml|standardml)       sml "$FILE" ;;

@@ -112,6 +112,15 @@ class TestGetFilename:
         assert _get_filename("fortran") == "main.f90"
         assert _get_filename("haxe") == "main.hx"
 
+    def test_new_languages(self):
+        assert _get_filename("clojure") == "main.clj"
+        assert _get_filename("clj") == "main.clj"
+        assert _get_filename("coffeescript") == "main.coffee"
+        assert _get_filename("coffee") == "main.coffee"
+        assert _get_filename("nasm") == "main.asm"
+        assert _get_filename("asm") == "main.asm"
+        assert _get_filename("assembly") == "main.asm"
+
     def test_unknown_returns_txt(self):
         assert _get_filename("unknownlang") == "main.txt"
 
@@ -734,6 +743,65 @@ class TestRunNim:
             result = _run_nim("bad code")
         assert result.stderr != ""
 
+class TestRunClojure:
+    def test_runs(self):
+        with (
+            patch("subprocess.run", return_value=_ok(stdout="hi\n")),
+            patch("shutil.which", return_value="/usr/bin/clojure"),
+        ):
+            result = ec._run_clojure('(println "hi")')
+        assert result.stdout == "hi\n"
+
+    def test_timeout(self):
+        with (
+            patch("subprocess.run", side_effect=subprocess.TimeoutExpired("clojure", 60)),
+            patch("shutil.which", return_value="/usr/bin/clojure"),
+        ):
+            result = ec._run_clojure('(println "hi")')
+        assert "timed out" in result.stderr.lower()
+
+class TestRunNasm:
+    def test_compile_error(self):
+        with (
+            patch("subprocess.run", return_value=_fail(stderr="error: label")),
+            patch("shutil.which", return_value="/usr/bin/nasm"),
+        ):
+            result = ec._run_nasm("bad asm code")
+        assert result.stderr != ""
+
+    def test_link_error(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/nasm"),
+        ):
+            mock_run.side_effect = [_ok(), _fail(stderr="ld: error")]
+            result = ec._run_nasm("section .text")
+        assert result.stderr != ""
+
+    def test_runs(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/nasm"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(), _ok(stdout="hi\n")]
+            result = ec._run_nasm("section .text\nglobal _start")
+        assert result.stdout == "hi\n"
+
+    def test_raises_when_nasm_missing(self):
+        with patch("shutil.which", return_value=None), patch("os.path.isfile", return_value=False):
+            with pytest.raises(HTTPException) as exc:
+                ec._run_nasm("section .text")
+            assert exc.value.status_code == 500
+
+    def test_timeout(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/nasm"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(), subprocess.TimeoutExpired("./main", 15)]
+            result = ec._run_nasm("section .text")
+        assert "timed out" in result.stderr.lower()
+
 class TestRunCsharp:
     def test_runs(self):
         code = 'Console.WriteLine("hi");'
@@ -1249,6 +1317,39 @@ class TestRunCode:
             run_code(_req("odin", "package main"), _user())
         m.assert_called_once()
 
+    def test_dispatches_to_clojure(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"clojure": "/usr/bin/clojure"}),
+            patch.object(
+                ec, "_run_clojure", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as m,
+        ):
+            run_code(_req("clojure", '(println "hi")'), _user())
+        m.assert_called_once()
+
+    def test_dispatches_to_nasm(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"nasm": "/usr/bin/nasm"}),
+            patch.object(
+                ec, "_run_nasm", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as m,
+        ):
+            run_code(_req("nasm", "section .text"), _user())
+        m.assert_called_once()
+
+    def test_dispatches_to_coffeescript(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"coffee": "/usr/bin/coffee"}),
+            patch.object(
+                ec, "_run_simple", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_simple,
+        ):
+            run_code(_req("coffee", 'console.log "hi"'), _user())
+        mock_simple.assert_called_once()
+
     def test_unsupported_language_raises_400_end(self):
         with (
             patch.object(ec, "USE_DOCKER", False),
@@ -1279,3 +1380,53 @@ class TestExecuteRoutes:
         with patch.object(ec, "USE_DOCKER", False), patch.object(ec, "_AVAILABLE_RUNTIMES", {}):
             resp = auth_client.post("/execute", json={"language": "nonexistent", "code": "code"})
             assert resp.status_code == 400
+
+# ── coverage for previously-uncovered lines ───────────────────────────────────
+
+class TestRunSqlException:
+    def test_connect_exception_returns_stderr(self):
+        import sqlite3
+
+        with patch("sqlite3.connect", side_effect=Exception("db boom")):
+            r = _run_sql("SELECT 1")
+        assert "db boom" in r.stderr
+
+class TestFindScalaLib:
+    def test_returns_none_when_nothing_found(self):
+        with patch("glob.glob", return_value=[]):
+            result = ec._find_scala_lib()
+        assert result is None
+
+class TestRunCompiledSingle:
+    def test_raises_when_binary_missing(self):
+        with patch("shutil.which", return_value=None), patch("os.path.isfile", return_value=False):
+            with pytest.raises(HTTPException) as exc:
+                _run_crystal("x : Int32 = 1")
+            assert exc.value.status_code == 500
+
+    def test_timeout_during_run(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/crystal"),
+        ):
+            mock_run.side_effect = [
+                _ok(),
+                subprocess.TimeoutExpired("./main", 15),
+            ]
+            result = _run_crystal("puts 1")
+        assert "timed out" in result.stderr.lower()
+
+class TestRunNasmLinux:
+    def test_linux_link_path(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/nasm"),
+            patch("platform.system", return_value="Linux"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(), _ok(stdout="hello\n")]
+            result = ec._run_nasm("section .text\nglobal _start")
+        assert result.stdout == "hello\n"
+        ld_call = mock_run.call_args_list[1]
+        cmd = ld_call[0][0]
+        assert cmd[0] == "ld"
+        assert "-lSystem" not in cmd

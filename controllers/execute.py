@@ -129,6 +129,13 @@ def _get_filename(lang: str) -> str:
         "odin": "main.odin",
         "haxe": "main.hx",
         "hx": "main.hx",
+        "clojure": "main.clj",
+        "clj": "main.clj",
+        "coffeescript": "main.coffee",
+        "coffee": "main.coffee",
+        "nasm": "main.asm",
+        "asm": "main.asm",
+        "assembly": "main.asm",
     }
     return ext_map.get(lang, "main.txt")
 
@@ -268,6 +275,9 @@ _RUNTIME_SPECS = [
     ("awk", ["awk", "gawk"], ["awk"]),
     ("gfortran", ["gfortran"], ["fortran", "f90", "f95", "f77"]),
     ("haxe", ["haxe"], ["haxe", "hx"]),
+    ("clojure", ["clojure"], ["clojure", "clj"]),
+    ("coffee", ["coffee"], ["coffeescript", "coffee"]),
+    ("nasm", ["nasm"], ["nasm", "asm", "assembly"]),
     ("sqlite3", [None], ["sql", "sqlite", "postgresql", "postgres", "mysql"]),
 ]
 
@@ -388,8 +398,10 @@ _SIMPLE_RUNNERS: dict[str, tuple[str, str]] = {
     "tcl": ("tclsh", ".tcl"),
     "odin": ("odin", ".odin"),
     "haxe": ("haxe", ".hx"),
+    "coffeescript": ("coffee", ".coffee"),
+    "coffee": ("coffee", ".coffee"),
     # cobol, prolog, fortran, awk handled by dedicated runners
-    # crystal, nim, zig, csharp handled by dedicated runners
+    # crystal, nim, zig, csharp, clojure, nasm handled by dedicated runners
 }
 
 def _run_javascript(code: str, lang: str = "javascript") -> ExecuteResponse:
@@ -1131,6 +1143,67 @@ def _run_octave(code: str) -> ExecuteResponse:
                 stdout="", stderr=f"Execution timed out after {TIMEOUT_SECONDS}s."
             )
 
+def _run_clojure(code: str) -> ExecuteResponse:
+    clojure = _find_binary(["clojure"]) or "clojure"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src = os.path.join(tmpdir, "main.clj")
+        with open(src, "w") as f:
+            f.write(code)
+        try:
+            result = subprocess.run(
+                [clojure, "-e", f'(load-file "{src}")'],
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT_JVM,
+                cwd=tmpdir,
+            )
+            return ExecuteResponse(stdout=result.stdout, stderr=result.stderr)
+        except subprocess.TimeoutExpired:
+            return ExecuteResponse(stdout="", stderr=f"Execution timed out after {TIMEOUT_JVM}s.")
+
+def _run_nasm(code: str) -> ExecuteResponse:
+    import platform
+
+    nasm = _find_binary(["nasm"])
+    if not nasm:
+        raise HTTPException(status_code=500, detail="NASM assembler not installed.")
+    is_linux = platform.system() == "Linux"
+    fmt = "elf64" if is_linux else "macho64"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src = os.path.join(tmpdir, "main.asm")
+        obj = os.path.join(tmpdir, "main.o")
+        binary = os.path.join(tmpdir, "main")
+        with open(src, "w") as f:
+            f.write(code)
+        compile_result = subprocess.run(
+            [nasm, f"-f{fmt}", src, "-o", obj],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if compile_result.returncode != 0:
+            return ExecuteResponse(stdout="", stderr=compile_result.stderr)
+        if is_linux:
+            link_cmd = ["ld", obj, "-o", binary]
+        else:
+            link_cmd = ["ld", "-macosx_version_min", "10.13", "-lSystem", obj, "-o", binary]
+        link_result = subprocess.run(link_cmd, capture_output=True, text=True, timeout=30)
+        if link_result.returncode != 0:
+            return ExecuteResponse(stdout="", stderr=link_result.stderr)
+        try:
+            run_result = subprocess.run(
+                [binary],
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT_SECONDS,
+                cwd=tmpdir,
+            )
+            return ExecuteResponse(stdout=run_result.stdout, stderr=run_result.stderr)
+        except subprocess.TimeoutExpired:
+            return ExecuteResponse(
+                stdout="", stderr=f"Execution timed out after {TIMEOUT_SECONDS}s."
+            )
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def run_code(payload: ExecuteRequest, current_user: User) -> ExecuteResponse:
@@ -1196,6 +1269,10 @@ def run_code(payload: ExecuteRequest, current_user: User) -> ExecuteResponse:
         return _run_sbcl(code)
     if lang in ("octave", "matlab"):
         return _run_octave(code)
+    if lang in ("clojure", "clj"):
+        return _run_clojure(code)
+    if lang in ("nasm", "asm", "assembly"):
+        return _run_nasm(code)
     if lang in _SIMPLE_RUNNERS:
         return _run_simple(lang, code)
 
