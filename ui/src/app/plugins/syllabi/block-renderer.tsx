@@ -3,7 +3,7 @@ import mermaid from "mermaid"
 import hljs from "highlight.js"
 import "highlight.js/styles/atom-one-dark.css"
 import { Loader2, Pencil, Play, X } from "lucide-react"
-import { isRunnable, executeCode } from "@/services/executor"
+import { useIsRunnable, executeCode } from "@/services/executor"
 
 mermaid.initialize({ startOnLoad: false, theme: "dark", suppressErrors: true })
 
@@ -52,6 +52,7 @@ export function InlineText({ text }: { text: string }) {
 
 export function CodeBlock({ code, language }: { code: string; language: string }) {
     const ref = useRef<HTMLElement>(null)
+    const canRun                        = useIsRunnable(language)
     const [copied, setCopied]         = useState(false)
     const [isEditing, setIsEditing]   = useState(false)
     const [editedCode, setEditedCode] = useState(code)
@@ -131,7 +132,7 @@ export function CodeBlock({ code, language }: { code: string; language: string }
                 </button>
 
                 {/* Run button — only for python and javascript */}
-                {isRunnable(language) && (
+                {canRun && (
                     <button
                         type="button"
                         onClick={handleRun}

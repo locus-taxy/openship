@@ -4,17 +4,19 @@ VENV := .venv
 PIP := $(VENV)/bin/pip
 ROOT := $(abspath .)
 
-.PHONY: help setup dev run-api run-ui format format-check install
+.PHONY: help setup dev run-api run-ui format format-check install sandbox-build sandbox-rebuild
 
 help:
 	@echo "Openship Makefile"
-	@echo "  make setup       Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env"
-	@echo "  make dev         Start API and UI in separate Terminal windows"
-	@echo "  make run-api     FastAPI only (reload)"
-	@echo "  make run-ui      Vite dev server only"
-	@echo "  make format      Run Black + single-blank-line pass via pre-commit (may run twice)"
-	@echo "  make format-check  CI-style: fail if Python formatting is not clean"
-	@echo "  make install     Alias for setup"
+	@echo "  make setup           Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env"
+	@echo "  make dev             Start API and UI in separate Terminal windows"
+	@echo "  make run-api         FastAPI only (reload)"
+	@echo "  make run-ui          Vite dev server only"
+	@echo "  make sandbox-build   Build the Docker sandbox image (all 41 language runtimes)"
+	@echo "  make sandbox-rebuild Rebuild the sandbox image from scratch (no cache)"
+	@echo "  make format          Run Black + single-blank-line pass via pre-commit (may run twice)"
+	@echo "  make format-check    CI-style: fail if Python formatting is not clean"
+	@echo "  make install         Alias for setup"
 
 install: setup
 
@@ -50,3 +52,13 @@ format:
 
 format-check:
 	cd "$(ROOT)" && $(VENV)/bin/pre-commit run --all-files
+
+sandbox-build:
+	@echo "Building openship-sandbox Docker image (this takes a few minutes on first run)..."
+	docker build -t openship-sandbox "$(ROOT)/sandbox"
+	@echo "Done — sandbox image built. Set SANDBOX_USE_DOCKER=true in .env to activate."
+
+sandbox-rebuild:
+	@echo "Rebuilding openship-sandbox Docker image from scratch..."
+	docker build --no-cache -t openship-sandbox "$(ROOT)/sandbox"
+	@echo "Done."
