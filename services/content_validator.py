@@ -203,6 +203,13 @@ def validate_content_heuristics(
         w = re.sub(r"[^\w-]", "", raw_w).lower()
         if len(w) > 3 and w not in _STOPWORDS:
             task_keywords.add(w)
+    # If topic yielded no usable keywords, fall back to task_description so
+    # check 3 is never silently disabled.
+    if not task_keywords and topic:
+        for raw_w in task_description.split():
+            w = re.sub(r"[^\w-]", "", raw_w).lower()
+            if len(w) > 3 and w not in _STOPWORDS:
+                task_keywords.add(w)
     if task_keywords:
         matched = sum(
             1 for kw in task_keywords if re.search(r"\b" + re.escape(kw) + r"\b", all_text)

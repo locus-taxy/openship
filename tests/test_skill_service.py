@@ -202,6 +202,7 @@ class TestUpdateSkillIsTechnical:
         try:
             update_skill_is_technical(999, False)
             session.add.assert_not_called()
+            session.commit.assert_not_called()
         finally:
             patcher.stop()
 

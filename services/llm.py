@@ -1054,6 +1054,19 @@ def generate_chapter_content(
             return None, None, None
         logger.info("Heuristic validation PASSED [attempt=%d]", attempt + 1)
 
+        # ── Hard gate: reject code blocks for non-technical skills ────────────
+        if is_technical is False:
+            has_code = any(getattr(b, "type", "") == "code" for b in response.blocks)
+            if has_code:
+                logger.warning(
+                    "Non-technical chapter contains code block(s) [attempt=%d] — rejecting",
+                    attempt + 1,
+                )
+                if attempt == 0:
+                    logger.info("Retrying after non-technical code block rejection...")
+                    continue
+                return None, None, None
+
         # ── Layer 2: LLM-as-judge validation ──────────────────────────────────
         logger.info(
             "Running LLM judge [attempt=%d model=%s]",
