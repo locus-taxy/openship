@@ -313,7 +313,7 @@ class TestGenerateChapterCoveragePaths:
             "task": "Learn vars",
         }
 
-    def test_none_result_raises_500(self):
+    def test_none_result_raises_503(self):
         from controllers.content import generate_chapter
         from schemas.skill import GenerateChapterContentRequest
 
@@ -329,7 +329,7 @@ class TestGenerateChapterCoveragePaths:
         ):
             with pytest.raises(HTTPException) as exc_info:
                 generate_chapter(GenerateChapterContentRequest(task_id=1), user)
-        assert exc_info.value.status_code == 500
+        assert exc_info.value.status_code == 503
 
     def test_tokens_present_triggers_pricing(self):
         from controllers.content import generate_chapter

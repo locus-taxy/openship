@@ -5,7 +5,7 @@ import "highlight.js/styles/atom-one-dark.css"
 import { Loader2, Pencil, Play, X } from "lucide-react"
 import { useIsRunnable, executeCode } from "@/services/executor"
 
-mermaid.initialize({ startOnLoad: false, theme: "dark", suppressErrors: true })
+mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "sandbox" })
 
 export type BlockType =
     | "heading" | "paragraph" | "code"
@@ -255,6 +255,79 @@ export function CodeBlock({ code, language }: { code: string; language: string }
     )
 }
 
+/**
+ * Fix common LLM Mermaid mistakes that break the parser.
+ * Applied BEFORE rendering — keeps diagrams alive instead of falling back.
+ */
+function sanitizeDiagram(code: string): string {
+    const cleanLabel = (s: string) =>
+        s.replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "")
+
+    // Pass 1 — smart multi-line label merge.
+    // Only merge when the NEXT line has no Mermaid operators (-->  --- subgraph end).
+    // A line with --> is a new edge statement, not a label continuation.
+    const rawLines = code.split("\n")
+    const merged: string[] = []
+    let i = 0
+    while (i < rawLines.length) {
+        const line = rawLines[i]
+        const sq = (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0)
+        const pa = (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0)
+        const cu = (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
+        const next = rawLines[i + 1]
+        if ((sq > 0 || pa > 0 || cu > 0) && next !== undefined && !next.match(/-->|---|subgraph|\bend\b/)) {
+            merged.push(line.trimEnd() + " " + next.trim())
+            i += 2
+        } else {
+            merged.push(line)
+            i++
+        }
+    }
+
+    // Pass 2 — per-line fixes
+    return merged
+        .map(line => {
+            // Close any still-unclosed brackets at end of line
+            const sq = (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0)
+            if (sq > 0) line += "]".repeat(sq)
+            const pa = (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0)
+            if (pa > 0) line += ")".repeat(pa)
+            const cu = (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
+            if (cu > 0) line += "}".repeat(cu)
+
+            // Fix edge labels placed AFTER the destination node
+            // Wrong: --> C[Label] |edge text|   Right: -->|edge text| C[Label]
+            line = line.replace(
+                /(-->)\s*([A-Za-z][\w]*(?:\[[^\]]*\]|\([^)]*\)|\{[^}]*\})?)\s*\|([^|\n]+)\|/g,
+                (_, arr, node, edgeLabel) => `${arr}|${edgeLabel.trim()}| ${node}`,
+            )
+
+            // Clean forbidden characters inside node labels and edge labels
+            return line
+                .replace(/\[([^\]]+)\]/g, (_, c) => `[${cleanLabel(c)}]`)
+                .replace(/\(([^)]+)\)/g,  (_, c) => `(${cleanLabel(c)})`)
+                .replace(/\{([^}]+)\}/g,  (_, c) => `{${cleanLabel(c)}}`)
+                .replace(/\|([^|\n]+)\|/g, (_, c) => `|${cleanLabel(c)}|`)
+        })
+        .join("\n")
+}
+
+/** Strip Mermaid-only directives that add zero meaning as plain text. */
+function stripDiagramMeta(code: string): string {
+    return code
+        .split("\n")
+        .filter(line => {
+            const t = line.trim().toLowerCase()
+            return !t.startsWith("style ")
+                && !t.startsWith("classdef ")
+                && !t.startsWith("linkstyle ")
+                && !t.startsWith("click ")
+                && !t.startsWith("%%")
+        })
+        .join("\n")
+        .trim()
+}
+
 export function MermaidBlock({ code }: { code: string }) {
     const id = useId()
     const ref = useRef<HTMLDivElement>(null)
@@ -264,18 +337,24 @@ export function MermaidBlock({ code }: { code: string }) {
         let cancelled = false
         const renderId = `mermaid-${id.replace(/[^a-zA-Z0-9]/g, "")}`
 
-        mermaid.render(renderId, code)
+        function showFallback() {
+            if (cancelled || !ref.current) return
+            const pre = document.createElement("pre")
+            pre.className = "text-xs text-muted-foreground whitespace-pre-wrap p-4"
+            pre.textContent = stripDiagramMeta(code)
+            ref.current.replaceChildren(pre)
+        }
+
+        // Parse first — if the syntax is invalid, skip render entirely so the
+        // Mermaid error bomb never reaches the DOM. Only render on parse success.
+        const sanitized = sanitizeDiagram(code)
+        mermaid.parse(sanitized)
+            .then(() => mermaid.render(renderId, sanitized))
             .then(({ svg }) => {
-                if (!cancelled && ref.current) ref.current.innerHTML = svg
+                if (cancelled || !ref.current) return
+                ref.current.innerHTML = svg
             })
-            .catch(() => {
-                if (!cancelled && ref.current) {
-                    const pre = document.createElement("pre")
-                    pre.className = "text-xs text-muted-foreground whitespace-pre-wrap p-4"
-                    pre.textContent = code
-                    ref.current.replaceChildren(pre)
-                }
-            })
+            .catch(showFallback)
 
         return () => { cancelled = true }
     }, [code, id])

@@ -6,6 +6,7 @@ from services.llm import (
     _key_hash,
     _norm,
     _full_exc_msg,
+    _get_status_code,
     _raise_if_provider_error,
     _require_settings,
     fetch_provider_models,
@@ -117,9 +118,75 @@ class TestRaiseIfProviderError:
             _raise_if_provider_error("openai", exc)
         assert ei.value.status_code == 400
 
+    def test_raises_400_on_model_not_found_via_status_code(self):
+        """SDK exception with status_code=404 is caught even if str() has no keywords."""
+        exc = Exception("instructor retry failed")
+        exc.status_code = 404  # type: ignore[attr-defined]
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("anthropic", exc)
+        assert ei.value.status_code == 400
+        assert "does not have access to the selected model" in ei.value.detail
+
+    def test_raises_400_on_model_not_found_anthropic(self):
+        exc = Exception("not_found_error: model: claude-opus-4-7 not found")
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("anthropic", exc)
+        assert ei.value.status_code == 400
+        assert "does not have access to the selected model" in ei.value.detail
+
+    def test_raises_400_on_model_not_found_openai(self):
+        exc = Exception("model_not_found: The model gpt-9999 does not exist")
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("openai", exc)
+        assert ei.value.status_code == 400
+        assert "does not have access to the selected model" in ei.value.detail
+
+    def test_raises_400_on_insufficient_credits(self):
+        """403 with credit keywords → billing error, not 'invalid key'."""
+        exc = Exception("your credit balance is too low")
+        exc.status_code = 403  # type: ignore[attr-defined]
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("anthropic", exc)
+        assert ei.value.status_code == 400
+        assert "insufficient credits" in ei.value.detail
+
+    def test_raises_400_on_429_via_status_code(self):
+        exc = Exception("instructor retry failed")
+        exc.status_code = 429  # type: ignore[attr-defined]
+        with pytest.raises(HTTPException) as ei:
+            _raise_if_provider_error("openai", exc)
+        assert ei.value.status_code == 429
+
     def test_does_not_raise_on_generic_error(self):
         exc = Exception("some random internal error")
         _raise_if_provider_error("gemini", exc)  # should not raise
+
+class TestGetStatusCode:
+    def test_returns_status_code_from_direct_attribute(self):
+        exc = Exception("some error")
+        exc.status_code = 404  # type: ignore[attr-defined]
+        assert _get_status_code(exc) == 404
+
+    def test_returns_status_code_from_cause_chain(self):
+        cause = Exception("underlying")
+        cause.status_code = 403  # type: ignore[attr-defined]
+        wrapper = Exception("wrapper")
+        wrapper.__cause__ = cause  # type: ignore[attr-defined]
+        assert _get_status_code(wrapper) == 403
+
+    def test_returns_none_when_no_status_code(self):
+        assert _get_status_code(Exception("no code")) is None
+
+    def test_finds_status_code_on_context_branch_when_cause_has_none(self):
+        """When __cause__ has no status_code but __context__ does, the code is found.
+        Regression: the old 'or' traversal silently skipped __context__."""
+        cause_exc = Exception("cause without code")
+        context_exc = Exception("context with code")
+        context_exc.status_code = 403  # type: ignore[attr-defined]
+        wrapper = Exception("wrapper")
+        wrapper.__cause__ = cause_exc  # type: ignore[attr-defined]
+        wrapper.__context__ = context_exc  # type: ignore[attr-defined]
+        assert _get_status_code(wrapper) == 403
 
 class TestRequireSettings:
     def test_raises_400_when_provider_missing(self):
@@ -304,9 +371,19 @@ class TestGenerateChapterContent:
         mock_raw = MagicMock()
         mock_client = MagicMock()
         mock_client.chat.completions.create_with_completion.return_value = (mock_response, mock_raw)
+        from services.content_validator import HeuristicResult, ContentValidationResult
+
         with (
             patch("services.llm._build_client", return_value=mock_client),
             patch("services.llm.extract_token_counts", return_value=(100, 200)),
+            patch(
+                "services.content_validator.validate_content_heuristics",
+                return_value=HeuristicResult(passed=True, reason=""),
+            ),
+            patch(
+                "services.content_validator.validate_content_with_llm",
+                return_value=ContentValidationResult(valid=True, score=9, issues=[]),
+            ),
         ):
             result, inp, out = generate_chapter_content(
                 "Learn vars", "Variables", "Python", "gemini", "key", "gemini-flash"
@@ -347,6 +424,111 @@ class TestGenerateChapterContent:
             with pytest.raises(HTTPException) as ei:
                 generate_chapter_content("desc", "title", "Python", "gemini", "key", "gemini-flash")
         assert ei.value.status_code == 429
+
+class TestGenerateChapterContentValidation:
+    """Integration tests for the validation + retry loop inside generate_chapter_content."""
+
+    from services.content_validator import HeuristicResult, ContentValidationResult
+
+    _PASS_HEURISTIC = HeuristicResult(passed=True, reason="")
+    _FAIL_HEURISTIC = HeuristicResult(passed=False, reason="too short: 5 words")
+    _PASS_JUDGE = ContentValidationResult(valid=True, score=9, issues=[])
+    _FAIL_JUDGE = ContentValidationResult(valid=False, score=4, issues=["off-topic"])
+
+    def _run(self, heuristic_side_effect, judge_side_effect=None):
+        mock_response = MagicMock()
+        mock_raw = MagicMock()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create_with_completion.return_value = (
+            mock_response,
+            mock_raw,
+        )
+        judge_se = judge_side_effect or [self._PASS_JUDGE]
+        with (
+            patch("services.llm._build_client", return_value=mock_client),
+            patch("services.llm.extract_token_counts", return_value=(100, 200)),
+            patch(
+                "services.content_validator.validate_content_heuristics",
+                side_effect=heuristic_side_effect,
+            ),
+            patch(
+                "services.content_validator.validate_content_with_llm",
+                side_effect=judge_se,
+            ),
+        ):
+            result, _, _ = generate_chapter_content(
+                "Learn arrays", "Arrays", "C++", "gemini", "key", "gemini-flash"
+            )
+        return result, mock_response
+
+    def test_returns_content_when_both_layers_pass_first_attempt(self):
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._PASS_HEURISTIC],
+            judge_side_effect=[self._PASS_JUDGE],
+        )
+        assert result is mock_response
+
+    def test_retries_when_heuristic_fails_first_attempt(self):
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._FAIL_HEURISTIC, self._PASS_HEURISTIC],
+            judge_side_effect=[self._PASS_JUDGE],
+        )
+        assert result is mock_response
+
+    def test_returns_none_when_heuristic_fails_both_attempts(self):
+        result, _ = self._run(
+            heuristic_side_effect=[self._FAIL_HEURISTIC, self._FAIL_HEURISTIC],
+        )
+        assert result is None
+
+    def test_retries_when_judge_fails_first_attempt(self):
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._PASS_HEURISTIC, self._PASS_HEURISTIC],
+            judge_side_effect=[self._FAIL_JUDGE, self._PASS_JUDGE],
+        )
+        assert result is mock_response
+
+    def test_passes_content_through_when_judge_fails_both_attempts(self):
+        # LLM judge is a quality signal, not a hard gate. If heuristics pass but the
+        # judge fails twice, we still return content rather than giving the user a
+        # blank chapter. Better mediocre content than no content.
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._PASS_HEURISTIC, self._PASS_HEURISTIC],
+            judge_side_effect=[self._FAIL_JUDGE, self._FAIL_JUDGE],
+        )
+        assert result is mock_response
+
+    def test_passes_content_through_when_judge_raises_exception(self):
+        result, mock_response = self._run(
+            heuristic_side_effect=[self._PASS_HEURISTIC],
+            judge_side_effect=[RuntimeError("judge API down")],
+        )
+        assert result is mock_response
+
+    def test_generation_error_on_first_attempt_retries(self):
+        mock_response = MagicMock()
+        mock_raw = MagicMock()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create_with_completion.side_effect = [
+            Exception("transient network error"),
+            (mock_response, mock_raw),
+        ]
+        with (
+            patch("services.llm._build_client", return_value=mock_client),
+            patch("services.llm.extract_token_counts", return_value=(100, 200)),
+            patch(
+                "services.content_validator.validate_content_heuristics",
+                return_value=self._PASS_HEURISTIC,
+            ),
+            patch(
+                "services.content_validator.validate_content_with_llm",
+                return_value=self._PASS_JUDGE,
+            ),
+        ):
+            result, _, _ = generate_chapter_content(
+                "Learn arrays", "Arrays", "C++", "gemini", "key", "gemini-flash"
+            )
+        assert result is mock_response
 
 class TestGenerateChapterHtml:
     def test_raises_400_when_no_settings(self):
