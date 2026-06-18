@@ -106,6 +106,7 @@ def system_prompt(
         "9. divider — No additional fields needed.\n"
         '   Example: {"type": "divider"}\n\n'
         "10. diagram — REQUIRED: 'content' (valid Mermaid diagram syntax), 'format' must be 'mermaid'. Use this for ALL charts, flowcharts, pie charts, sequence diagrams, timelines, and relationship diagrams — NEVER a code block.\n"
+        "    ONLY use these supported Mermaid diagram types: graph (flowchart), sequenceDiagram, classDiagram, stateDiagram, gantt, pie, gitGraph, erDiagram, journey, mindmap, timeline, xychart-beta. NEVER use venn_diagram, network_diagram, radar_chart, bubble_chart, or any other type — they do not exist in Mermaid.js and will fail to render.\n"
         '    Example (flowchart): {"type": "diagram", "format": "mermaid", "content": "graph TD\\n  A[Start] --> B[End]"}\n'
         '    Example (pie chart): {"type": "diagram", "format": "mermaid", "content": "pie title Market Share\\n  \\"Apple\\" : 40\\n  \\"Samsung\\" : 30\\n  \\"Others\\" : 30"}\n\n'
         "Additional rules:\n"
