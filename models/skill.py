@@ -14,6 +14,7 @@ class Skill(SQLModel, table=True):
     share_enabled: bool = Field(default=False)
     generated_weeks: int = Field(default=0)
     total_weeks: int = Field(default=0)
+    is_technical: Optional[bool] = Field(default=None)
     created_at: Optional[datetime] = Field(
         default=None,
         sa_column=Column(DateTime, server_default=func.now()),

@@ -345,6 +345,21 @@ def get_public_syllabus_detail(skill_id: int) -> Optional[Dict[str, Any]]:
             ],
         }
 
+def update_skill_is_technical(skill_id: int, is_technical: bool) -> None:
+    """Persist the domain classification result set during syllabus generation."""
+    with Session(engine) as session:
+        skill = session.get(Skill, skill_id)
+        if skill:
+            skill.is_technical = is_technical
+            session.add(skill)
+            session.commit()
+
+def get_skill_is_technical(skill_id: int) -> Optional[bool]:
+    """Return the stored domain classification for a skill, or None if not yet classified."""
+    with Session(engine) as session:
+        skill = session.get(Skill, skill_id)
+        return skill.is_technical if skill else None
+
 def toggle_skill_share(skill_id: int, enable: bool, user_id: str) -> Optional[bool]:
     """Set share_enabled on a skill. Returns new value, or None if not found / not owner."""
     with Session(engine) as session:

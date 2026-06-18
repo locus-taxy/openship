@@ -120,24 +120,27 @@ function sanitizeDiagram(code: string): string {
         s.replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "")
 
     // Pass 1 — smart multi-line label merge.
-    // Only merge when the NEXT line has no Mermaid operators (-->  --- subgraph end).
-    // A line with --> is a new edge statement, not a label continuation.
+    // Loop until node brackets are balanced, merging continuation lines one at a time.
+    // A line that opens a new edge/statement (-->, ---, subgraph, end) stops the merge
+    // even if brackets are still unbalanced.
     const rawLines = code.split("\n")
     const merged: string[] = []
     let i = 0
     while (i < rawLines.length) {
-        const line = rawLines[i]
-        const sq = (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0)
-        const pa = (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0)
-        const cu = (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
-        const next = rawLines[i + 1]
-        if ((sq > 0 || pa > 0 || cu > 0) && next !== undefined && !next.match(/-->|---|subgraph|\bend\b/)) {
-            merged.push(line.trimEnd() + " " + next.trim())
-            i += 2
-        } else {
-            merged.push(line)
+        let line = rawLines[i]
+        i++
+        while (i < rawLines.length) {
+            const sq = (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0)
+            const pa = (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0)
+            const cu = (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
+            if (sq <= 0 && pa <= 0 && cu <= 0) break  // balanced — done
+            const next = rawLines[i]
+            if (next === undefined) break
+            if (/-->|---|subgraph|\bend\b|^\s*(?:style|classDef|linkStyle|click)\s/.test(next)) break  // new statement — stop
+            line = line.trimEnd() + " " + next.trim()
             i++
         }
+        merged.push(line)
     }
 
     // Pass 2 — per-line fixes
@@ -158,9 +161,31 @@ function sanitizeDiagram(code: string): string {
                 (_, arr, node, edgeLabel) => `${arr}|${edgeLabel.trim()}| ${node}`,
             )
 
-            // Clean forbidden characters inside node labels and edge labels
+            // Fix unclosed pipe edge labels where the destination node got merged into the label.
+            // e.g.: A -->|check cache miss Bfibonacci4  →  A -->|check cache miss| B[fibonacci4]
+            line = line.replace(
+                /(--[->])\|([^|\n]+)\s([A-Z])(\w*)\s*$/,
+                (_, edge, label, nodeId, nodeLabel) => {
+                    const nl = nodeLabel.trim()
+                    return `${edge}|${label.trim()}| ${nodeId}${nl ? `[${nl}]` : ""}`
+                },
+            )
+            // Fallback: strip any still-unclosed pipe edge labels so the parser doesn't choke.
+            line = line.replace(/(--[->]|\.->)\|[^|\n]+$/, "$1")
+
+            // Clean forbidden characters inside node labels and edge labels.
+            // HTML-mode labels ["..."] preserve their quotes so <br/> and : remain valid;
+            // only & and -- (which Mermaid misreads as an edge outside quotes) are neutralised.
             return line
-                .replace(/\[([^\]]+)\]/g, (_, c) => `[${cleanLabel(c)}]`)
+                .replace(/\[([^\]]+)\]/g, (_, c) => {
+                    if (c.startsWith('"') && c.length > 1) {
+                        // c may be missing its closing " if the bracket closer added ] without it
+                        const inner = (c.endsWith('"') ? c.slice(1, -1) : c.slice(1))
+                            .replace(/&/g, " and ").replace(/--/g, "–")
+                        return `["${inner}"]`
+                    }
+                    return `[${cleanLabel(c)}]`
+                })
                 .replace(/\(([^)]+)\)/g,  (_, c) => `(${cleanLabel(c)})`)
                 .replace(/\{([^}]+)\}/g,  (_, c) => `{${cleanLabel(c)}}`)
                 .replace(/\|([^|\n]+)\|/g, (_, c) => `|${cleanLabel(c)}|`)

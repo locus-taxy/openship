@@ -314,6 +314,65 @@ class TestValidateContentHeuristics:
         result = validate_content_heuristics(blocks, "swift introduction")
         assert result.passed is True
 
+class TestTopicKeywordParam:
+    """Check 3 uses topic when provided instead of task_description."""
+
+    def _recursion_blocks(self):
+        words = " ".join(["recursion"] * 50 + ["function", "call", "stack", "base", "case"] * 10)
+        return [_make_block("paragraph", content=words)]
+
+    def test_action_task_fails_without_topic(self):
+        # Task description has instruction words + resource names that never appear in content.
+        # Without a topic, check 3 extracts "geeksforgeeks", "oracle", etc. → fails.
+        blocks = self._recursion_blocks()
+        result = validate_content_heuristics(
+            blocks,
+            "Read about recursion from a reliable source (e.g., GeeksforGeeks or Oracle docs). "
+            "Write a 200-word summary explaining recursion in your own words.",
+        )
+        assert result.passed is False
+        assert "keyword" in result.reason.lower()
+
+    def test_action_task_passes_with_topic(self):
+        # Same content + same task description, but topic="What is Recursion?" is supplied.
+        # Check 3 now extracts only "recursion" from the topic → matched in content → passes.
+        blocks = self._recursion_blocks()
+        result = validate_content_heuristics(
+            blocks,
+            "Read about recursion from a reliable source (e.g., GeeksforGeeks or Oracle docs). "
+            "Write a 200-word summary explaining recursion in your own words.",
+            topic="What is Recursion?",
+        )
+        assert result.passed is True
+
+    def test_topic_keywords_used_not_task_keywords(self):
+        # Content contains topic words ("call", "stack") but NOT task description words.
+        # Verifies that only the topic is checked when topic is provided.
+        words = " ".join(["call"] * 50 + ["stack"] * 50)
+        blocks = [_make_block("paragraph", content=words)]
+        result = validate_content_heuristics(
+            blocks,
+            "Implement a linked list traversal algorithm with time complexity analysis",
+            topic="Understanding the Call Stack",
+        )
+        assert result.passed is True
+
+    def test_topic_punctuation_stripped(self):
+        # "What is Recursion?" — the "?" must be stripped so the keyword is "recursion"
+        # not "recursion?" (which would never match via word-boundary search).
+        words = " ".join(["recursion"] * 100)
+        blocks = [_make_block("paragraph", content=words)]
+        result = validate_content_heuristics(blocks, "irrelevant task", topic="What is Recursion?")
+        assert result.passed is True
+
+    def test_topic_none_falls_back_to_task_description(self):
+        # When topic is omitted the old behaviour is preserved — task_description is used.
+        # "arrays in C++" → only keyword is "arrays" (≤3-char tokens filtered); content matches.
+        words = " ".join(["arrays"] * 100)
+        blocks = [_make_block("paragraph", content=words)]
+        result = validate_content_heuristics(blocks, "arrays in C++")
+        assert result.passed is True
+
 # ── validate_content_with_llm ─────────────────────────────────────────────────
 
 class TestValidateContentWithLlm:

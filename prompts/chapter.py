@@ -38,12 +38,32 @@ _STYLE_RULES = {
     ),
 }
 
-def system_prompt(concise: bool = False, style: Optional[str] = None) -> str:
+_DOMAIN_RULE_NON_TECHNICAL = (
+    "\n\nDOMAIN CONSTRAINT — NON-TECHNICAL SKILL (overrides style rules where they conflict):\n"
+    "This skill does NOT involve coding or software. You MUST NOT include any 'code' blocks. "
+    "For demonstrations and worked examples, use 'bullet_list', 'numbered_list', 'table', or 'diagram' blocks instead."
+)
+
+_STYLE_RULES_EXAMPLE_HEAVY_NON_TECHNICAL = (
+    "MANDATORY STYLE RULES — EXAMPLE-HEAVY (must be followed exactly):\n"
+    "1. After every section heading (level 2 or 3), the VERY NEXT block MUST be a concrete example — "
+    "use a 'bullet_list' or 'numbered_list' showing a worked example or step-by-step demonstration. Never lead with a paragraph.\n"
+    "2. The paragraph explaining the example always comes AFTER the example block, not before.\n"
+    "3. Include at least 4 example blocks (worked examples, step-by-step lists, tables, or diagrams) in total across the chapter.\n"
+    "4. When introducing a new concept, always open with a concrete demonstration that shows it in action, then explain what it demonstrates and why it works that way.\n"
+    "5. Use real-world analogies inside paragraphs.\n"
+    "6. Demonstration blocks must make up more than half of all non-heading, non-divider blocks."
+)
+
+def system_prompt(
+    concise: bool = False, style: Optional[str] = None, is_technical: Optional[bool] = None
+) -> str:
     """Prompt for structured block-based chapter generation (new path).
 
     concise=True is used for providers with tight output token limits (e.g. Mistral Small).
     It targets fewer blocks and shorter paragraphs to stay within the 8 k token cap.
     style: one of 'balanced', 'example_heavy', 'theory_first', 'reinforcement' (or None = balanced).
+    is_technical: True = allow code blocks; False = forbid code blocks; None = no constraint.
     """
     block_count = "8-11" if concise else "8-14"
     depth_instruction = (
@@ -51,9 +71,14 @@ def system_prompt(concise: bool = False, style: Optional[str] = None) -> str:
         if concise
         else "Explain concepts in depth with real-world examples, step-by-step walkthroughs, and concrete demonstrations suited to the topic."
     )
-    # Style rules go AFTER block definitions so they are the last thing the LLM reads
-    # before generating — maximises compliance.
-    style_rules = _STYLE_RULES.get(style or "balanced", _STYLE_RULES["balanced"])
+    # For non-technical skills, use a variant of example_heavy that never mentions code blocks.
+    if is_technical is False and (style or "balanced") == "example_heavy":
+        style_rules = _STYLE_RULES_EXAMPLE_HEAVY_NON_TECHNICAL
+    else:
+        style_rules = _STYLE_RULES.get(style or "balanced", _STYLE_RULES["balanced"])
+
+    domain_constraint = _DOMAIN_RULE_NON_TECHNICAL if is_technical is False else ""
+
     return (
         "You are a senior educator and expert in the subject being taught. "
         "Write a beginner-friendly chapter explaining the concept or task described.\n\n"
@@ -94,7 +119,8 @@ def system_prompt(concise: bool = False, style: Optional[str] = None) -> str:
         "- Every code block must be complete and accurate — no placeholders or pseudocode\n"
         "- ALWAYS end the chapter with these two blocks in order: "
         "(1) a 'heading' block with level=2 and content='Key Takeaways', "
-        "(2) a 'bullet_list' block with 4-6 concise points summarising what the reader learned\n\n"
+        "(2) a 'bullet_list' block with 4-6 concise points summarising what the reader learned"
+        f"{domain_constraint}\n\n"
         f"{style_rules}"
     )
 

@@ -16,6 +16,7 @@ from services.llm import (
     generate_chapter_content,
     generate_chapter_html,
     generate_week_plan,
+    classify_skill_domain,
     verify_model,
     PROVIDER_MODELS,
     DEFAULT_MODELS,
@@ -883,4 +884,40 @@ class TestGenerateWeekPlan:
         with patch("services.llm._build_client", return_value=mock_client):
             with pytest.raises(HTTPException) as ei:
                 generate_week_plan("Python", 2, 4, [], [], 7, 8, "gemini", "key", "gemini-flash")
+        assert ei.value.status_code == 429
+
+class TestClassifySkillDomain:
+    def test_returns_true_for_technical_skill(self):
+        mock_response = MagicMock()
+        mock_response.is_technical = True
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = classify_skill_domain("Python Programming", "openai", "key", "gpt-4o-mini")
+        assert result is True
+
+    def test_returns_false_for_non_technical_skill(self):
+        mock_response = MagicMock()
+        mock_response.is_technical = False
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = classify_skill_domain("Public Speaking", "openai", "key", "gpt-4o-mini")
+        assert result is False
+
+    def test_returns_none_on_exception(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("network error")
+        with patch("services.llm._build_client", return_value=mock_client):
+            result = classify_skill_domain("Python", "openai", "key", "gpt-4o-mini")
+        assert result is None
+
+    def test_reraises_http_exception(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = HTTPException(
+            status_code=429, detail="quota"
+        )
+        with patch("services.llm._build_client", return_value=mock_client):
+            with pytest.raises(HTTPException) as ei:
+                classify_skill_domain("Python", "openai", "key", "gpt-4o-mini")
         assert ei.value.status_code == 429

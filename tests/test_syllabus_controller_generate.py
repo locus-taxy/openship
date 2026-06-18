@@ -188,6 +188,29 @@ class TestGenerateSyllabus:
         assert result["status"] == "success"
         mock_create.assert_not_called()
 
+    def test_success_stores_is_technical_when_classified(self):
+        """Covers line 140: update_skill_is_technical is called when domain classification succeeds."""
+        user = _make_user()
+        syllabus_data = [{"month": 1, "weeks": []}]
+        with (
+            patch("controllers.syllabus.get_skill", return_value=_make_skill()),
+            patch("controllers.syllabus.get_skill_id_by_email_and_skill", return_value=1),
+            patch("controllers.syllabus.generate_syllabus_json", return_value=syllabus_data),
+            patch("controllers.syllabus.store_syllabus_tasks", return_value=True),
+            patch("controllers.syllabus.get_user_provider_name", return_value="gemini"),
+            patch("controllers.syllabus.get_user_api_key", return_value="key"),
+            patch("controllers.syllabus.get_user_model", return_value="gemini-flash"),
+            patch("controllers.syllabus.clear_syllabus_tasks"),
+            patch("controllers.syllabus.clear_all_quizzes"),
+            patch("controllers.syllabus.update_skill_weeks"),
+            patch("controllers.syllabus.get_topics_for_week", return_value=[]),
+            patch("controllers.syllabus.classify_skill_domain", return_value=True),
+            patch("controllers.syllabus.update_skill_is_technical") as mock_update,
+        ):
+            result = generate_syllabus(GenerateSyllabusRequest(skill="Python"), user)
+        assert result["status"] == "success"
+        mock_update.assert_called_once_with(1, True)
+
     def test_success_when_week1_quiz_generation_raises(self):
         """Covers line 148-149: exception during quiz pre-generation is non-fatal."""
         user = _make_user()

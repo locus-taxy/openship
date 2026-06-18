@@ -13,6 +13,7 @@ from services.skill import (
     toggle_skill_share,
     delete_skill,
     update_skill_weeks,
+    update_skill_is_technical,
 )
 from services.llm import (
     generate_syllabus_json,
@@ -20,6 +21,7 @@ from services.llm import (
     get_user_api_key,
     get_user_model,
     get_user_provider_name,
+    classify_skill_domain,
 )
 from services.daily_task import store_syllabus_tasks, clear_syllabus_tasks
 from services.quiz import get_topics_for_week, create_quiz, clear_all_quizzes, WEEKLY_QUIZ_QUESTIONS
@@ -124,6 +126,20 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     # Count total weeks across all months and set progressive unlock tracking
     total_weeks = sum(len(month.get("weeks", [])) for month in syllabus_data)
     update_skill_weeks(skill_id, generated_weeks=1, total_weeks=total_weeks)
+
+    # Classify skill domain (technical vs non-technical) so chapter prompts can be tailored.
+    # Non-fatal: if classification fails the course still works, just without domain-specific rules.
+    try:
+        is_technical = classify_skill_domain(
+            skill=payload.skill,
+            provider=provider,
+            api_key=api_key,
+            model=model,
+        )
+        if is_technical is not None:
+            update_skill_is_technical(skill_id, is_technical)
+    except Exception as exc:
+        logger.warning("Domain classification failed (non-fatal): %s", exc)
 
     # Pre-generate Week 1 quiz so it's ready when the user completes all Week 1 chapters
     pool_size = 1 if provider == "mistral" else 2
