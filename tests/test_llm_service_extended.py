@@ -531,6 +531,79 @@ class TestGenerateChapterContentValidation:
             )
         assert result is mock_response
 
+    def _make_block_with_type(self, block_type):
+        b = MagicMock()
+        b.type = block_type
+        return b
+
+    def test_non_technical_retries_when_code_block_on_first_attempt(self):
+        """Hard gate: code block in non-technical chapter triggers retry on attempt 0."""
+        mock_raw = MagicMock()
+        mock_client = MagicMock()
+        response_with_code = MagicMock()
+        response_with_code.blocks = [self._make_block_with_type("code")]
+        response_clean = MagicMock()
+        response_clean.blocks = [self._make_block_with_type("paragraph")]
+        mock_client.chat.completions.create_with_completion.side_effect = [
+            (response_with_code, mock_raw),
+            (response_clean, mock_raw),
+        ]
+        with (
+            patch("services.llm._build_client", return_value=mock_client),
+            patch("services.llm.extract_token_counts", return_value=(100, 200)),
+            patch(
+                "services.content_validator.validate_content_heuristics",
+                return_value=self._PASS_HEURISTIC,
+            ),
+            patch(
+                "services.content_validator.validate_content_with_llm",
+                return_value=self._PASS_JUDGE,
+            ),
+        ):
+            result, _, _ = generate_chapter_content(
+                "Learn public speaking",
+                "Public Speaking Basics",
+                "Public Speaking",
+                "gemini",
+                "key",
+                "gemini-flash",
+                is_technical=False,
+            )
+        assert result is response_clean
+
+    def test_non_technical_returns_none_when_both_attempts_have_code_block(self):
+        """Hard gate: code block on both attempts returns None for non-technical skill."""
+        mock_raw = MagicMock()
+        mock_client = MagicMock()
+        response_with_code = MagicMock()
+        response_with_code.blocks = [self._make_block_with_type("code")]
+        mock_client.chat.completions.create_with_completion.side_effect = [
+            (response_with_code, mock_raw),
+            (response_with_code, mock_raw),
+        ]
+        with (
+            patch("services.llm._build_client", return_value=mock_client),
+            patch("services.llm.extract_token_counts", return_value=(100, 200)),
+            patch(
+                "services.content_validator.validate_content_heuristics",
+                return_value=self._PASS_HEURISTIC,
+            ),
+            patch(
+                "services.content_validator.validate_content_with_llm",
+                return_value=self._PASS_JUDGE,
+            ),
+        ):
+            result, _, _ = generate_chapter_content(
+                "Learn public speaking",
+                "Public Speaking Basics",
+                "Public Speaking",
+                "gemini",
+                "key",
+                "gemini-flash",
+                is_technical=False,
+            )
+        assert result is None
+
 class TestGenerateChapterHtml:
     def test_raises_400_when_no_settings(self):
         with pytest.raises(HTTPException) as ei:

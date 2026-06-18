@@ -373,6 +373,15 @@ class TestTopicKeywordParam:
         result = validate_content_heuristics(blocks, "arrays in C++")
         assert result.passed is True
 
+    def test_topic_with_no_usable_keywords_falls_back_to_task_description(self):
+        # topic="The" → 3 chars → filtered → task_keywords empty → fallback to task_description.
+        # task_description "Learn about arrays" → "learn"/"about" are stopwords → only "arrays"
+        # extracted → required=1 → content matches → passes.
+        words = " ".join(["arrays"] * 100)
+        blocks = [_make_block("paragraph", content=words)]
+        result = validate_content_heuristics(blocks, "Learn about arrays", topic="The")
+        assert result.passed is True
+
 # ── validate_content_with_llm ─────────────────────────────────────────────────
 
 class TestValidateContentWithLlm:
