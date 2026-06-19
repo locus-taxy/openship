@@ -321,6 +321,7 @@ class TestGenerateChapterCoveragePaths:
         chapter = self._make_chapter()
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.get_skill_is_technical", return_value=None),
             patch("controllers.content.sample_style", return_value="balanced"),
             patch("controllers.content.generate_chapter_content", return_value=None),
             patch("controllers.content.get_user_provider_name", return_value="gemini"),
@@ -341,6 +342,7 @@ class TestGenerateChapterCoveragePaths:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.get_skill_is_technical", return_value=None),
             patch("controllers.content.sample_style", return_value="balanced"),
             patch(
                 "controllers.content.generate_chapter_content",
@@ -370,6 +372,7 @@ class TestGenerateChapterCoveragePaths:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.get_skill_is_technical", return_value=None),
             patch("controllers.content.sample_style", return_value="balanced"),
             patch(
                 "controllers.content.generate_chapter_content",
@@ -410,6 +413,7 @@ class TestGenerateChapterCoveragePaths:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.get_skill_is_technical", return_value=None),
             patch("controllers.content.sample_style", return_value="balanced"),
             patch(
                 "controllers.content.generate_chapter_content",

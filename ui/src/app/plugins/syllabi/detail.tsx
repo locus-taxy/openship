@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
     ArrowLeft, ArrowRight, CheckCircle2,
     FileText, ChevronDown, ChevronRight, Sparkles, Loader2,
-    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap, Brain, Lock, Settings,
+    Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap, Brain, Lock, Settings, Zap,
 } from "lucide-react"
 import { QuizPanel, WeeklyQuizPanel } from "./quiz"
 import { Button } from "@/components/ui/button"
@@ -486,7 +486,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
 
 // ─── Chapter Nav (left panel) ─────────────────────────────────────────────────
 
-function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, onSelectWeeklyQuiz, activeWeek, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus, generatedWeeks, totalWeeks, generatingWeek }: {
+function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, onSelectWeeklyQuiz, activeWeek, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus, generatedWeeks, totalWeeks, generatingWeek, bulkGenerating, onGenerateWeek }: {
     detail: SyllabusDetail
     activeChapterId: number | null
     onSelectChapter: (chapter: Chapter) => void
@@ -508,6 +508,8 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
     generatedWeeks: number
     totalWeeks: number
     generatingWeek: number | null
+    bulkGenerating: Record<number, { done: number; total: number }>
+    onGenerateWeek: (week: number, tasks: Chapter[]) => void
 }) {
     const [openMonths, setOpenMonths] = useState<Set<number>>(
         () => new Set(detail.months.map((m) => m.month))
@@ -620,6 +622,27 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                                 <div className="flex items-center gap-1 px-4 py-1">
                                     <p className="text-xs text-muted-foreground/60 font-medium flex-1">Week {week.week}</p>
                                     {weekLocked && <Lock className="h-2.5 w-2.5 text-muted-foreground/40" />}
+                                    {!weekLocked && (() => {
+                                        const bulk = bulkGenerating[week.week]
+                                        if (bulk) return (
+                                            <span className="flex items-center gap-1">
+                                                <span className="text-xs text-muted-foreground/60">{bulk.done}/{bulk.total}</span>
+                                                <Loader2 className="h-2.5 w-2.5 text-muted-foreground/40 animate-spin" />
+                                            </span>
+                                        )
+                                        const pendingCount = week.tasks.filter((t) => !t.has_content).length
+                                        if (pendingCount === 0) return null
+                                        return (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); onGenerateWeek(week.week, week.tasks) }}
+                                                className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-primary border border-muted-foreground/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-colors"
+                                            >
+                                                <Zap className="h-2.5 w-2.5" />
+                                                Generate all
+                                            </button>
+                                        )
+                                    })()}
                                 </div>
                                 {weekLocked ? (
                                     <div className="w-full flex items-center gap-2 px-4 py-1.5 opacity-35 cursor-not-allowed select-none">
@@ -803,6 +826,8 @@ export default function SyllabusDetailPage() {
     const [activeWeek, setActiveWeek] = useState<number | null>(null)
     const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set())
     const [generatingWeek, setGeneratingWeek] = useState<number | null>(null)
+    const [bulkGenerating, setBulkGenerating] = useState<Record<number, { done: number; total: number }>>({})
+    const { toast } = useToast()
     const [navCollapsed, setNavCollapsed] = useState(false)
     const [navWidth, setNavWidth] = useState(350)
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -960,6 +985,36 @@ export default function SyllabusDetailPage() {
         setGeneratingIds((prev) => { const next = new Set(prev); next.delete(taskId); return next })
     }
 
+    async function handleGenerateWeek(week: number, tasks: Chapter[]) {
+        const todo = tasks.filter((t) => !t.has_content)
+        if (todo.length === 0) return
+        setBulkGenerating((prev) => ({ ...prev, [week]: { done: 0, total: todo.length } }))
+        for (let i = 0; i < todo.length; i++) {
+            const task = todo[i]
+            handleGenerationStart(task.id)
+            try {
+                await api.post("/py/generate-content/chapter", { task_id: task.id })
+                handleContentGenerated(task.id)
+            } catch (err: any) {
+                const status = err?.response?.status
+                const rawDetail = err?.response?.data?.detail
+                const detail = typeof rawDetail === "string" ? rawDetail : ""
+                toast({
+                    variant: "destructive",
+                    title: `Failed: ${task.topic}`,
+                    description: detail || `Request failed${status ? ` (${status})` : ""}`,
+                })
+            } finally {
+                handleGenerationEnd(task.id)
+                setBulkGenerating((prev) => ({
+                    ...prev,
+                    [week]: { done: i + 1, total: todo.length },
+                }))
+            }
+        }
+        setBulkGenerating((prev) => { const next = { ...prev }; delete next[week]; return next })
+    }
+
     function handleChapterCompleted(taskId: number) {
         setDetail((prev) => {
             if (!prev) return prev
@@ -1076,6 +1131,8 @@ export default function SyllabusDetailPage() {
                         generatedWeeks={detail.generated_weeks}
                         totalWeeks={detail.total_weeks}
                         generatingWeek={generatingWeek}
+                        bulkGenerating={bulkGenerating}
+                        onGenerateWeek={handleGenerateWeek}
                     />
                     {/* Resize handle */}
                     <div

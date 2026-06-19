@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Any, List
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -155,12 +155,22 @@ def _blocks_to_text(blocks: List[Any]) -> str:
             lines.append(f"[DIAGRAM] {content}")
     return "\n\n".join(lines)
 
-def validate_content_heuristics(blocks: List[Any], task_description: str) -> HeuristicResult:
+def validate_content_heuristics(
+    blocks: List[Any],
+    task_description: str,
+    topic: Optional[str] = None,
+) -> HeuristicResult:
     """Run cheap rule-based checks on generated chapter blocks.
 
     Returns HeuristicResult with passed=True if all checks pass,
     or passed=False with a reason describing the first failure found.
     No external calls — runs in microseconds.
+
+    topic: short topic title (e.g. "What is Recursion?"). When provided,
+           keyword relevance (check 3) is measured against the topic rather
+           than task_description, which often contains action verbs and
+           resource names ("GeeksforGeeks", "reliable source") that never
+           appear in generated educational content.
     """
     all_text = _extract_all_text(blocks)
     word_count = len(all_text.split())
@@ -181,13 +191,25 @@ def validate_content_heuristics(blocks: List[Any], task_description: str) -> Heu
         return HeuristicResult(passed=False, reason=reason)
     logger.info("Heuristic check 2 passed (no placeholder text)")
 
-    # 3. Enough keywords from the task description appear in the content.
-    # Stopwords and short tokens are excluded. Matching uses word boundaries so
-    # "data" does not satisfy "database". At least min(2, n_keywords) distinct
-    # keywords must match to pass.
-    task_keywords = {
-        w.lower() for w in task_description.split() if len(w) > 3 and w.lower() not in _STOPWORDS
-    }
+    # 3. Enough keywords from the topic (or task description as fallback) appear
+    # in the content.  Topic titles ("What is Recursion?") are a cleaner source
+    # than task descriptions which mix action verbs and external resource names
+    # ("Read from GeeksforGeeks…") that never show up in chapter prose.
+    # Punctuation is stripped from each token before keyword extraction so that
+    # "(e.g.," and "docs)." are not accidentally promoted to keywords.
+    keyword_source = topic if topic else task_description
+    task_keywords: set = set()
+    for raw_w in keyword_source.split():
+        w = re.sub(r"[^\w-]", "", raw_w).lower()
+        if len(w) > 3 and w not in _STOPWORDS:
+            task_keywords.add(w)
+    # If topic yielded no usable keywords, fall back to task_description so
+    # check 3 is never silently disabled.
+    if not task_keywords and topic:
+        for raw_w in task_description.split():
+            w = re.sub(r"[^\w-]", "", raw_w).lower()
+            if len(w) > 3 and w not in _STOPWORDS:
+                task_keywords.add(w)
     if task_keywords:
         matched = sum(
             1 for kw in task_keywords if re.search(r"\b" + re.escape(kw) + r"\b", all_text)
