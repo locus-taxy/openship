@@ -12,9 +12,13 @@ from models.quiz_question import QuizQuestion
 from models.quiz_attempt import QuizAttempt
 from models.topic_knowledge import TopicKnowledge
 from models.content_style_arms import ContentStyleArm
+from models.onboarding_plan import OnboardingPlan
+from models.onboarding_day import OnboardingDay
 
 __all__ = [
     "ContentStyleArm",
+    "OnboardingPlan",
+    "OnboardingDay",
     "DailyTask",
     "LlmProvider",
     "LlmUsageLog",
