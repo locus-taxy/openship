@@ -20,9 +20,10 @@ def store_remediation_topics(
     LLM-generated day name the syllabus produced (e.g. "Reinforcing: Arrays").
     """
     try:
-        # Deduplicate: a topic may appear in both lists when it failed the quiz AND is
-        # forgotten. Inserting the same topic twice would violate the unique constraint.
-        weak_set = set(weak_topics)
+        # Deduplicate both lists. weak_topics may contain duplicates if the caller
+        # passes a raw topic_scores list; forgotten_topics may overlap with weak.
+        unique_weak = list(dict.fromkeys(weak_topics))
+        weak_set = set(unique_weak)
         unique_forgotten = [t for t in forgotten_topics if t not in weak_set]
 
         with Session(engine) as session:
@@ -32,7 +33,7 @@ def store_remediation_topics(
                     WeekRemediationTopic.week == week,
                 )
             )
-            for topic in weak_topics:
+            for topic in unique_weak:
                 session.add(
                     WeekRemediationTopic(
                         skill_id=skill_id, week=week, topic=topic, topic_type="weak"

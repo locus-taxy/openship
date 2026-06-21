@@ -28,7 +28,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column(
         "daily_tasks",
-        sa.Column("is_remediation_day", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column("is_remediation_day", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
 
     op.create_table(
@@ -42,6 +42,9 @@ def upgrade() -> None:
         sa.Column("topic_type", sa.String(16), nullable=False),
         sa.UniqueConstraint(
             "skill_id", "week", "topic", name="uq_week_remediation_skill_week_topic"
+        ),
+        sa.CheckConstraint(
+            "topic_type IN ('weak', 'forgotten')", name="ck_week_remediation_topic_type"
         ),
     )
     op.create_index("ix_week_remediation_topics_skill_id", "week_remediation_topics", ["skill_id"])

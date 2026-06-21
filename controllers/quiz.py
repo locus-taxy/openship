@@ -178,10 +178,6 @@ def _generate_next_week(
         # Plan confirmed valid — now atomically replace old week data.
         delete_week_tasks(skill_id, next_week)
 
-        # Persist canonical topic names BEFORE storing tasks so get_topics_for_week
-        # can resolve them when the quiz is generated immediately after.
-        store_remediation_topics(skill_id, next_week, remediation_topics, forgotten)
-
         if not store_week_tasks(
             user_id_str,
             skill_name,
@@ -198,6 +194,10 @@ def _generate_next_week(
                 skill_id,
             )
             return
+
+        # Persist canonical topic names only after tasks are confirmed stored,
+        # so remediation topics and week tasks are never in an inconsistent state.
+        store_remediation_topics(skill_id, next_week, remediation_topics, forgotten)
 
         next_topics = quiz_service.get_topics_for_week(skill_id, next_week)
         if next_topics and quiz_service.get_quiz_by_week(skill_id, next_week) is None:

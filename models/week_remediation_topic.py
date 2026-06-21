@@ -1,11 +1,14 @@
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from sqlalchemy import Column, Integer, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, ForeignKey, UniqueConstraint, CheckConstraint
 
 class WeekRemediationTopic(SQLModel, table=True):
     __tablename__ = "week_remediation_topics"
     __table_args__ = (
         UniqueConstraint("skill_id", "week", "topic", name="uq_week_remediation_skill_week_topic"),
+        CheckConstraint(
+            "topic_type IN ('weak', 'forgotten')", name="ck_week_remediation_topic_type"
+        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
