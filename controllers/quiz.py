@@ -37,13 +37,20 @@ from services.llm import (
 from services.daily_task import (
     delete_week_tasks,
     store_week_tasks,
-    get_max_day_for_skill,
     get_week_content_style,
+    get_max_day_for_week,
 )
+from services.week_remediation import store_remediation_topics
 from database import engine
 from sqlmodel import Session
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of forgotten topics included in a weekly plan/quiz.
+# Topics are ordered most-forgotten first by get_forgotten_topics, so this cap
+# keeps the most urgent ones. Without a cap, long courses accumulate 20+ forgotten
+# topics which drives quiz question counts past the LLM output token limit.
+_FORGOTTEN_WEEK_CAP = 5
 
 def _get_owned_skill(skill_id: int, current_user: User) -> Skill:
     with Session(engine) as session:
@@ -108,8 +115,17 @@ def _generate_next_week(
     try:
         weak = get_weak_topics(skill_id, user_id_int)
         forgotten = get_forgotten_topics(skill_id, user_id_int)
+        # Cap: topics already sorted most-forgotten first; drop the tail so the quiz
+        # and LLM week-plan prompt stay within a manageable size on long courses.
+        forgotten = forgotten[:_FORGOTTEN_WEEK_CAP]
         days_in_week = max(1, math.ceil(skill_days / skill_total_weeks))
-        start_day = get_max_day_for_skill(skill_id) + 1
+        # Use the actual last day of the previous week so that any mismatch between
+        # days_in_week and what the LLM returned (e.g. initial syllabus gave 7 days
+        # instead of 6) doesn't cause the new week to overlap with an existing day
+        # number.  Reading next_week-1 data is safe from race conditions because the
+        # background task only writes to next_week rows, never to next_week-1 rows.
+        prev_last_day = get_max_day_for_week(skill_id, next_week - 1)
+        start_day = prev_last_day + 1 if prev_last_day > 0 else (next_week - 1) * days_in_week + 1
         month = ((next_week - 1) // 4) + 1
 
         # Fetch previous week's quiz attempt to get targeted failed topics
@@ -125,7 +141,9 @@ def _generate_next_week(
                 # (not the full BKT history which can include many old topics)
                 pass_threshold = prev_quiz.pass_score
                 remediation_topics = [
-                    t for t, s in prev_attempt["topic_scores"].items() if s["pct"] < pass_threshold
+                    t
+                    for t, s in prev_attempt["topic_scores"].items()
+                    if s["pct"] < pass_threshold and t != "General"
                 ]
 
         # Fall back to top-3 BKT weak topics only when there is no prior attempt.
@@ -135,7 +153,8 @@ def _generate_next_week(
 
         remediation = calc_remediation_days(score_for_remediation, days_in_week)
 
-        delete_week_tasks(skill_id, next_week)
+        # Generate plan BEFORE deleting old data so we only wipe state once we know
+        # the LLM returned a valid plan. A None return leaves the existing week intact.
         daily_plan = generate_week_plan(
             skill=skill_name,
             week=next_week,
@@ -156,28 +175,46 @@ def _generate_next_week(
             )
             return
 
-        store_week_tasks(
-            user_id_str, skill_name, skill_id, next_week, month, daily_plan, skill_hours
-        )
+        # Plan confirmed valid — now atomically replace old week data.
+        delete_week_tasks(skill_id, next_week)
+
+        # Persist canonical topic names BEFORE storing tasks so get_topics_for_week
+        # can resolve them when the quiz is generated immediately after.
+        store_remediation_topics(skill_id, next_week, remediation_topics, forgotten)
+
+        if not store_week_tasks(
+            user_id_str,
+            skill_name,
+            skill_id,
+            next_week,
+            month,
+            daily_plan,
+            skill_hours,
+            remediation_days=remediation,
+        ):
+            logger.error(
+                "Week %d task storage failed [skill=%d] — quiz pre-generation skipped",
+                next_week,
+                skill_id,
+            )
+            return
 
         next_topics = quiz_service.get_topics_for_week(skill_id, next_week)
         if next_topics and quiz_service.get_quiz_by_week(skill_id, next_week) is None:
             bg_pool_size = 1 if provider == "mistral" else 2
+            num_unique = max(quiz_service.WEEKLY_QUIZ_QUESTIONS, len(next_topics))
             generated = generate_weekly_quiz(
                 skill=skill_name,
                 week=next_week,
                 topics=next_topics,
-                num_questions=quiz_service.WEEKLY_QUIZ_QUESTIONS,
+                num_questions=num_unique,
                 provider=provider,
                 api_key=api_key,
                 model=model,
                 pool_size=bg_pool_size,
             )
             if generated:
-                num_unique = quiz_service.WEEKLY_QUIZ_QUESTIONS
-                topic_map = {
-                    i: next_topics[(i - 1) % len(next_topics)] for i in range(1, num_unique + 1)
-                }
+                topic_map = quiz_service.build_topic_map(next_topics, num_unique)
                 quiz_service.create_quiz(
                     skill_id,
                     generated.questions,
@@ -209,11 +246,12 @@ def generate_weekly_quiz_for_skill(
     model = get_user_model(current_user)
 
     pool_size = 1 if provider == "mistral" else 2
+    num_unique = max(quiz_service.WEEKLY_QUIZ_QUESTIONS, len(topics))
     generated = generate_weekly_quiz(
         skill=skill.skill,
         week=week,
         topics=topics,
-        num_questions=quiz_service.WEEKLY_QUIZ_QUESTIONS,
+        num_questions=num_unique,
         provider=provider,
         api_key=api_key,
         model=model,
@@ -224,9 +262,7 @@ def generate_weekly_quiz_for_skill(
             status_code=502, detail="Weekly quiz generation failed. Please try again."
         )
 
-    # Build topic_map: pool_group → topic (distribute topics evenly across unique questions)
-    num_unique = quiz_service.WEEKLY_QUIZ_QUESTIONS
-    topic_map = {i: topics[(i - 1) % len(topics)] for i in range(1, num_unique + 1)}
+    topic_map = quiz_service.build_topic_map(topics, num_unique)
 
     try:
         quiz = quiz_service.create_quiz(
@@ -271,6 +307,14 @@ def submit_weekly_quiz(
             )
     question_map = {q.id: q for q in all_questions}
     questions = [question_map[qid] for qid in payload.answers if qid in question_map]
+    # Deduplicate: one question per pool_group so BKT is updated exactly once per topic slot.
+    _seen: set = set()
+    questions = [
+        q
+        for q in questions
+        if (_k := q.pool_group if q.pool_group is not None else q.id) not in _seen
+        and not _seen.add(_k)  # type: ignore[func-returns-value]
+    ]
 
     attempt = quiz_service.record_attempt(quiz, current_user.id, payload.answers, questions)
 
@@ -284,7 +328,9 @@ def submit_weekly_quiz(
         update_topic_knowledge(skill_id, current_user.id, bkt_inputs)
 
     prev_score = quiz_service.get_previous_best_score(skill_id, current_user.id, before_week=week)
-    improved = prev_score is None or attempt.score > prev_score
+    # When there's no prior weekly quiz (week 1), use pass/fail as the signal
+    # instead of defaulting to improved=True, which would reward any style regardless of score.
+    improved = attempt.passed if prev_score is None else attempt.score > prev_score
     stored_style = get_week_content_style(skill_id, week)
     if stored_style:
         update_arm(skill_id, current_user.id, stored_style, improved)
@@ -371,10 +417,21 @@ def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateRe
     model = get_user_model(current_user)
 
     all_for_map = list(dict.fromkeys(weak + forgotten))
-    topic_week_map = quiz_service.get_topic_week_map(skill_id, all_for_map)
 
     pool_size = 1 if provider == "mistral" else 2
     num_questions = quiz_service.get_num_questions(skill.days)
+    # Cap: each topic gets ≥1 question slot so num_questions bounds both LLM output
+    # and pool sizes. Without the cap, long courses accumulate 30+ topics which drives
+    # total questions past the LLM output token limit and causes generation to fail.
+    # Topics are ordered: weakest p_known first (from get_weak_topics), then most-forgotten
+    # first (from get_forgotten_topics), so the cap drops the least-urgent topics.
+    if len(all_for_map) > num_questions:
+        all_for_map = all_for_map[:num_questions]
+        _map_set = set(all_for_map)
+        weak = [t for t in weak if t in _map_set]
+        forgotten = [t for t in forgotten if t in _map_set]
+
+    topic_week_map = quiz_service.get_topic_week_map(skill_id, all_for_map)
     generated = generate_final_quiz(
         skill=skill.skill,
         weak_topics=weak,
@@ -391,11 +448,7 @@ def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateRe
             status_code=502, detail="Final quiz generation failed. Please try again."
         )
 
-    topic_map = (
-        {i: all_for_map[(i - 1) % len(all_for_map)] for i in range(1, num_questions + 1)}
-        if all_for_map
-        else None
-    )
+    topic_map = quiz_service.build_topic_map(all_for_map, num_questions) if all_for_map else None
     try:
         quiz = quiz_service.create_quiz(
             skill_id=skill_id,
@@ -436,6 +489,13 @@ def submit_quiz(
             )
     question_map = {q.id: q for q in all_questions}
     questions = [question_map[qid] for qid in payload.answers if qid in question_map]
+    _seen2: set = set()
+    questions = [
+        q
+        for q in questions
+        if (_k2 := q.pool_group if q.pool_group is not None else q.id) not in _seen2
+        and not _seen2.add(_k2)  # type: ignore[func-returns-value]
+    ]
 
     attempt = quiz_service.record_attempt(quiz, current_user.id, payload.answers, questions)
 

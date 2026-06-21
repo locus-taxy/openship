@@ -29,6 +29,7 @@ class DailyTask(SQLModel, table=True):
         sa_column=Column(Integer, ForeignKey("pricing_snapshots.id"), nullable=True),
     )
     content_style: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    is_remediation_day: bool = Field(default=False)
     completed: bool = Field(default=False)
     stop_sending: bool = Field(default=False)
     completed_at: Optional[datetime] = Field(

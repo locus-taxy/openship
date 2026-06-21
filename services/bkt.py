@@ -3,6 +3,7 @@ from typing import List, Tuple
 from sqlmodel import Session, select
 from database import engine
 from models.topic_knowledge import TopicKnowledge
+from services.daily_task import get_canonical_topic_names
 
 MASTERY_THRESHOLD = 0.95
 
@@ -74,16 +75,25 @@ def update_topic_knowledge(
         session.commit()
 
 def get_weak_topics(skill_id: int, user_id: int) -> List[str]:
-    """Return topics where p_known < MASTERY_THRESHOLD, ordered weakest first."""
+    """Return canonical topics where p_known < MASTERY_THRESHOLD, ordered weakest first.
+
+    Filters to canonical topics only (from non-remediation DailyTask rows) so that
+    pre-fix phantom alias rows like "Reinforcing: Arrays" are never surfaced.
+    """
+    canonical = get_canonical_topic_names(skill_id)
+    if not canonical:
+        return []
+    canonical_set = set(canonical)
     with Session(engine) as session:
         rows = session.exec(
             select(TopicKnowledge).where(
                 TopicKnowledge.skill_id == skill_id,
                 TopicKnowledge.user_id == user_id,
                 TopicKnowledge.p_known < MASTERY_THRESHOLD,
+                TopicKnowledge.topic.in_(canonical),
             )
         ).all()
-    return [r.topic for r in sorted(rows, key=lambda r: r.p_known)]
+    return [r.topic for r in sorted(rows, key=lambda r: r.p_known) if r.topic in canonical_set]
 
 def calc_remediation_days(prev_score: int, days_in_week: int) -> int:
     """Return how many days of next week to dedicate to remediation based on quiz score.

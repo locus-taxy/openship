@@ -9,6 +9,7 @@ from models.quiz import Quiz, WEEKLY_PASS_SCORE, FINAL_PASS_SCORE
 from models.quiz_attempt import QuizAttempt
 from models.quiz_question import QuizQuestion
 from services.llm import GeneratedQuestion
+from services.week_remediation import get_canonical_topics_for_week
 
 NUM_QUESTIONS = {
     30: 10,
@@ -53,11 +54,16 @@ def all_chapters_complete(skill_id: int) -> bool:
         return incomplete is None
 
 def get_topic_week_map(skill_id: int, topics: List[str]) -> Dict[str, int]:
-    """Return {topic: earliest_week} for the given topic names."""
+    """Return {topic: earliest_week} for the given topic names (canonical days only)."""
     topic_set = set(topics)
     with Session(engine) as session:
         tasks = session.exec(
-            select(DailyTask).where(DailyTask.skill_id == skill_id).order_by(DailyTask.week)
+            select(DailyTask)
+            .where(
+                DailyTask.skill_id == skill_id,
+                DailyTask.is_remediation_day == False,  # noqa: E712
+            )
+            .order_by(DailyTask.week)
         ).all()
     result: Dict[str, int] = {}
     for t in tasks:
@@ -66,30 +72,71 @@ def get_topic_week_map(skill_id: int, topics: List[str]) -> Dict[str, int]:
     return result
 
 def get_topics_for_skill(skill_id: int) -> List[str]:
-    """Return ordered list of topic strings across the whole course."""
+    """Return ordered canonical topic strings across the whole course.
+
+    Excludes remediation-day topics whose names are LLM-generated aliases
+    (e.g. "Reinforcing: Arrays") rather than the original topic names.
+    """
     with Session(engine) as session:
         tasks = session.exec(
             select(DailyTask)
-            .where(DailyTask.skill_id == skill_id)
+            .where(
+                DailyTask.skill_id == skill_id,
+                DailyTask.is_remediation_day == False,  # noqa: E712
+            )
             .order_by(DailyTask.month, DailyTask.week, DailyTask.day)
         ).all()
         return [t.topic for t in tasks if t.topic]
 
 def get_topics_for_week(skill_id: int, week: int) -> List[str]:
-    """Return deduplicated ordered topics for a specific week."""
+    """Return canonical topics for a week's quiz.
+
+    For weeks that have remediation days the canonical topic names (stored when
+    the week plan was generated) are returned instead of whatever the LLM named
+    the remediation-day chapters.  New-topic days always use DailyTask.topic.
+
+    Order: canonical remediation topics first, then new topics.
+    """
+    canonical = get_canonical_topics_for_week(skill_id, week)
+
     with Session(engine) as session:
         tasks = session.exec(
             select(DailyTask)
-            .where(DailyTask.skill_id == skill_id, DailyTask.week == week)
+            .where(
+                DailyTask.skill_id == skill_id,
+                DailyTask.week == week,
+                DailyTask.is_remediation_day == False,  # noqa: E712
+            )
             .order_by(DailyTask.day)
         ).all()
-        seen = set()
-        topics = []
-        for t in tasks:
-            if t.topic and t.topic not in seen:
-                seen.add(t.topic)
-                topics.append(t.topic)
-        return topics
+
+    seen = set(canonical)
+    new_topics: List[str] = []
+    for t in tasks:
+        if t.topic and t.topic not in seen:
+            seen.add(t.topic)
+            new_topics.append(t.topic)
+
+    return canonical + new_topics
+
+def build_topic_map(topics: List[str], num_questions: int) -> Dict[int, str]:
+    """Return a pool_group→topic mapping that guarantees at least 1 slot per topic.
+
+    num_questions must be >= len(topics) so every topic gets at least one slot.
+    Any remaining slots are distributed round-robin.
+    """
+    if not topics:
+        return {}
+    if num_questions < len(topics):
+        raise ValueError(
+            f"num_questions ({num_questions}) must be >= len(topics) ({len(topics)}) "
+            "so every topic gets at least one question slot"
+        )
+    slots: List[str] = list(topics)
+    extra = num_questions - len(slots)
+    for i in range(extra):
+        slots.append(topics[i % len(topics)])
+    return {i + 1: slots[i] for i in range(num_questions)}
 
 def get_quiz_by_skill(skill_id: int) -> Optional[Quiz]:
     """Return the final quiz (week=0) for this skill, or None."""
@@ -221,8 +268,9 @@ def record_attempt(
 
         if passed:
             db_quiz = session.get(Quiz, quiz.id)
-            db_quiz.status = "passed"
-            session.add(db_quiz)
+            if db_quiz is not None:
+                db_quiz.status = "passed"
+                session.add(db_quiz)
 
         session.commit()
         session.refresh(attempt)
@@ -281,7 +329,7 @@ def get_latest_attempt_results(quiz_id: int, user_id: int) -> Optional[Dict[str,
         served_ids = {int(k) for k in attempt.answers}
         topic_scores: Dict[str, Dict[str, int]] = {}
         for q in questions:
-            if q.pool_group is not None and q.id not in served_ids:
+            if q.id not in served_ids:
                 continue
             selected = attempt.answers.get(str(q.id), "")
             is_correct = bool(selected) and selected.upper() == q.correct_option.upper()

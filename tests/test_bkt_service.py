@@ -161,33 +161,57 @@ class TestGetWeakTopics:
         mock_cls.return_value.__exit__ = MagicMock(return_value=False)
         return patcher
 
+    def _make_session(self, rows):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = rows
+        session.exec.return_value = exec_mock
+        return session
+
     def test_returns_topics_below_mastery_threshold_sorted_weakest_first(self):
         rows = [
             TopicKnowledge(skill_id=1, user_id=1, topic="Loops", week=1, p_known=0.50),
             TopicKnowledge(skill_id=1, user_id=1, topic="Variables", week=1, p_known=0.20),
         ]
-        session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.all.return_value = rows
-        session.exec.return_value = exec_mock
+        session = self._make_session(rows)
         patcher = self._patch_session(session)
-        try:
-            result = get_weak_topics(1, 1)
-            assert result == ["Variables", "Loops"]  # weakest first
-        finally:
-            patcher.stop()
+        canonical = ["Variables", "Loops"]
+        with patch("services.bkt.get_canonical_topic_names", return_value=canonical):
+            try:
+                result = get_weak_topics(1, 1)
+                assert result == ["Variables", "Loops"]  # weakest first
+            finally:
+                patcher.stop()
 
-    def test_returns_empty_list_when_no_weak_topics(self):
-        session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.all.return_value = []
-        session.exec.return_value = exec_mock
-        patcher = self._patch_session(session)
-        try:
+    def test_returns_empty_list_when_no_canonical_topics(self):
+        """Early exit when skill has no canonical (non-remediation) topics yet."""
+        with patch("services.bkt.get_canonical_topic_names", return_value=[]):
             result = get_weak_topics(1, 1)
             assert result == []
-        finally:
-            patcher.stop()
+
+    def test_returns_empty_list_when_no_weak_topics(self):
+        session = self._make_session([])
+        patcher = self._patch_session(session)
+        with patch("services.bkt.get_canonical_topic_names", return_value=["Variables"]):
+            try:
+                result = get_weak_topics(1, 1)
+                assert result == []
+            finally:
+                patcher.stop()
+
+    def test_phantom_alias_topic_excluded(self):
+        """A phantom "Reinforcing: X" row is never returned even if p_known is low."""
+        phantom = TopicKnowledge(
+            skill_id=1, user_id=1, topic="Reinforcing: Arrays", week=2, p_known=0.10
+        )
+        session = self._make_session([phantom])
+        patcher = self._patch_session(session)
+        with patch("services.bkt.get_canonical_topic_names", return_value=["Arrays"]):
+            try:
+                result = get_weak_topics(1, 1)
+                assert "Reinforcing: Arrays" not in result
+            finally:
+                patcher.stop()
 
 class TestCalcRemediationDays:
     def test_perfect_score_returns_zero(self):
