@@ -28,7 +28,6 @@ from services.quiz import (
     get_topics_for_week,
     create_quiz,
     clear_all_quizzes,
-    WEEKLY_QUIZ_QUESTIONS,
     build_topic_map,
 )
 from services.week_remediation import clear_remediation_topics
@@ -154,7 +153,7 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     try:
         week1_topics = get_topics_for_week(skill_id, 1)
         if week1_topics:
-            num_unique = max(WEEKLY_QUIZ_QUESTIONS, len(week1_topics))
+            num_unique = len(week1_topics)
             generated = generate_weekly_quiz(
                 skill=payload.skill,
                 week=1,

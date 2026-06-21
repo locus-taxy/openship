@@ -202,7 +202,7 @@ def _generate_next_week(
         next_topics = quiz_service.get_topics_for_week(skill_id, next_week)
         if next_topics and quiz_service.get_quiz_by_week(skill_id, next_week) is None:
             bg_pool_size = 1 if provider == "mistral" else 2
-            num_unique = max(quiz_service.WEEKLY_QUIZ_QUESTIONS, len(next_topics))
+            num_unique = len(next_topics)  # exactly 1 question per topic → pct always 0 or 100
             generated = generate_weekly_quiz(
                 skill=skill_name,
                 week=next_week,
@@ -246,7 +246,7 @@ def generate_weekly_quiz_for_skill(
     model = get_user_model(current_user)
 
     pool_size = 1 if provider == "mistral" else 2
-    num_unique = max(quiz_service.WEEKLY_QUIZ_QUESTIONS, len(topics))
+    num_unique = len(topics)
     generated = generate_weekly_quiz(
         skill=skill.skill,
         week=week,
@@ -419,17 +419,17 @@ def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateRe
     all_for_map = list(dict.fromkeys(weak + forgotten))
 
     pool_size = 1 if provider == "mistral" else 2
-    num_questions = quiz_service.get_num_questions(skill.days)
-    # Cap: each topic gets ≥1 question slot so num_questions bounds both LLM output
-    # and pool sizes. Without the cap, long courses accumulate 30+ topics which drives
-    # total questions past the LLM output token limit and causes generation to fail.
-    # Topics are ordered: weakest p_known first (from get_weak_topics), then most-forgotten
-    # first (from get_forgotten_topics), so the cap drops the least-urgent topics.
-    if len(all_for_map) > num_questions:
-        all_for_map = all_for_map[:num_questions]
+    # Cap total topics to the course max so the LLM output stays within token limits.
+    # Topics are ordered weakest-first then most-forgotten-first, so the cap drops the
+    # least-urgent topics. After capping, num_questions = len(all_for_map) so the LLM
+    # generates exactly 1 question per topic — pct per topic is always 0 or 100.
+    max_questions = quiz_service.get_num_questions(skill.days)
+    if len(all_for_map) > max_questions:
+        all_for_map = all_for_map[:max_questions]
         _map_set = set(all_for_map)
         weak = [t for t in weak if t in _map_set]
         forgotten = [t for t in forgotten if t in _map_set]
+    num_questions = len(all_for_map)
 
     topic_week_map = quiz_service.get_topic_week_map(skill_id, all_for_map)
     generated = generate_final_quiz(

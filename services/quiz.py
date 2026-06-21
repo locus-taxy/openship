@@ -16,7 +16,6 @@ NUM_QUESTIONS = {
     60: 12,
     90: 15,
 }
-WEEKLY_QUIZ_QUESTIONS = 5
 
 def get_num_questions(days: int) -> int:
     if days <= 30:
