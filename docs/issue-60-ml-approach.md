@@ -6,7 +6,9 @@
 
 **What changes:**
 - 2 new DB tables (`topic_knowledge`, `content_style_arms`)
+- 1 new table (`week_remediation_topics`) — stores canonical topic names for remediation weeks
 - 1 new column on `quiz_questions` (topic tag per question)
+- 1 new column on `daily_tasks` (`is_remediation_day`) — flags review/revision days
 - Small additions to `skills` and `quizzes` tables
 - Difficulty removed from enrollment - the ML figures this out automatically
 
@@ -128,6 +130,21 @@ Then apply learning opportunity (runs after both cases):
 | `p_known >= 0.95` | Mastered | No reinforcement needed next week |
 | `p_known < 0.95` | Weak | Topic passed into next week's LLM prompt |
 
+With the default params, a topic reaches mastery after ~4 correct consecutive answers (p_known ≈ 0.989).
+
+---
+
+### Stability Mapping (used by Forgetting Curve)
+
+After each BKT update, `stability_days` is set based on `p_known`:
+
+| `p_known` | `stability_days` | Memory lasts |
+|---|---|---|
+| `≥ 0.95` (mastered) | 21 days | ~3 weeks |
+| `≥ 0.70` (good) | 10 days | ~10 days |
+| `≥ 0.40` (partial) | 5 days | ~5 days |
+| `≥ 0.0` (including start at 0.10) | 2 days | ~2 days |
+
 ---
 
 ### New Table: `topic_knowledge`
@@ -239,30 +256,45 @@ This is a critical design decision: the bandit's reward signal is the weekly qui
 8. User takes the weekly quiz → score determined → `update_arm("theory_first", improved)` runs
 9. Week N+1 first chapter → `get_week_content_style()` returns `None` again → fresh `sample_style()` with updated Beta distributions
 
+**The `improved` signal — critical distinction:**
+
+```
+Week 1: no previous score exists
+  → improved = attempt.passed   (True if score ≥ pass_score=60, else False)
+  → reason: no prior score to compare against; pass/fail is the only signal available
+
+Week 2+: previous weekly quiz score exists
+  → improved = (this_week_score > prev_week_score)   (strict improvement)
+  → reason: the user has a baseline — we reward beating it, not just passing
+```
+
 **Where this runs in code:**
 - `services/daily_task.py: get_week_content_style(skill_id, week)` - queries `daily_tasks` for the style already used this week
 - `services/bandit.py: sample_style()` - called only when `get_week_content_style` returns `None` (first chapter of the week)
 - `services/bandit.py: update_arm()` - called in `controllers/quiz.py: submit_weekly_quiz()` with the `improved` boolean
-- The reward signal is `improved = (attempt.score > prev_best_score)` - strict improvement, not just passing
 - The used style is persisted on `daily_tasks.content_style` and shown as a badge in the UI
 
 **Example: 5 weeks for one user**
 
 ```
 Week 1: all arms at Beta(1,1) → sample → "balanced" → ALL 7 chapters use balanced
-        quiz score: 65% → update_arm("balanced", improved=False) → balanced: beta=2
+        quiz score: 65% (pass_score=60) → passed=True → improved=True
+        update_arm("balanced", improved=True) → balanced: alpha=2
 
-Week 2: balanced penalised → sample → "example_heavy" → ALL chapters use example_heavy
-        quiz score: 72% (+7%) → update_arm("example_heavy", improved=True) → alpha=2
+Week 2: balanced favoured → sample → "example_heavy" → ALL chapters use example_heavy
+        quiz score: 58% → improved = (58 > 65) = False
+        update_arm("example_heavy", improved=False) → example_heavy: beta=2
 
-Week 3: example_heavy favoured → sample → "example_heavy" again
-        quiz score: 68% (-4%) → update_arm("example_heavy", improved=False) → beta=2
+Week 3: example_heavy penalised → sample → "theory_first"
+        quiz score: 78% → improved = (78 > 58) = True
+        update_arm("theory_first", improved=True) → theory_first: alpha=2
 
-Week 4: example_heavy and others roughly equal → exploration → "theory_first"
-        quiz score: 81% (+13%) → update_arm("theory_first", improved=True) → alpha=2
+Week 4: theory_first favoured → sample → "theory_first" again
+        quiz score: 81% → improved = (81 > 78) = True
+        update_arm("theory_first", improved=True) → theory_first: alpha=3
 
-Week 5: theory_first now favoured → sample → "theory_first"
-        quiz score: 85% (+4%) → update_arm("theory_first", improved=True) → alpha=3
+Week 5: theory_first strongly favoured → sample → "theory_first"
+        quiz score: 85% → improved = (85 > 81) = True → theory_first: alpha=4
 ```
 
 After 5 weeks the system has learned this user is a **theory-first learner**.
@@ -290,9 +322,9 @@ Stores the bandit state for every style, for every user, for every skill.
 
 ```
 skill_id  user_id  style           alpha  beta
-1         42       balanced        1.0    2.0    ← tried once, no improvement
-1         42       example_heavy   2.0    2.0    ← tried twice, mixed results
-1         42       theory_first    3.0    1.0    ← tried twice, both improved ← WINNER
+1         42       balanced        2.0    1.0    ← tried once, improved
+1         42       example_heavy   1.0    2.0    ← tried once, no improvement
+1         42       theory_first    4.0    1.0    ← tried three times, all improved ← WINNER
 1         42       reinforcement   1.0    1.0    ← never tried yet
 ```
 
@@ -317,23 +349,16 @@ R(t) = e^(-t / S)
 
 R = retention  (1.0 = perfect recall,  0.0 = completely forgotten)
 t = days since the topic was last studied
-S = stability  (how long the memory lasts - depends on how well it was learned)
+S = stability  (how long the memory lasts - depends on how well it was learned via BKT)
 ```
 
-If `R < 0.70` (30% or more forgotten), a review task is injected into next week's content.
+If `R < 0.70` (30% or more forgotten), the topic is flagged for review.
 
 ---
 
 ### Setting Stability (S)
 
-BKT's `p_known` score tells us how well the user learned the topic. We use it to set S:
-
-| BKT `p_known` | Stability S | Memory lasts |
-|---|---|---|
-| `≥ 0.95` (mastered) | 21 days | ~3 weeks |
-| `0.70 – 0.94` (good) | 10 days | ~10 days |
-| `0.40 – 0.69` (weak) | 5 days | ~5 days |
-| `< 0.40` (very weak) | 2 days | ~2 days |
+BKT's `p_known` score tells us how well the user learned the topic. We use it to set S (see stability mapping table in Algorithm 1 above).
 
 ---
 
@@ -351,6 +376,12 @@ Only **25% retention** - the user has mostly forgotten Loops. A review task gets
 
 ---
 
+### Forgotten Topics Cap
+
+Forgotten topics are sorted ascending by retention (most-forgotten first). To keep weeks manageable, only the **top 5 most-forgotten topics** are included in any single weekly plan (`_FORGOTTEN_WEEK_CAP = 5`). The final quiz has no such cap — it includes all forgotten topics, subject only to the overall question count limit.
+
+---
+
 ### No New Table - Two New Columns on `topic_knowledge`
 
 The forgetting curve state lives on the same `topic_knowledge` table as BKT. We add:
@@ -359,6 +390,43 @@ The forgetting curve state lives on the same `topic_knowledge` table as BKT. We 
 |---|---|---|
 | last_studied_at | datetime | when this topic was last in a quiz (used to compute `t`) |
 | stability_days | float | S value, derived from `p_known` after each quiz |
+
+---
+
+## Topic Canonicalisation — Preventing Phantom BKT Rows
+
+### The Problem
+
+When a remediation week is generated, the LLM names the revision chapter something like *"Reinforcing: Arrays"* rather than the original topic name *"Arrays"*. If we tag quiz questions with this alias name, BKT creates a phantom row for `"Reinforcing: Arrays"` instead of updating the real `"Arrays"` row. The user's real knowledge state is never updated.
+
+### The Solution — Two New Things
+
+**1. `is_remediation_day` column on `daily_tasks` (bool, default False)**
+
+Set to `True` for all revision/reinforcement chapters. These days are excluded when building the canonical topic list.
+
+**2. `week_remediation_topics` table**
+
+When a week is planned, the original canonical topic names (from BKT/forgetting curve) are stored here before the LLM generates its alias names.
+
+| Column | Type | Purpose |
+|---|---|---|
+| id | int | primary key |
+| skill_id | int | FK → `skills.id` |
+| week | int | which week these topics are for |
+| topic | str | canonical topic name (e.g. `"Arrays"`) |
+| topic_type | str | `"weak"` or `"forgotten"` |
+
+**Unique constraint:** `(skill_id, week, topic)` — one row per topic per week.
+**Check constraint:** `topic_type IN ('weak', 'forgotten')`.
+
+**How it is used:**
+
+`get_topics_for_week(skill_id, week)` builds the quiz topic list by:
+1. Fetching canonical names from `week_remediation_topics` (remediation topics)
+2. Fetching new topics from `daily_tasks WHERE is_remediation_day = False` (new content topics)
+
+This ensures quiz questions are always tagged with the real topic name, keeping BKT accurate.
 
 ---
 
@@ -384,29 +452,54 @@ USER READS CHAPTER AND TAKES WEEKLY QUIZ
        ├─ update_topic_knowledge(answers)           ← BKT updates p_known per topic
        │    └─ Also sets stability_days and last_studied_at
        │
-       ├─ improved = (score > prev_best_score)
-       ├─ sample_style() → get the style used for chapters THIS week
-       ├─ update_arm(style, improved)               ← Bandit learns: did that style help?
-       └─ sample_style() again → return next_week_style in API response
-            └─ This triggers ML week generation in background
+       ├─ prev_score = get_previous_best_score()
+       ├─ improved = attempt.passed            (week 1: no prev score, use pass/fail)
+       │            OR attempt.score > prev_score  (week 2+: strict improvement)
+       ├─ stored_style = get_week_content_style() for THIS week
+       ├─ update_arm(stored_style, improved)        ← Bandit learns: did that style help?
+       └─ unlock_next_week() → triggers _generate_next_week() in background
 
 BACKGROUND: NEXT WEEK IS GENERATED
   └─ controllers/quiz.py: _generate_next_week()
-       ├─ get_weak_topics(skill_id, user_id)        ← BKT: topics still not mastered
-       ├─ get_forgotten_topics(skill_id, user_id)   ← Forgetting curve: topics decaying
-       ├─ calc_remediation_days(prev_score)         ← BKT: how many days to spend reviewing
-       └─ generate_week_plan(weak_topics, forgotten_topics, remediation_days)
-            └─ LLM writes a personalised day-by-day plan for the next week
+       ├─ remediation_topics = topics where pct < pass_score in LAST quiz attempt
+       │    (only failed topics from last quiz — not all-time weak)
+       │    (filters out "General" topic)
+       ├─ forgotten = get_forgotten_topics()        ← Forgetting curve: topics decaying
+       │    └─ capped to top 5 most-forgotten (_FORGOTTEN_WEEK_CAP = 5)
+       ├─ next_style = sample_style()              ← Bandit picks next week's style
+       ├─ calc_remediation_days(prev_score)         ← how many days to spend reviewing
+       │    0–39% score → 60% of days
+       │    40–69% score → 30% of days
+       │    70–99% score → 1 day
+       │    100% score → 0 days
+       │    always reserves ≥ 1 day for new content
+       ├─ generate_week_plan(remediation_topics, forgotten, next_style, remediation_days)
+       │    └─ LLM writes a personalised day-by-day plan (remediation days flagged)
+       ├─ store_week_tasks() → saves DailyTask rows with is_remediation_day flag
+       └─ store_remediation_topics() → saves canonical names to week_remediation_topics
+
+PRE-GENERATE NEXT WEEK'S QUIZ (after tasks are stored)
+  └─ get_topics_for_week()
+       ├─ canonical remediation topics from week_remediation_topics
+       └─ new content topics from daily_tasks WHERE is_remediation_day = False
+  └─ num_questions = len(topics)   ← exactly 1 question per topic
+  └─ generate_weekly_quiz() → LLM generates questions in topic order
+  └─ topic_map = build_topic_map(topics)   ← {pool_group → topic_name}
+  └─ create_quiz() → stamps each question with its topic name
 
 USER FINISHES ALL WEEKS AND GENERATES FINAL QUIZ
   └─ controllers/quiz.py: generate_quiz_for_skill()
-       ├─ get_weak_topics()                         ← BKT weak topics
-       ├─ get_forgotten_topics()                    ← Forgetting curve topics
-       ├─ get_topic_week_map()                      ← groups topics by which week they came from
+       ├─ weak = get_weak_topics()           ← ALL-TIME weak topics (p_known < 0.95)
+       ├─ forgotten = get_forgotten_topics() ← ALL forgotten topics (no cap here)
+       ├─ all_for_map = weak + forgotten (deduped)
+       ├─ cap to max_questions:
+       │    ≤ 30 days course → 10 questions max
+       │    ≤ 60 days course → 12 questions max
+       │    90+ days course → 15 questions max
+       ├─ num_questions = len(all_for_map)  ← 1 question per topic after capping
        └─ generate_final_quiz(weak, forgotten, topic_week_map)
             └─ prompts/quiz.py: final_user_prompt() with clustered topics
                  └─ LLM writes: "Week 2: Variables, Loops - Week 4: Recursion, Trees"
-                      └─ Knows exactly what the user struggled with and when
 ```
 
 ---
@@ -430,6 +523,7 @@ Result: we know exactly which topics are weak (`p_known < 0.95`)
 For every topic the user has ever studied (not just this week):
 - Compute `R = e^(-days_since_last_studied / stability_days)`
 - If `R < 0.70` → add to "needs review" list
+- Sort by retention ascending (most-forgotten first)
 
 Result: we know which old topics the user is about to forget
 
@@ -437,9 +531,10 @@ Result: we know which old topics the user is about to forget
 
 **Step 3 - Bandit (run after score is known)**
 
-- Compare this week's quiz score with last week's score
-- If score improved → `alpha + 1` for the style used this week
-- If score dropped → `beta + 1` for the style used this week
+- Week 1: `improved = attempt.passed` (no prior score to compare)
+- Week 2+: `improved = (this_week_score > prev_week_score)`
+- If improved → `alpha + 1` for the style used this week
+- If not improved → `beta + 1` for the style used this week
 - Thompson-sample all 4 arms → pick the style for next week
 
 Result: we know which teaching style to use next week
@@ -450,12 +545,12 @@ Result: we know which teaching style to use next week
 
 All three results are combined into one LLM prompt:
 
-| Input | Instruction to LLM |
-|---|---|
-| Weak topics (BKT) | "Reinforce these topics next week" |
-| Forgotten topics (Curve) | "Add a short review task for each of these at the start" |
-| Remediation days (BKT) | "Spend N days revisiting before introducing new material" |
-| New topics for next week | "Also introduce these new topics" |
+| Input | Source | Instruction to LLM |
+|---|---|---|
+| Remediation topics | Last quiz failed topics only | "Reinforce these topics — they failed last quiz" |
+| Forgotten topics | Forgetting Curve (capped at 5) | "Add a short review task for each of these" |
+| Remediation days | `calc_remediation_days(score)` | "Spend N days revisiting before new material" |
+| New topics for next week | Syllabus progression | "Also introduce these new topics" |
 
 ---
 
@@ -476,13 +571,27 @@ This is separate from week plan generation - the bandit influences both **what t
 **Final Quiz - personalised by ML, grouped by course week**
 
 Once the user completes all weeks:
-- Collect every topic where `p_known < 0.95` across all weeks (BKT)
-- Also include topics where forgetting curve `R < 0.70`
+- Collect every topic where `p_known < 0.95` across all weeks (BKT) — all-time weak
+- Also include topics where forgetting curve `R < 0.70` — all forgotten (no weekly cap)
+- Cap total: 10 (≤30d course), 12 (≤60d), 15 (≤90d)
+- Exactly 1 question per topic → pct per topic is always 0 or 100
 - Map each topic to the week it was taught → `get_topic_week_map()`
 - Send grouped data to LLM: *"Week 1: Variables, Loops - Week 3: Recursion - Week 4: Trees"*
 - LLM generates questions knowing the course structure and which areas need the most work
 
 > The final quiz is **not** generated from enrollment topics. It is completely personalised by what BKT and the Forgetting Curve found across the entire course. The week grouping gives the LLM context about topic relationships and course progression.
+
+---
+
+## Weekly Quiz — 1 Question Per Topic
+
+All weekly quizzes (pre-generated at syllabus creation, manually triggered, or auto-generated after quiz submission) use exactly **1 question per topic**. This means:
+
+- pct per topic is always 0 (wrong) or 100 (correct) — never ambiguous 50%
+- `remediation_topics` = simply every topic the user got wrong in the last quiz
+- No minimum question floor — a week with 4 topics gets 4 questions
+
+For non-Mistral providers, `pool_size=2` means 2 variant phrasings are generated per topic but only 1 is served. The 2 variants exist for anti-memorisation retakes, not to increase the question count.
 
 ---
 
@@ -508,6 +617,12 @@ With the ML approach, difficulty becomes unnecessary:
 | `topic` | text | which `DailyTask.topic` this question tests - links wrong answers to BKT/forgetting curve |
 | `pool_group` | int (nullable) | variant group number - see Quiz Variant Pool below |
 
+### `daily_tasks` - one new column
+
+| Column | Type | Purpose |
+|---|---|---|
+| `is_remediation_day` | bool (default False) | flags revision/reinforcement days so their LLM-generated names are excluded from canonical topic lists |
+
 ### `topic_knowledge` - new table
 
 One row per topic per user per skill. Owned by BKT + Forgetting Curve.
@@ -515,6 +630,18 @@ One row per topic per user per skill. Owned by BKT + Forgetting Curve.
 ### `content_style_arms` - new table
 
 Four rows per user per skill (one per style). Owned by the Bandit.
+
+### `week_remediation_topics` - new table
+
+Stores canonical weak/forgotten topic names used when planning each ML-generated week. Used by `get_topics_for_week()` to ensure quiz questions are tagged with real topic names, not LLM-generated aliases.
+
+| Column | Type | Purpose |
+|---|---|---|
+| `id` | int | primary key |
+| `skill_id` | int | FK → `skills.id` (CASCADE) |
+| `week` | int | which week these topics are remediation for |
+| `topic` | str (max 255) | canonical topic name |
+| `topic_type` | str (`"weak"` or `"forgotten"`) | type of remediation |
 
 ### `skills` - changes
 
@@ -582,20 +709,20 @@ This tells the LLM three things it couldn't infer before:
 
 **How it works:**
 
-| Provider | `pool_size` | Questions generated | Questions shown per attempt |
+| Provider | `pool_size` | Variants generated per topic | Questions shown per attempt |
 |---|---|---|---|
-| Gemini | `2` | 10 (for a 5-question quiz) | 5 (one from each variant pair) |
-| OpenAI | `2` | 10 | 5 |
-| Anthropic | `2` | 10 | 5 |
-| Mistral | `1` | 5 | 5 (no variants - hard token cap) |
+| Gemini | `2` | 2 | 1 per topic (one variant randomly served) |
+| OpenAI | `2` | 2 | 1 per topic |
+| Anthropic | `2` | 2 | 1 per topic |
+| Mistral | `1` | 1 | 1 per topic (no variants - hard token cap) |
 
 In the database, variants share the same `pool_group` integer on `quiz_questions`:
 
 ```
-pool_group=1, question="What does a for loop do?"          ← variant A
-pool_group=1, question="Which statement repeats a block?"  ← variant B (same topic, different phrasing)
-pool_group=2, question="What is a function?"
-pool_group=2, question="Which keyword defines a function?"
+pool_group=1, question="What does a for loop do?"          ← variant A  (topic: Loops)
+pool_group=1, question="Which statement repeats a block?"  ← variant B  (topic: Loops)
+pool_group=2, question="What is a function?"               ← variant A  (topic: Functions)
+pool_group=2, question="Which keyword defines a function?" ← variant B  (topic: Functions)
 ```
 
 `get_quiz_with_questions()` runs `random.choice(variants)` for each group → the student sees a different question every retake.

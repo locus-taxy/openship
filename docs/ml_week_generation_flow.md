@@ -88,7 +88,7 @@ Default parameters per topic row:
 p_known progression (all correct, starting from 0.10):
 | Attempt | p_known | Stability |
 |---------|---------|-----------|
-| Start   | 0.10    | —         |
+| Start   | 0.10    | 2 days    |
 | 1 correct | 0.40  | 5 days    |
 | 2 correct | 0.775 | 10 days   |
 | 3 correct | 0.945 | 10 days   |
@@ -289,13 +289,14 @@ Calls the LLM to produce a JSON daily plan for the next week. Receives:
 Returns a list of day objects `[{day, topic, task}, ...]` or None on failure.
 
 **`generate_weekly_quiz(...)`**
-Generates 5 quiz questions for the upcoming week's topics. Questions are
+Generates exactly 1 question per topic (weak + forgotten + new topics for that week). Questions are
 tagged by topic so BKT can update correctly on submission.
 
 **`generate_final_quiz(...)`**
-Generates the full final quiz (10/12/15 questions depending on course length).
-Uses the complete weak + forgotten topic list. Supports `pool_size=2` for
-non-Mistral providers (generates 2 variants per question for randomized delivery).
+Generates the final quiz with exactly 1 question per topic. Topics = weak + forgotten,
+capped at a max of 10 (≤30d course), 12 (≤60d), or 15 (≤90d) total — so question
+count = min(len(weak + forgotten), max_cap). Supports `pool_size=2` for non-Mistral
+providers (generates 2 variants per question for randomized delivery).
 
 **Connects to:** called by `controllers/quiz.py` and `controllers/syllabus.py`
 
@@ -482,7 +483,7 @@ Two changes:
 
    m) Pre-generate next week's quiz
       └── services/llm.py → generate_weekly_quiz()
-          5 questions across the week's topics
+          1 question per topic (remediation + new topics for that week)
 
    n) Save quiz to DB
       └── services/quiz.py → create_quiz()
