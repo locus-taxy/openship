@@ -7,6 +7,8 @@ from services.skill import (
     delete_skill,
     get_syllabus_detail,
     toggle_skill_share,
+    update_skill_is_technical,
+    get_skill_is_technical,
 )
 from models.skill import Skill
 
@@ -176,5 +178,54 @@ class TestToggleSkillShare:
         try:
             result = toggle_skill_share(1, False, "user-1")
             assert result is False
+        finally:
+            patcher.stop()
+
+class TestUpdateSkillIsTechnical:
+    def test_sets_is_technical_when_skill_found(self):
+        skill = Skill(id=1, user_id="u1", email="test@example.com", skill="Python")
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_session(session)
+        try:
+            update_skill_is_technical(1, True)
+            assert skill.is_technical is True
+            session.add.assert_called_once_with(skill)
+            session.commit.assert_called_once()
+        finally:
+            patcher.stop()
+
+    def test_noop_when_skill_not_found(self):
+        session = MagicMock()
+        session.get.return_value = None
+        patcher = _patch_session(session)
+        try:
+            update_skill_is_technical(999, False)
+            session.add.assert_not_called()
+            session.commit.assert_not_called()
+        finally:
+            patcher.stop()
+
+class TestGetSkillIsTechnical:
+    def test_returns_flag_when_skill_found(self):
+        skill = Skill(
+            id=1, user_id="u1", email="test@example.com", skill="Python", is_technical=True
+        )
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_session(session)
+        try:
+            result = get_skill_is_technical(1)
+            assert result is True
+        finally:
+            patcher.stop()
+
+    def test_returns_none_when_skill_not_found(self):
+        session = MagicMock()
+        session.get.return_value = None
+        patcher = _patch_session(session)
+        try:
+            result = get_skill_is_technical(999)
+            assert result is None
         finally:
             patcher.stop()

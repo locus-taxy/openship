@@ -326,13 +326,19 @@ def store_syllabus_tasks(
     skill_id: int,
     only_week: Optional[int] = None,
 ) -> bool:
-    """Store DailyTask rows from a syllabus JSON. Pass only_week to store a single week only."""
+    """Store DailyTask rows from a syllabus JSON. Pass only_week to store a single week only.
+
+    Week numbers are stored as globally sequential integers (1, 2, 3, …) across all months,
+    regardless of the per-month week numbers the LLM returns.
+    """
     try:
         with Session(engine) as session:
+            global_week = 0
             for month_obj in syllabus_data:
                 month = month_obj.get("month")
                 for week_obj in month_obj.get("weeks", []):
-                    week = week_obj.get("week")
+                    global_week += 1
+                    week = global_week
                     if only_week is not None and week != only_week:
                         continue
                     for day_obj in week_obj.get("daily_plan", []):

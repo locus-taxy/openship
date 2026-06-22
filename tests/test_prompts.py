@@ -67,6 +67,26 @@ class TestChapterPrompts:
         result = chapter_prompts.user_prompt("Loops", "JavaScript", "For loops and while loops")
         assert "For loops and while loops" in result
 
+    def test_non_technical_prompt_forbids_code_blocks(self):
+        prompt = chapter_prompts.system_prompt(is_technical=False)
+        assert "DOMAIN CONSTRAINT" in prompt
+        assert "MUST NOT include any 'code' blocks" in prompt
+
+    def test_non_technical_example_heavy_uses_list_variant(self):
+        prompt = chapter_prompts.system_prompt(is_technical=False, style="example_heavy")
+        assert "DOMAIN CONSTRAINT" in prompt
+        # The non-technical example_heavy variant should not mention 'code' block as an option
+        style_section = prompt.split("MANDATORY STYLE RULES")[1]
+        assert "'code' block" not in style_section
+
+    def test_technical_prompt_has_no_domain_constraint(self):
+        prompt = chapter_prompts.system_prompt(is_technical=True)
+        assert "DOMAIN CONSTRAINT" not in prompt
+
+    def test_none_is_technical_has_no_domain_constraint(self):
+        prompt = chapter_prompts.system_prompt(is_technical=None)
+        assert "DOMAIN CONSTRAINT" not in prompt
+
 class TestQuizPrompts:
     def test_weekly_system_prompt_contains_skill(self):
         result = quiz_prompts.weekly_system_prompt("Python", 1, 3)

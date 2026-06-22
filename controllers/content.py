@@ -7,7 +7,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 from models.user import User
 from schemas.skill import GenerateContentRequest, GenerateChapterContentRequest
-from services.skill import get_syllabus_detail
+from services.skill import get_syllabus_detail, get_skill_is_technical
 from services.daily_task import (
     get_chapter_content,
     get_tasks_for_generating_newsletter,
@@ -157,6 +157,8 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
     if week:
         claim_week_style(payload.task_id, style)
 
+    is_technical = get_skill_is_technical(chapter["skill_id"])
+
     try:
         _content_result = generate_chapter_content(
             task_description=chapter["task"],
@@ -166,6 +168,7 @@ def generate_chapter(payload: GenerateChapterContentRequest, current_user: User)
             api_key=get_user_api_key(current_user),
             model=model_name,
             style=style,
+            is_technical=is_technical,
         )
         if (
             not _content_result

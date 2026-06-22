@@ -183,6 +183,11 @@ class Month(BaseModel):
 class SyllabusResponse(BaseModel):
     months: List[Month] = Field(description="Complete month-by-month syllabus")
 
+class SkillDomainClassification(BaseModel):
+    is_technical: bool = Field(
+        description="True if the skill involves coding, software, data science, maths, or engineering; False otherwise"
+    )
+
 class ChapterContent(BaseModel):
     html: str
 
@@ -707,6 +712,58 @@ def extract_token_counts(
 
 # ── Public functions ──────────────────────────────────────────────────────────
 
+def classify_skill_domain(
+    skill: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[bool]:
+    """Return True if the skill is technical, False if non-technical, None on failure.
+
+    Uses a tiny token budget (128 tokens) since only a boolean answer is needed.
+    Called once at course creation; result is stored on the Skill row.
+    """
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+    try:
+        client = _build_client(provider, api_key)
+        response: SkillDomainClassification = client.chat.completions.create(
+            model=model,
+            response_model=SkillDomainClassification,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a domain classifier. Given a skill name, decide whether it is "
+                        "technical (requires coding, programming, software development, data science, "
+                        "mathematics, or engineering) or non-technical (business, communication, arts, "
+                        "languages, psychology, management, sports, cooking, etc.). "
+                        "Respond with is_technical: true or false."
+                    ),
+                },
+                {"role": "user", "content": f"Skill: {skill}"},
+            ],
+            **_token_kwargs(provider, 128),
+            max_retries=1,
+        )
+        logger.info(
+            "Skill domain classified [skill=%r is_technical=%s provider=%s]",
+            skill,
+            response.is_technical,
+            provider,
+        )
+        return response.is_technical
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(
+            "Skill domain classification failed (non-fatal) [skill=%r provider=%s]: %s",
+            skill,
+            provider,
+            e,
+        )
+        return None
+
 def generate_syllabus_json(
     skill: str,
     days: int,
@@ -875,6 +932,7 @@ def generate_chapter_content(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     style: Optional[str] = None,
+    is_technical: Optional[bool] = None,
 ) -> Tuple[Optional[StructuredChapterContent], Optional[int], Optional[int]]:
     """Generate structured chapter content using Instructor.
 
@@ -923,7 +981,7 @@ def generate_chapter_content(
                     {
                         "role": "system",
                         "content": chapter_prompts.system_prompt(
-                            concise=provider == "mistral", style=style
+                            concise=provider == "mistral", style=style, is_technical=is_technical
                         ),
                     },
                     {
@@ -978,7 +1036,7 @@ def generate_chapter_content(
 
         # ── Layer 1: Heuristic validation ─────────────────────────────────────
         logger.info("Running heuristic validation [attempt=%d]", attempt + 1)
-        heuristic = validate_content_heuristics(response.blocks, task_description)
+        heuristic = validate_content_heuristics(response.blocks, task_description, topic=task_title)
         if not heuristic.passed:
             logger.warning(
                 "Heuristic validation FAILED [attempt=%d]: %s",
@@ -995,6 +1053,19 @@ def generate_chapter_content(
             )
             return None, None, None
         logger.info("Heuristic validation PASSED [attempt=%d]", attempt + 1)
+
+        # ── Hard gate: reject code blocks for non-technical skills ────────────
+        if is_technical is False:
+            has_code = any(getattr(b, "type", "") == "code" for b in response.blocks)
+            if has_code:
+                logger.warning(
+                    "Non-technical chapter contains code block(s) [attempt=%d] — rejecting",
+                    attempt + 1,
+                )
+                if attempt == 0:
+                    logger.info("Retrying after non-technical code block rejection...")
+                    continue
+                return None, None, None
 
         # ── Layer 2: LLM-as-judge validation ──────────────────────────────────
         logger.info(

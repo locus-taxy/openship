@@ -128,6 +128,7 @@ class TestGenerateChapter:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.get_skill_is_technical", return_value=None),
             patch("controllers.content.sample_style", return_value="balanced"),
             patch(
                 "controllers.content.generate_chapter_content",
@@ -148,6 +149,7 @@ class TestGenerateChapter:
         chapter = _make_chapter(user_id="1")
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.get_skill_is_technical", return_value=None),
             patch("controllers.content.sample_style", return_value="balanced"),
             patch(
                 "controllers.content.generate_chapter_content",
@@ -168,6 +170,7 @@ class TestGenerateChapter:
         mock_result.blocks = []
         with (
             patch("controllers.content.get_chapter_content", return_value=chapter),
+            patch("controllers.content.get_skill_is_technical", return_value=None),
             patch("controllers.content.get_week_content_style", return_value="balanced"),
             patch("controllers.content.claim_week_style") as mock_claim,
             patch(
