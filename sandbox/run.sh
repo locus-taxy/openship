@@ -3,8 +3,6 @@
 # Usage: /run.sh <language> <code_file>
 # The code file lives at /sandbox/<filename> (mounted from host).
 
-set -e
-
 LANG="$1"
 FILE="$2"
 TMPDIR="/sandbox"
@@ -17,11 +15,13 @@ run_javascript() {
     local jsdom_path="$JS_SANDBOX_DIR/node_modules/jsdom"
 
     # Bundle with esbuild (handles JSX + React imports)
+    NODE_PATH="$JS_SANDBOX_DIR/node_modules" \
     "$JS_SANDBOX_DIR/node_modules/.bin/esbuild" "$file" \
         --bundle --platform=node --format=cjs "--outfile=$out" \
         --log-level=error 2>/tmp/esbuild_err.txt
+    local esbuild_exit=$?
 
-    if [ $? -ne 0 ]; then
+    if [ $esbuild_exit -ne 0 ]; then
         cat /tmp/esbuild_err.txt >&2
         exit 1
     fi
@@ -106,7 +106,9 @@ case "$LANG" in
     java)
         classname=$(grep -oP 'public\s+class\s+\K\w+' "$FILE" | head -1)
         classname="${classname:-Main}"
-        javac -d "$TMPDIR" "$FILE" && java -cp "$TMPDIR" "$classname" ;;
+        javafile="$TMPDIR/${classname}.java"
+        cp "$FILE" "$javafile" 2>/dev/null || true
+        javac -d "$TMPDIR" "$javafile" && java -cp "$TMPDIR" "$classname" ;;
 
     cpp|c++|cxx|cc)
         g++ -std=c++17 "$FILE" -o "$TMPDIR/main" && "$TMPDIR/main" ;;

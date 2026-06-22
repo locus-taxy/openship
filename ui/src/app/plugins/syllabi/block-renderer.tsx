@@ -397,8 +397,13 @@ export function BlockItem({ block }: { block: ContentBlock }) {
         }
         case "paragraph":
             return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
-        case "code":
+        case "code": {
+            const DIAGRAM_LANGS = new Set(["mermaid", "flowchart", "sequencediagram", "sequence", "gantt", "classdiagram", "statediagram", "erdiagram", "gitgraph", "mindmap", "timeline", "xychart", "sankey"])
+            if (DIAGRAM_LANGS.has((block.language ?? "").toLowerCase())) {
+                return <MermaidBlock code={block.content ?? ""} />
+            }
             return <CodeBlock code={block.content ?? ""} language={block.language ?? ""} />
+        }
         case "bullet_list":
             return <ul className="list-disc pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
         case "numbered_list":

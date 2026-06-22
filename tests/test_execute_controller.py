@@ -918,35 +918,28 @@ class TestRunJavascript:
 # ── _run_in_docker ────────────────────────────────────────────────────────────
 
 class TestRunInDocker:
-    def _mock_docker(self, output=b"hi\n"):
-        mock_docker_mod = MagicMock()
+    def _mock_client(self, stdout=b"hi\n", stderr=b"", exit_code=0):
         mock_client = MagicMock()
-        mock_docker_mod.from_env.return_value = mock_client
-        mock_client.containers.run.return_value = output
-        return mock_docker_mod, mock_client
+        mock_container = MagicMock()
+        mock_client.containers.run.return_value = mock_container
+        mock_container.wait.return_value = {"StatusCode": exit_code}
+        mock_container.logs.side_effect = lambda **kw: stdout if kw.get("stdout") else stderr
+        return mock_client, mock_container
 
     def test_success(self):
-        mock_docker_mod, mock_client = self._mock_docker(b"hi\n")
-        with (
-            patch.dict("sys.modules", {"docker": mock_docker_mod}),
-            patch("controllers.execute._docker_client", None),
-            patch("controllers.execute._get_docker_client", return_value=mock_client),
-        ):
-            result = _run_in_docker("python3", "print('hi')")
+        mock_client, _ = self._mock_client(stdout=b"hi\n")
+        import controllers.execute as ce
+
+        old_client = ce._docker_client
+        ce._docker_client = mock_client
+        try:
+            result = ce._run_in_docker("python3", "print('hi')")
+        finally:
+            ce._docker_client = old_client
         assert "hi" in result.stdout
 
     def test_container_error_returns_stderr(self):
-        import docker as real_docker
-
-        mock_client = MagicMock()
-        err = real_docker.errors.ContainerError(
-            container=MagicMock(),
-            exit_status=1,
-            command="python3",
-            image="openship-sandbox",
-            stderr=b"runtime error",
-        )
-        mock_client.containers.run.side_effect = err
+        mock_client, _ = self._mock_client(stdout=b"", stderr=b"runtime error", exit_code=1)
         import controllers.execute as ce
 
         old_client = ce._docker_client
@@ -976,7 +969,9 @@ class TestRunInDocker:
 
     def test_timeout_returns_error_message(self):
         mock_client = MagicMock()
-        mock_client.containers.run.side_effect = Exception("timed out waiting for container")
+        mock_container = MagicMock()
+        mock_client.containers.run.return_value = mock_container
+        mock_container.wait.side_effect = Exception("timed out waiting for container")
         import controllers.execute as ce
 
         old_client = ce._docker_client

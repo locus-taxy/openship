@@ -11,3 +11,4 @@ ui/dist/
 erl_crash.dump
 sandbox/zscaler-ca.crt
 sandbox/corporate-ca.crt
+.DS_Store

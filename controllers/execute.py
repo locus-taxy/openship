@@ -145,44 +145,51 @@ def _run_in_docker(lang: str, code: str) -> ExecuteResponse:
     filename = _get_filename(lang)
     client = _get_docker_client()
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
         code_file = os.path.join(tmpdir, filename)
         with open(code_file, "w") as f:
             f.write(code)
 
+        container = None
         try:
-            output = client.containers.run(
+            container = client.containers.run(
                 image=DOCKER_IMAGE,
                 command=[lang, f"/sandbox/{filename}"],
                 volumes={tmpdir: {"bind": "/sandbox", "mode": "rw"}},
-                remove=True,
                 network_disabled=True,
                 mem_limit="256m",
                 nano_cpus=500_000_000,  # 0.5 CPU
                 stdout=True,
                 stderr=True,
-                detach=False,
-                timeout=TIMEOUT_JVM,
+                detach=True,
             )
-            return ExecuteResponse(
-                stdout=output.decode("utf-8", errors="replace") if output else "",
-                stderr="",
-            )
-        except docker_lib.errors.ContainerError as e:
-            stderr = e.stderr.decode("utf-8", errors="replace") if e.stderr else str(e)
-            return ExecuteResponse(stdout="", stderr=stderr)
+            try:
+                result = container.wait(timeout=TIMEOUT_JVM)
+            except Exception:
+                container.kill()
+                return ExecuteResponse(
+                    stdout="", stderr=f"Execution timed out after {TIMEOUT_JVM}s."
+                )
+
+            stdout = container.logs(stdout=True, stderr=False).decode("utf-8", errors="replace")
+            stderr = container.logs(stdout=False, stderr=True).decode("utf-8", errors="replace")
+            exit_code = result.get("StatusCode", 0)
+            if exit_code != 0 and not stderr:
+                stderr = f"Process exited with code {exit_code}"
+            return ExecuteResponse(stdout=stdout, stderr=stderr)
         except docker_lib.errors.ImageNotFound:
             raise HTTPException(
                 status_code=500,
                 detail="Sandbox image not found. Run `make sandbox-build` first.",
             )
         except Exception as e:
-            msg = str(e)
-            if "timed out" in msg.lower() or "timeout" in msg.lower():
-                return ExecuteResponse(
-                    stdout="", stderr=f"Execution timed out after {TIMEOUT_JVM}s."
-                )
-            raise HTTPException(status_code=500, detail=f"Docker execution failed: {msg}")
+            raise HTTPException(status_code=500, detail=f"Docker execution failed: {e}")
+        finally:
+            if container:
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
 
 # ── Persistent JS sandbox (esbuild + react + jsdom, installed once) ───────────
 
