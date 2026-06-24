@@ -23,7 +23,8 @@ def weekly_user_prompt(topics: List[str], num_questions: int) -> str:
         f"Rules:\n"
         f"- Each question must have exactly 4 options with labels A, B, C, D\n"
         f"- Each question must test exactly ONE of the listed topics\n"
-        f"- Spread questions evenly across the topics\n"
+        f"- MANDATORY: include at least 1 question per topic — no topic may be skipped\n"
+        f"- Spread any remaining questions evenly across the topics\n"
         f"- The explanation should clarify why the correct answer is right (1-2 sentences)"
     )
 

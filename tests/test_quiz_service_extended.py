@@ -404,6 +404,40 @@ class TestGetLatestAttemptResults:
         finally:
             patcher.stop()
 
+    def test_unanswered_question_excluded_from_topic_scores(self):
+        """An unanswered question (not in attempt.answers) must not count as wrong in topic_scores."""
+        attempt = MagicMock(spec=QuizAttempt)
+        attempt.id = 3
+        attempt.score = 100
+        attempt.passed = True
+        attempt.answers = {"1": "A"}  # only question 1 answered; question 2 skipped
+        attempt.created_at = None
+
+        quiz = MagicMock(spec=Quiz)
+        quiz.pass_score = 60
+
+        q1 = self._make_question(id=1, topic="Variables", correct="A")
+        q1.pool_group = None
+        q2 = self._make_question(id=2, topic="Loops", correct="B")
+        q2.pool_group = None  # non-pooled, unanswered — must not appear in topic_scores
+
+        session = MagicMock()
+        attempt_exec = MagicMock()
+        attempt_exec.first.return_value = attempt
+        questions_exec = MagicMock()
+        questions_exec.all.return_value = [q1, q2]
+        session.exec.side_effect = [attempt_exec, questions_exec]
+        session.get.return_value = quiz
+        patcher = _patch_session(session)
+        try:
+            result = get_latest_attempt_results(quiz_id=1, user_id=1)
+            assert "Variables" in result["topic_scores"]
+            assert (
+                "Loops" not in result["topic_scores"]
+            ), "Unanswered question must not appear in topic_scores"
+        finally:
+            patcher.stop()
+
 class TestGetAllQuizQuestions:
     def test_returns_all_questions_without_sampling(self):
         q1 = MagicMock(spec=QuizQuestion)

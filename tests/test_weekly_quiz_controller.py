@@ -463,9 +463,9 @@ class TestGenerateNextWeek:
             self._patch_get_quiz_by_week(self._prev_quiz_mock(), None),
             patch("controllers.quiz.quiz_service.get_latest_attempt_results", return_value=attempt),
             patch("controllers.quiz.calc_remediation_days", return_value=0),
+            patch("controllers.quiz.get_max_day_for_week", return_value=7),
             patch("controllers.quiz.delete_week_tasks"),
             patch("controllers.quiz.generate_week_plan", return_value=None),
-            patch("controllers.quiz.get_max_day_for_skill", return_value=7),
         ):
             result = _generate_next_week(**self._base_kwargs())
         assert result is None
@@ -482,13 +482,13 @@ class TestGenerateNextWeek:
             self._patch_get_quiz_by_week(self._prev_quiz_mock(), None),
             patch("controllers.quiz.quiz_service.get_latest_attempt_results", return_value=attempt),
             patch("controllers.quiz.calc_remediation_days", return_value=2),
+            patch("controllers.quiz.get_max_day_for_week", return_value=7),
             patch("controllers.quiz.delete_week_tasks"),
             patch("controllers.quiz.generate_week_plan", return_value=daily_plan),
             patch("controllers.quiz.store_week_tasks"),
             patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=["Classes"]),
             patch("controllers.quiz.generate_weekly_quiz", return_value=generated_quiz),
             patch("controllers.quiz.quiz_service.create_quiz") as mock_create,
-            patch("controllers.quiz.get_max_day_for_skill", return_value=7),
         ):
             _generate_next_week(**self._base_kwargs())
         mock_create.assert_called_once()
@@ -510,12 +510,12 @@ class TestGenerateNextWeek:
             ),
             patch("controllers.quiz.quiz_service.get_latest_attempt_results", return_value=attempt),
             patch("controllers.quiz.calc_remediation_days", return_value=0),
+            patch("controllers.quiz.get_max_day_for_week", return_value=7),
             patch("controllers.quiz.delete_week_tasks"),
             patch("controllers.quiz.generate_week_plan", return_value=daily_plan),
-            patch("controllers.quiz.store_week_tasks"),
+            patch("controllers.quiz.store_week_tasks", return_value=True),
             patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=["Classes"]),
             patch("controllers.quiz.quiz_service.create_quiz") as mock_create,
-            patch("controllers.quiz.get_max_day_for_skill", return_value=7),
         ):
             _generate_next_week(**self._base_kwargs())
         mock_create.assert_not_called()
@@ -528,16 +528,35 @@ class TestGenerateNextWeek:
             patch("controllers.quiz.get_forgotten_topics", return_value=[]),
             patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=None),
             patch("controllers.quiz.calc_remediation_days", return_value=0),
+            patch("controllers.quiz.get_max_day_for_week", return_value=7),
             patch("controllers.quiz.delete_week_tasks"),
             patch("controllers.quiz.generate_week_plan", return_value=daily_plan) as mock_plan,
             patch("controllers.quiz.store_week_tasks"),
             patch("controllers.quiz.quiz_service.get_topics_for_week", return_value=[]),
-            patch("controllers.quiz.get_max_day_for_skill", return_value=7),
         ):
             _generate_next_week(**self._base_kwargs())
         # weak_topics passed should be capped at top 3
         call_kwargs = mock_plan.call_args.kwargs
         assert call_kwargs["weak_topics"] == ["A", "B", "C"]
+
+    def test_skips_quiz_generation_when_store_week_tasks_fails(self):
+        """When store_week_tasks returns False, logs error and returns without creating quiz."""
+        daily_plan = [{"day": 8, "topic": "Classes", "task": "Learn OOP"}]
+        attempt = {"score": 80, "topic_scores": {"Loops": {"pct": 100}}}
+        with (
+            patch("controllers.quiz.get_weak_topics", return_value=[]),
+            patch("controllers.quiz.get_forgotten_topics", return_value=[]),
+            self._patch_get_quiz_by_week(self._prev_quiz_mock(), None),
+            patch("controllers.quiz.quiz_service.get_latest_attempt_results", return_value=attempt),
+            patch("controllers.quiz.calc_remediation_days", return_value=0),
+            patch("controllers.quiz.get_max_day_for_week", return_value=7),
+            patch("controllers.quiz.delete_week_tasks"),
+            patch("controllers.quiz.generate_week_plan", return_value=daily_plan),
+            patch("controllers.quiz.store_week_tasks", return_value=False),
+            patch("controllers.quiz.quiz_service.create_quiz") as mock_create,
+        ):
+            _generate_next_week(**self._base_kwargs())
+        mock_create.assert_not_called()
 
     def test_logs_error_on_exception(self):
         """Any exception in the body is caught and logged (does not propagate)."""
