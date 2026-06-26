@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router"
-import { GraduationCap, Loader2, PlayCircle, Sparkles, CheckCircle2, CircleDot, Plus, Trash2 } from "lucide-react"
+import { GraduationCap, Loader2, PlayCircle, Sparkles, CheckCircle2, CircleDot, Plus, Trash2, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -16,8 +16,9 @@ import { cn } from "@/lib/utils"
 import { getRequest, postRequest } from "@/services"
 import api from "@/services"
 import useStore from "@/store"
+import { LlmBar } from "@/components/llm-bar"
 
-const ROLE_SUGGESTIONS = ["Backend Engineer", "Frontend Engineer", "Product Manager", "Data Scientist", "DevOps Engineer", "SDET"]
+const ROLE_SUGGESTIONS = ["Backend Engineer", "DevOps Engineer", "SDET", "Product Manager"]
 
 type Plan = {
     id: number
@@ -177,6 +178,9 @@ export default function OnboardingPage() {
                     <Plus className="h-4 w-4 mr-2" />New Plan
                 </Button>
             </div>
+
+            {/* LLM selector */}
+            <LlmBar />
 
             {/* Enroll form */}
             {showForm && (

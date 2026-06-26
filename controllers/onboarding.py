@@ -35,7 +35,7 @@ def complete_day(plan_id: int, day_number: int, user):
 def delete_plan(plan_id: int, user):
     return onboarding_service.delete_plan(plan_id=plan_id, user_id=str(user.id))
 
-def get_day_content(plan_id: int, day_number: int, user):
+def get_day_content(plan_id: int, day_number: int, user, force: bool = False):
     provider = get_user_provider_name(user)
     api_key = get_user_api_key(user)
     model = get_user_model(user)
@@ -46,6 +46,7 @@ def get_day_content(plan_id: int, day_number: int, user):
         provider=provider,
         api_key=api_key,
         model=model,
+        force=force,
     )
 
 def get_final_quiz(plan_id: int, user):
@@ -53,6 +54,21 @@ def get_final_quiz(plan_id: int, user):
     api_key = get_user_api_key(user)
     model = get_user_model(user)
     return onboarding_service.get_final_quiz(
+        plan_id=plan_id,
+        user_id=str(user.id),
+        provider=provider,
+        api_key=api_key,
+        model=model,
+    )
+
+def get_quiz(plan_id: int, user):
+    return onboarding_service.get_quiz(plan_id=plan_id, user_id=str(user.id))
+
+def generate_quiz(plan_id: int, user):
+    provider = get_user_provider_name(user)
+    api_key = get_user_api_key(user)
+    model = get_user_model(user)
+    return onboarding_service.generate_quiz(
         plan_id=plan_id,
         user_id=str(user.id),
         provider=provider,

@@ -31,16 +31,22 @@ def get_plan(plan_id: int, request: Request):
     return onboarding_controller.get_plan(plan_id, request.state.user)
 
 @router.get("/onboarding/{plan_id}/day/{day_number}")
-def get_day_content(plan_id: int, day_number: int, request: Request):
-    return onboarding_controller.get_day_content(plan_id, day_number, request.state.user)
+def get_day_content(plan_id: int, day_number: int, request: Request, force: bool = Query(False)):
+    return onboarding_controller.get_day_content(
+        plan_id, day_number, request.state.user, force=force
+    )
 
 @router.post("/onboarding/{plan_id}/day/{day_number}/complete")
 def complete_day(plan_id: int, day_number: int, request: Request):
     return onboarding_controller.complete_day(plan_id, day_number, request.state.user)
 
 @router.get("/onboarding/{plan_id}/quiz")
-def get_final_quiz(plan_id: int, request: Request):
-    return onboarding_controller.get_final_quiz(plan_id, request.state.user)
+def get_quiz(plan_id: int, request: Request):
+    return onboarding_controller.get_quiz(plan_id, request.state.user)
+
+@router.post("/onboarding/{plan_id}/quiz/generate")
+def generate_quiz(plan_id: int, request: Request):
+    return onboarding_controller.generate_quiz(plan_id, request.state.user)
 
 @router.post("/onboarding/{plan_id}/quiz/attempt")
 def submit_quiz_attempt(plan_id: int, payload: SubmitQuizAttemptRequest, request: Request):

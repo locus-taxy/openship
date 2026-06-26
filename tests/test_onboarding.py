@@ -384,6 +384,109 @@ class TestLoadDocs:
         assert "doc1" in result
         assert "content" in result
 
+    def test_role_filter_includes_only_relevant_files(self):
+        from services.onboarding import _load_docs
+
+        # backend role → prefixes 01, 02, 03, 04, 05, 07, 08, 11
+        included = MagicMock()
+        included.name = "01_backend_engineer_onboarding.md"
+        included.stem = "01_backend_engineer_onboarding"
+        included.read_text.return_value = "be content"
+
+        excluded = MagicMock()
+        excluded.name = "13_sdet_new_stack_checklist.md"
+        excluded.stem = "13_sdet_new_stack_checklist"
+        excluded.read_text.return_value = "sdet content"
+
+        with patch("services.onboarding.DOCS_DIR") as mock_dir:
+            mock_dir.exists.return_value = True
+            mock_dir.glob.return_value = [included, excluded]
+            result = _load_docs("Backend Engineer")
+
+        assert "be content" in result
+        assert "sdet content" not in result
+
+    def test_unknown_role_loads_all_docs(self):
+        from services.onboarding import _load_docs
+
+        path1 = MagicMock()
+        path1.name = "01_some.md"
+        path1.stem = "01_some"
+        path1.read_text.return_value = "doc1"
+
+        path2 = MagicMock()
+        path2.name = "13_other.md"
+        path2.stem = "13_other"
+        path2.read_text.return_value = "doc2"
+
+        with patch("services.onboarding.DOCS_DIR") as mock_dir:
+            mock_dir.exists.return_value = True
+            mock_dir.glob.return_value = [path1, path2]
+            result = _load_docs("Data Scientist")
+
+        assert "doc1" in result
+        assert "doc2" in result
+
+class TestSelectDocPrefixes:
+    def test_backend_role_includes_backend_prefixes(self):
+        from services.onboarding import _select_doc_prefixes
+
+        result = _select_doc_prefixes("Backend Engineer")
+        assert "01" in result
+        assert "08" in result
+        assert "11" in result
+        # workflow + OPA docs included
+        assert "16" in result
+        assert "17" in result
+        assert "18" in result
+        # common docs also included
+        assert "07" in result
+        # SDET docs excluded
+        assert "13" not in result
+        assert "14" not in result
+
+    def test_sdet_role_includes_sdet_prefixes(self):
+        from services.onboarding import _select_doc_prefixes
+
+        result = _select_doc_prefixes("SDET Engineer")
+        assert "06" in result
+        assert "13" in result
+        assert "14" in result
+        # backend-specific excluded
+        assert "01" not in result
+        assert "11" not in result
+
+    def test_devops_role_includes_devops_prefixes(self):
+        from services.onboarding import _select_doc_prefixes
+
+        result = _select_doc_prefixes("DevOps Engineer")
+        assert "09" in result
+        assert "10" in result
+        assert "12" in result
+        assert "13" not in result
+
+    def test_unknown_role_returns_none(self):
+        from services.onboarding import _select_doc_prefixes
+
+        result = _select_doc_prefixes("Data Scientist")
+        assert result is None
+
+    def test_product_manager_role(self):
+        from services.onboarding import _select_doc_prefixes
+
+        result = _select_doc_prefixes("Product Manager")
+        assert "15" in result
+        assert "12" in result
+        assert "01" not in result
+
+    def test_qa_role_same_as_sdet(self):
+        from services.onboarding import _select_doc_prefixes
+
+        result = _select_doc_prefixes("QA Automation Engineer")
+        assert "06" in result
+        assert "13" in result
+        assert "14" in result
+
 class TestOnboardingService:
     def test_generate_plan_success(self):
         days_data = [{"day": i, "topic": f"T{i}", "task": f"Task{i}"} for i in range(1, 8)]
@@ -795,6 +898,117 @@ class TestOnboardingService:
         finally:
             patcher.stop()
 
+    def test_get_quiz_plan_not_found(self):
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = None
+            from services.onboarding import get_quiz
+
+            with pytest.raises(HTTPException) as exc:
+                get_quiz(99, "1")
+            assert exc.value.status_code == 404
+        finally:
+            patcher.stop()
+
+    def test_get_quiz_not_generated(self):
+        plan = _make_plan()
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = plan
+            from services.onboarding import get_quiz
+
+            with pytest.raises(HTTPException) as exc:
+                get_quiz(1, "1")
+            assert exc.value.status_code == 404
+        finally:
+            patcher.stop()
+
+    def test_get_quiz_returns_cached(self):
+        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
+        plan = _make_plan(quiz_questions=json.dumps(questions))
+        attempt = _make_attempt()
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = plan
+            session.exec.return_value.all.return_value = [attempt]
+            from services.onboarding import get_quiz
+
+            result = get_quiz(1, "1")
+            assert len(result["questions"]) == 10
+            assert len(result["attempts"]) == 1
+        finally:
+            patcher.stop()
+
+    def test_generate_quiz_plan_not_found(self):
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = None
+            from services.onboarding import generate_quiz
+
+            with pytest.raises(HTTPException) as exc:
+                generate_quiz(99, "1", "openai", "k", None)
+            assert exc.value.status_code == 404
+        finally:
+            patcher.stop()
+
+    def test_generate_quiz_already_exists(self):
+        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
+        plan = _make_plan(quiz_questions=json.dumps(questions))
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = plan
+            from services.onboarding import generate_quiz
+
+            with pytest.raises(HTTPException) as exc:
+                generate_quiz(1, "1", "openai", "k", None)
+            assert exc.value.status_code == 409
+        finally:
+            patcher.stop()
+
+    def test_generate_quiz_success(self):
+        plan = _make_plan()
+        days = [_make_day(i) for i in range(1, 8)]
+        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = plan
+            session.exec.return_value.all.return_value = days
+            with (
+                patch("services.onboarding._load_docs", return_value="docs"),
+                patch(
+                    "services.onboarding.llm_service.generate_onboarding_quiz",
+                    return_value=questions,
+                ),
+            ):
+                from services.onboarding import generate_quiz
+
+                result = generate_quiz(1, "1", "openai", "k", None)
+            assert len(result["questions"]) == 10
+            assert result["attempts"] == []
+        finally:
+            patcher.stop()
+
+    def test_generate_quiz_llm_fails(self):
+        plan = _make_plan()
+        days = [_make_day(i) for i in range(1, 8)]
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = plan
+            session.exec.return_value.all.return_value = days
+            with (
+                patch("services.onboarding._load_docs", return_value="docs"),
+                patch(
+                    "services.onboarding.llm_service.generate_onboarding_quiz", return_value=None
+                ),
+            ):
+                from services.onboarding import generate_quiz
+
+                with pytest.raises(HTTPException) as exc:
+                    generate_quiz(1, "1", "openai", "k", None)
+            assert exc.value.status_code == 500
+        finally:
+            patcher.stop()
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 class TestOnboardingRoutes:
@@ -880,7 +1094,7 @@ class TestOnboardingRoutes:
     def test_get_quiz_success(self, auth_client):
         questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
         with patch(
-            "controllers.onboarding.onboarding_service.get_final_quiz",
+            "controllers.onboarding.onboarding_service.get_quiz",
             return_value={"questions": questions, "attempts": []},
         ):
             response = auth_client.get("/onboarding/1/quiz")
@@ -925,3 +1139,35 @@ class TestOnboardingRoutes:
         ):
             response = anon_client.get("/public/onboarding/99")
         assert response.status_code == 404
+
+    def test_generate_quiz_route_success(self, auth_client):
+        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
+        with patch(
+            "controllers.onboarding.onboarding_service.generate_quiz",
+            return_value={"questions": questions, "attempts": []},
+        ):
+            response = auth_client.post("/onboarding/1/quiz/generate")
+        assert response.status_code == 200
+
+    def test_generate_quiz_route_unauthenticated(self, anon_client):
+        response = anon_client.post("/onboarding/1/quiz/generate")
+        assert response.status_code == 401
+
+    def test_get_final_quiz_controller(self):
+        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
+        user = MagicMock()
+        user.id = 1
+        with (
+            patch("controllers.onboarding.get_user_provider_name", return_value="openai"),
+            patch("controllers.onboarding.get_user_api_key", return_value="k"),
+            patch("controllers.onboarding.get_user_model", return_value=None),
+            patch(
+                "controllers.onboarding.onboarding_service.get_final_quiz",
+                return_value={"questions": questions, "attempts": []},
+            ) as mock_svc,
+        ):
+            from controllers.onboarding import get_final_quiz
+
+            result = get_final_quiz(1, user)
+        assert len(result["questions"]) == 10
+        mock_svc.assert_called_once()

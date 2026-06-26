@@ -130,7 +130,8 @@ function sanitizeDiagram(code: string): string {
 
     const cleanLabel = (s: string) =>
         // – (en dash) confuses Mermaid's flowchart lexer; @ is rejected in pipe labels.
-        s.replace(/–/g, "-").replace(/@/g, "").replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "")
+        // () inside labels break the parser (Mermaid reads them as shape syntax); strip parens, keep text.
+        s.replace(/–/g, "-").replace(/@/g, "").replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "").replace(/[()]/g, "")
 
     // Pass 1 — smart multi-line label merge.
     // Loop until node brackets are balanced, merging continuation lines one at a time.
@@ -191,6 +192,10 @@ function sanitizeDiagram(code: string): string {
                 )
                 // Fallback: strip any still-unclosed pipe edge labels so the parser doesn't choke.
                 line = line.replace(/(--[->]|\.->)\|[^|\n]+$/, "$1")
+
+                // Complete pipe edge label with no destination node — reduce to just the source node.
+                // e.g. G -->|External APIs, Queues, Webhooks|  →  G
+                line = line.replace(/([A-Za-z][\w]*)\s*(?:--[->]|\.->)\s*\|[^|\n]+\|\s*$/, "$1")
 
                 // {..} and |..| cleanup — skipped for erDiagram:
                 // entity bodies use valid attribute syntax; ||--o{ cardinality would be corrupted.

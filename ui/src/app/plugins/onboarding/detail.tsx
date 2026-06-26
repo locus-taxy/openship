@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router"
 import {
-    ArrowLeft, ArrowRight, CheckCircle2, FileText, Sparkles, Loader2,
+    ArrowLeft, ArrowRight, CheckCircle2, XCircle, FileText, Sparkles, Loader2,
     Globe, Copy, Check, PanelLeftClose, PanelLeftOpen, GraduationCap,
-    Brain, Settings,
+    Brain, Settings, Zap, RotateCcw,
 } from "lucide-react"
 import { BlockRenderer, type ContentBlock } from "@/app/plugins/syllabi/block-renderer"
 import { Button } from "@/components/ui/button"
@@ -86,11 +86,14 @@ function DayContentPanel({
         setLoading(false)
     }
 
-    async function handleGenerate() {
+    async function handleGenerate(force = false) {
         setConfirmOpen(false)
         onGenerationStart(day.id)
         try {
-            const response = await api.get(`/py/onboarding/${planId}/day/${day.day}`)
+            const url = force
+                ? `/py/onboarding/${planId}/day/${day.day}?force=true`
+                : `/py/onboarding/${planId}/day/${day.day}`
+            const response = await api.get(url)
             const data = response.data
             if (data?.day?.content_blocks) {
                 try {
@@ -212,7 +215,7 @@ function DayContentPanel({
                     </DialogHeader>
                     <DialogFooter className="gap-2">
                         <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-                        <Button onClick={handleGenerate}><Sparkles className="h-4 w-4 mr-1.5" />Yes, Regenerate</Button>
+                        <Button onClick={() => handleGenerate(true)}><Sparkles className="h-4 w-4 mr-1.5" />Yes, Regenerate</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -222,149 +225,356 @@ function DayContentPanel({
 
 // ─── Final Quiz Panel ─────────────────────────────────────────────────────────
 
-type QuizAttempt = { id: number; score: number; correct: number; total: number; created_at: string }
+type QuizView = "loading" | "not_generated" | "generating" | "ready" | "taking" | "submitted" | "error" | "generate_error"
+
+interface QuizQuestion {
+    question: string
+    option_a: string
+    option_b: string
+    option_c: string
+    option_d: string
+    correct_answer: string
+    explanation: string
+}
+
+interface QuizAttempt { id: number; score: number; correct: number; total: number; answers: string | null; created_at: string | null }
+
+interface QuestionResult { index: number; selected: string; correct: string; is_correct: boolean }
+
+interface SubmitResult { score: number; passed: boolean; results: QuestionResult[] }
+
+const PASS_SCORE = 70
+const QUIZ_OPTS = ["a", "b", "c", "d"] as const
+const OPT_LABELS: Record<string, string> = { a: "A", b: "B", c: "C", d: "D" }
+
+function getOptText(q: QuizQuestion, opt: string): string {
+    return ({ a: q.option_a, b: q.option_b, c: q.option_c, d: q.option_d } as Record<string, string>)[opt] ?? ""
+}
 
 function OnboardingQuizPanel({ planId }: { planId: number }) {
-    const [questions, setQuestions] = useState<any[]>([])
+    const [view, setView] = useState<QuizView>("loading")
+    const [questions, setQuestions] = useState<QuizQuestion[]>([])
     const [attempts, setAttempts] = useState<QuizAttempt[]>([])
-    const [loading, setLoading] = useState(false)
     const [selected, setSelected] = useState<Record<number, string>>({})
-    const [results, setResults] = useState<{ score: number; passed: boolean; answers: Record<number, { correct: string; is_correct: boolean }> } | null>(null)
+    const [submitting, setSubmitting] = useState(false)
+    const [result, setResult] = useState<SubmitResult | null>(null)
     const { toast } = useToast()
+    const { setSettingsOpen } = useStore((s: any) => s)
 
-    async function loadQuiz() {
-        setLoading(true)
-        const { success, data } = await getRequest(`/py/onboarding/${planId}/quiz`)
-        if (success) {
-            setQuestions(data.questions)
-            setAttempts(data.attempts ?? [])
-        } else toast({ variant: "destructive", title: "Error", description: "Failed to generate quiz." })
-        setLoading(false)
+    useEffect(() => {
+        const controller = new AbortController()
+        loadQuiz(controller.signal)
+        return () => controller.abort()
+    }, [planId])
+
+    async function loadQuiz(signal?: AbortSignal) {
+        setView("loading")
+        try {
+            const res = await api.get(`/py/onboarding/${planId}/quiz`, signal ? { signal } : {})
+            if (signal?.aborted) return
+            setQuestions(res.data.questions ?? [])
+            setAttempts(res.data.attempts ?? [])
+            setView("ready")
+        } catch (err: any) {
+            if (signal?.aborted) return
+            if (err?.response?.status === 404) setView("not_generated")
+            else setView("error")
+        }
+    }
+
+    async function handleGenerate() {
+        setView("generating")
+        try {
+            await api.post(`/py/onboarding/${planId}/quiz/generate`)
+        } catch (err: any) {
+            const status = err?.response?.status
+            const detail = err?.response?.data?.detail ?? ""
+            if (status === 409) {
+                // already generated — just load
+            } else if (status === 400 && (detail.includes("LLM") || detail.includes("provider"))) {
+                toast({
+                    title: "LLM not configured",
+                    description: "Add your provider and API key in Settings.",
+                    action: <ToastAction altText="Open Settings" onClick={() => setSettingsOpen(true)}>Open Settings</ToastAction>,
+                })
+                setView("not_generated")
+                return
+            } else {
+                toast({ variant: "destructive", title: "Error", description: detail || "Failed to generate quiz." })
+                setView("generate_error")
+                return
+            }
+        }
+        await loadQuiz()
+    }
+
+    function startAttempt() {
+        setResult(null)
+        setSelected({})
+        setView("taking")
     }
 
     async function handleSubmit() {
-        if (questions.length === 0) return
         let correct = 0
-        const answers: Record<number, { correct: string; is_correct: boolean }> = {}
+        const results: QuestionResult[] = []
         const submittedAnswers: Record<string, string> = {}
         questions.forEach((q, i) => {
-            const correctKey = q.correct_answer ?? q.correct ?? "a"
-            const isCorrect = selected[i] === correctKey
+            const sel = selected[i] ?? ""
+            const isCorrect = sel === (q.correct_answer ?? "a")
             if (isCorrect) correct++
-            answers[i] = { correct: correctKey, is_correct: isCorrect }
-            submittedAnswers[String(i)] = selected[i] ?? ""
+            results.push({ index: i, selected: sel, correct: q.correct_answer ?? "a", is_correct: isCorrect })
+            submittedAnswers[String(i)] = sel
         })
         const score = Math.round((correct / questions.length) * 100)
-        setResults({ score, passed: score >= 70, answers })
-
+        setResult({ score, passed: score >= PASS_SCORE, results })
+        setSubmitting(true)
+        setView("submitted")
         try {
             const { success, data } = await postRequest(`/py/onboarding/${planId}/quiz/attempt`, { answers: submittedAnswers })
             if (success) setAttempts(prev => [data.attempt, ...prev])
         } catch { /* non-critical */ }
+        setSubmitting(false)
     }
 
-    if (loading) return (
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Generating quiz…</p>
+    if (view === "loading") return (
+        <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
     )
 
-    const bestScore = attempts.length > 0 ? Math.max(...attempts.map(a => a.score)) : null
+    if (view === "error") return (
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
+            <p className="text-sm text-muted-foreground">Could not load quiz. Please try again.</p>
+            <Button variant="outline" size="sm" onClick={() => loadQuiz()}>Retry</Button>
+        </div>
+    )
 
-    if (questions.length === 0) return (
-        <div className="flex flex-col h-full overflow-hidden">
-            <div className="border-b px-4 sm:px-8 py-5 shrink-0">
-                <p className="text-xs text-muted-foreground mb-1">Final Assessment</p>
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Final Quiz</h2>
-            </div>
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
-                <GraduationCap className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="font-semibold text-lg mb-1">Ready to test your knowledge?</h3>
-                <p className="text-sm text-muted-foreground mb-6 max-w-xs">A 10-question quiz covering all 7 days of your onboarding plan.</p>
-                {bestScore !== null && (
-                    <p className="text-xs text-muted-foreground mb-4">
-                        Best score: <span className={cn("font-semibold", bestScore >= 70 ? "text-emerald-600" : "text-amber-600")}>{bestScore}%</span>
-                        {" "}· {attempts.length} attempt{attempts.length !== 1 ? "s" : ""}
-                    </p>
-                )}
-                <Button onClick={loadQuiz}><Brain className="h-4 w-4 mr-2" />{attempts.length > 0 ? "Retake Quiz" : "Generate Quiz"}</Button>
+    if (view === "generate_error") return (
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
+            <p className="text-sm text-muted-foreground">Quiz generation failed. Please try again.</p>
+            <Button variant="outline" size="sm" onClick={handleGenerate}>Try Again</Button>
+        </div>
+    )
+
+    if (view === "not_generated" || view === "generating") return (
+        <div className="flex flex-col h-full overflow-y-auto">
+            <div className="mx-auto w-full max-w-xl px-6 py-10 space-y-8">
+                <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                        <GraduationCap className="h-5 w-5 text-primary" />
+                        <h2 className="text-xl font-bold tracking-tight">Final Quiz</h2>
+                    </div>
+                    <p className="text-sm text-muted-foreground">A 10-question quiz grounded in Locus docs, covering all 7 days of your onboarding plan.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
+                        <p className="text-2xl font-bold">10</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Questions</p>
+                    </div>
+                    <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
+                        <p className="text-2xl font-bold">{PASS_SCORE}%</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Pass Score</p>
+                    </div>
+                </div>
+                <Button className="w-full h-11 rounded-xl" onClick={handleGenerate} disabled={view === "generating"}>
+                    {view === "generating"
+                        ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
+                        : <><Sparkles className="h-4 w-4 mr-2" />Generate Final Quiz</>
+                    }
+                </Button>
             </div>
         </div>
     )
 
-    const opts = ["a", "b", "c", "d"] as const
-    const optLabels = { a: "A", b: "B", c: "C", d: "D" }
-
-    return (
-        <div className="flex flex-col h-full overflow-hidden">
-            <div className="border-b px-4 sm:px-8 py-5 shrink-0">
-                <p className="text-xs text-muted-foreground mb-1">Final Assessment</p>
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Final Quiz</h2>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-                <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 md:px-8 py-6 space-y-6">
-                    {results && (
-                        <div className={cn("rounded-xl border p-4 text-center", results.passed ? "bg-emerald-500/10 border-emerald-200" : "bg-amber-500/10 border-amber-200")}>
-                            <p className="text-3xl font-bold">{results.score}%</p>
-                            <p className={cn("text-sm font-medium mt-1", results.passed ? "text-emerald-600" : "text-amber-600")}>
-                                {results.passed ? "Passed! Great work." : "Not passed — review and try again."}
-                            </p>
+    if (view === "ready") {
+        const hasPrev = attempts.length > 0
+        const bestScore = hasPrev ? Math.max(...attempts.map(a => a.score)) : null
+        const passed = bestScore !== null && bestScore >= PASS_SCORE
+        return (
+            <div className="flex flex-col h-full overflow-y-auto">
+                <div className="mx-auto w-full max-w-xl px-6 py-10 space-y-8">
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                            <GraduationCap className="h-5 w-5 text-primary" />
+                            <h2 className="text-xl font-bold tracking-tight">Final Quiz</h2>
+                            {passed && (
+                                <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 ml-auto">
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Passed
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">Test your knowledge across all 7 onboarding days. You need {PASS_SCORE}% to pass.</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                        <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
+                            <p className="text-2xl font-bold">{questions.length}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Questions</p>
+                        </div>
+                        <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
+                            <p className="text-2xl font-bold">{PASS_SCORE}%</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Pass Score</p>
+                        </div>
+                        <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
+                            <p className="text-2xl font-bold">{attempts.length}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Attempt{attempts.length !== 1 ? "s" : ""}</p>
+                        </div>
+                    </div>
+                    {hasPrev && bestScore !== null && (
+                        <div className="rounded-xl border bg-card px-5 py-4 space-y-3">
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium">Your best score</span>
+                                <span className={cn("font-bold", passed ? "text-emerald-600" : "text-foreground")}>{bestScore}%</span>
+                            </div>
+                            <div className="relative h-2.5 bg-muted rounded-full overflow-hidden">
+                                <div className="absolute top-0 bottom-0 w-0.5 bg-foreground/30 z-10" style={{ left: `${PASS_SCORE}%` }} />
+                                <div className={cn("h-full rounded-full transition-all duration-500", passed ? "bg-emerald-500" : "bg-primary")} style={{ width: `${bestScore}%` }} />
+                            </div>
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>0%</span>
+                                <span className="text-foreground/50">Pass: {PASS_SCORE}%</span>
+                                <span>100%</span>
+                            </div>
                         </div>
                     )}
-                    {questions.map((q, i) => {
-                        const res = results?.answers[i]
-                        return (
-                            <div key={i} className="space-y-2">
-                                <p className="text-sm font-medium">{i + 1}. {q.question}</p>
+                    <Button className="w-full h-11 rounded-xl" onClick={startAttempt}>
+                        <GraduationCap className="h-4 w-4 mr-2" />
+                        {hasPrev ? "Retake Quiz" : "Start Quiz"}
+                    </Button>
+                </div>
+            </div>
+        )
+    }
+
+    if (view === "taking") {
+        const answered = Object.keys(selected).length
+        const total = questions.length
+        return (
+            <div className="flex flex-col h-full overflow-hidden">
+                <div className="border-b px-4 sm:px-8 py-4 bg-background shrink-0 space-y-2">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <GraduationCap className="h-4 w-4 text-primary" />
+                            <h2 className="font-semibold">Final Quiz</h2>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{answered}/{total} answered</span>
+                    </div>
+                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${total > 0 ? (answered / total) * 100 : 0}%` }} />
+                    </div>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                    <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6 space-y-6">
+                        {questions.map((q, i) => (
+                            <div key={i} className="rounded-xl border bg-card p-5 space-y-3">
+                                <p className="text-sm font-medium text-foreground">
+                                    <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>{q.question}
+                                </p>
                                 <div className="grid grid-cols-1 gap-2">
-                                    {opts.map((opt) => {
-                                        const text = q[`option_${opt}`] ?? q[opt]
-                                        if (!text) return null
-                                        const isSelected = selected[i] === opt
-                                        const isCorrect = res?.correct === opt
-                                        const isWrong = res && isSelected && !res.is_correct
+                                    {QUIZ_OPTS.map((opt) => {
+                                        const text = getOptText(q, opt)
+                                        const isSel = selected[i] === opt
                                         return (
-                                            <button
-                                                key={opt}
-                                                disabled={!!results}
-                                                onClick={() => !results && setSelected(s => ({ ...s, [i]: opt }))}
+                                            <button key={opt} type="button"
+                                                onClick={() => setSelected(prev => ({ ...prev, [i]: opt }))}
                                                 className={cn(
-                                                    "flex items-center gap-3 rounded-lg border px-4 py-2.5 text-left text-sm transition-colors",
-                                                    results
-                                                        ? isCorrect ? "border-emerald-400 bg-emerald-500/10 text-emerald-700"
-                                                        : isWrong ? "border-red-400 bg-red-500/10 text-red-700"
-                                                        : "opacity-50"
-                                                        : isSelected ? "border-primary bg-primary/10 text-primary"
-                                                        : "hover:border-border hover:bg-muted/50"
+                                                    "flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm text-left transition-all duration-150",
+                                                    isSel ? "border-primary bg-primary/10 text-primary font-medium" : "border-border hover:border-primary/50 hover:bg-muted text-foreground"
                                                 )}
                                             >
-                                                <span className="font-semibold text-xs shrink-0">{optLabels[opt]}</span>
+                                                <span className={cn(
+                                                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-mono font-semibold transition-colors",
+                                                    isSel ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40 text-muted-foreground"
+                                                )}>{OPT_LABELS[opt]}</span>
                                                 <span>{text}</span>
-                                                {results && isCorrect && <CheckCircle2 className="h-4 w-4 ml-auto shrink-0 text-emerald-600" />}
                                             </button>
                                         )
                                     })}
                                 </div>
-                                {res && q.explanation && (
-                                    <p className="text-xs text-muted-foreground bg-muted/40 rounded px-3 py-2">{q.explanation}</p>
-                                )}
                             </div>
-                        )
-                    })}
-                    {!results ? (
-                        <Button className="w-full" onClick={handleSubmit} disabled={Object.keys(selected).length < questions.length}>
-                            Submit Quiz
-                        </Button>
-                    ) : (
-                        <Button variant="outline" className="w-full" onClick={() => { setSelected({}); setResults(null); setQuestions([]) }}>
-                            <Brain className="h-4 w-4 mr-2" />Try Again
-                        </Button>
-                    )}
+                        ))}
+                        <div className="pb-8">
+                            <Button className="w-full h-11 rounded-xl" disabled={submitting || answered < total} onClick={handleSubmit}>
+                                {submitting
+                                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Submitting…</>
+                                    : <><GraduationCap className="h-4 w-4 mr-2" />Submit Quiz</>
+                                }
+                            </Button>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-    )
+        )
+    }
+
+    if (view === "submitted" && result) {
+        return (
+            <div className="flex flex-col h-full overflow-hidden">
+                <div className={cn("border-b px-4 sm:px-8 py-5 shrink-0", result.passed ? "bg-emerald-50 dark:bg-emerald-950/20" : "bg-red-50 dark:bg-red-950/20")}>
+                    <div className="flex items-center gap-4">
+                        {result.passed
+                            ? <CheckCircle2 className="h-8 w-8 text-emerald-500 shrink-0" />
+                            : <XCircle className="h-8 w-8 text-red-500 shrink-0" />
+                        }
+                        <div className="flex-1 min-w-0">
+                            <h2 className={cn("text-lg font-bold", result.passed ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>
+                                {result.passed ? "Quiz Passed!" : "Not Quite"}
+                            </h2>
+                            <p className="text-sm text-muted-foreground">
+                                Score: <span className="font-semibold text-foreground">{result.score}%</span>
+                                {" · "}{result.passed ? "Onboarding complete!" : `Need ${PASS_SCORE}% to pass`}
+                            </p>
+                        </div>
+                        <p className={cn("text-3xl font-black shrink-0", result.passed ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                            {result.score}%
+                        </p>
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                        <Button variant="outline" size="sm" onClick={() => setView("ready")}>Quiz Overview</Button>
+                        <Button size="sm" onClick={startAttempt}><RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry Quiz</Button>
+                    </div>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                    <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6 space-y-4">
+                        {questions.map((q, i) => {
+                            const r = result.results[i]
+                            if (!r) return null
+                            return (
+                                <div key={i} className={cn("rounded-xl border p-4 space-y-3", r.is_correct ? "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20" : "border-red-200 bg-red-50/50 dark:bg-red-950/20")}>
+                                    <div className="flex items-start gap-2">
+                                        {r.is_correct ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" /> : <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />}
+                                        <p className="text-sm font-medium text-foreground flex-1 min-w-0">
+                                            <span className="text-muted-foreground mr-1.5">Q{i + 1}.</span>{q.question}
+                                        </p>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-1.5 pl-6">
+                                        {QUIZ_OPTS.map((opt) => {
+                                            const text = getOptText(q, opt)
+                                            const isCorrect = opt === r.correct
+                                            const isSelectedWrong = opt === r.selected && !r.is_correct
+                                            return (
+                                                <div key={opt} className={cn(
+                                                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm border",
+                                                    isCorrect ? "border-emerald-300 bg-emerald-100 dark:bg-emerald-900/30 font-medium text-emerald-800 dark:text-emerald-300"
+                                                        : isSelectedWrong ? "border-red-300 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                                                        : "border-transparent text-muted-foreground"
+                                                )}>
+                                                    <span className="font-mono text-xs w-4 shrink-0">{OPT_LABELS[opt]}.</span>
+                                                    <span>{text}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                    {q.explanation && <p className="pl-6 text-xs text-muted-foreground italic">{q.explanation}</p>}
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    return null
 }
 
 // ─── Day Nav (left panel) ─────────────────────────────────────────────────────
@@ -372,7 +582,7 @@ function OnboardingQuizPanel({ planId }: { planId: number }) {
 function DayNav({
     plan, days, activeDayId, onSelectDay, isQuizActive, onSelectQuiz,
     completedCount, shareEnabled, togglingShare, copied, copyFailed,
-    onToggleShare, onCopyLink,
+    onToggleShare, onCopyLink, bulkGenerating, onGenerateAll,
 }: {
     plan: OnboardingPlan
     days: OnboardingDay[]
@@ -387,6 +597,8 @@ function DayNav({
     copyFailed: boolean
     onToggleShare: () => void
     onCopyLink: () => void
+    bulkGenerating: { done: number; total: number } | null
+    onGenerateAll: () => void
 }) {
     const total = days.length
     const progress = total > 0 ? Math.round((completedCount / total) * 100) : 0
@@ -445,6 +657,28 @@ function DayNav({
             </div>
 
             <div className="flex-1 overflow-y-auto">
+                {(() => {
+                    const pendingCount = days.filter(d => !d.content_blocks).length
+                    if (bulkGenerating) return (
+                        <div className="flex items-center gap-2 px-4 py-2 border-b">
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/60" />
+                            <span className="text-xs text-muted-foreground/60">{bulkGenerating.done}/{bulkGenerating.total} generated</span>
+                        </div>
+                    )
+                    if (pendingCount === 0) return null
+                    return (
+                        <div className="px-4 py-2 border-b">
+                            <button
+                                type="button"
+                                onClick={onGenerateAll}
+                                className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-primary border border-muted-foreground/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-colors"
+                            >
+                                <Zap className="h-2.5 w-2.5" />
+                                Generate all
+                            </button>
+                        </div>
+                    )
+                })()}
                 {days.map((day) => (
                     <button
                         key={day.id}
@@ -534,6 +768,7 @@ export default function OnboardingDetailPage() {
     const [activeDayId, setActiveDayId] = useState<number | null>(null)
     const [activeView, setActiveView] = useState<"day" | "quiz">("day")
     const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set())
+    const [bulkGenerating, setBulkGenerating] = useState<{ done: number; total: number } | null>(null)
     const [shareEnabled, setShareEnabled] = useState(false)
     const [togglingShare, setTogglingShare] = useState(false)
     const [copied, setCopied] = useState(false)
@@ -544,6 +779,7 @@ export default function OnboardingDetailPage() {
     const isResizing = useRef(false)
     const { setPluginName, setHideHeader } = useStore((state: any) => state)
     const { setOpen } = useSidebar()
+    const { toast } = useToast()
 
     function handleResizeStart(e: React.MouseEvent) {
         e.preventDefault()
@@ -591,6 +827,28 @@ export default function OnboardingDetailPage() {
 
     function handleMarkComplete(id: number) {
         setDays(prev => prev.map(d => d.id === id ? { ...d, completed: true } : d))
+    }
+
+    async function handleGenerateAll() {
+        if (!plan) return
+        const todo = days.filter(d => !d.content_blocks)
+        if (todo.length === 0) return
+        setBulkGenerating({ done: 0, total: todo.length })
+        for (let i = 0; i < todo.length; i++) {
+            const day = todo[i]
+            setGeneratingIds(prev => new Set(prev).add(day.id))
+            try {
+                const response = await api.get(`/py/onboarding/${plan.id}/day/${day.day}`)
+                if (response.data?.day?.content_blocks) handleContentGenerated(day.id)
+            } catch (err: any) {
+                const detail = err?.response?.data?.detail
+                toast({ variant: "destructive", title: `Failed: Day ${day.day}`, description: typeof detail === "string" ? detail : undefined })
+            } finally {
+                setGeneratingIds(prev => { const next = new Set(prev); next.delete(day.id); return next })
+                setBulkGenerating({ done: i + 1, total: todo.length })
+            }
+        }
+        setBulkGenerating(null)
     }
 
     async function handleToggleShare() {
@@ -670,6 +928,8 @@ export default function OnboardingDetailPage() {
                         copyFailed={copyFailed}
                         onToggleShare={handleToggleShare}
                         onCopyLink={handleCopyLink}
+                        bulkGenerating={bulkGenerating}
+                        onGenerateAll={handleGenerateAll}
                     />
                     <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 z-10" onMouseDown={handleResizeStart} />
                 </div>

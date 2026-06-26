@@ -20,6 +20,9 @@ INLINE FORMATTING inside content/items/cells:
 def plan_system_prompt(role: str) -> str:
     return f"""You are an expert engineering onboarding designer. Your job is to read {role} at a technology company and produce a strict 7-day onboarding plan.
 
+OUTPUT FORMAT — return a JSON object with EXACTLY this structure, no extra keys:
+{{"days": [{{"day": 1, "topic": "Short topic title", "task": "What to read, explore, or do"}}, ... 7 items]}}
+
 HARD RULES:
 - Output EXACTLY 7 days, numbered 1 through 7. No more, no less.
 - Each day must have:
@@ -61,11 +64,12 @@ def day_content_system_prompt(role: str, company: str) -> str:
         "  2. WHY it was designed this way (cite the actual reason from the docs)\n"
         "  3. HOW it works (mechanics, flow)\n"
         "  4. WHERE to find it (repo names, links, tools — as clickable markdown links)\n\n"
-        "LINK PRESERVATION RULE — CRITICAL:\n"
-        "  - Every URL, repo link, Confluence link, or tool link in the source documents MUST appear in your output\n"
+        "LINK RELEVANCE RULE:\n"
+        "  - Only include URLs, repo links, and tool links that are DIRECTLY relevant to this day's specific topic and task\n"
+        "  - Do NOT surface links from other days' topics just because they appear somewhere in the docs\n"
         "  - Format as markdown links inside content/items/cells: [label](https://full-url)\n"
-        "  - Always end with a table block titled 'Key Links & Resources' listing every link/repo from the docs\n"
-        "  - Never mention a repo name without linking it if a URL is available\n\n"
+        "  - End with a 'Key Links & Resources' table listing only the links/repos relevant to TODAY's topic\n"
+        "  - Never mention a repo name without linking it if a URL is available for that repo\n\n"
         "CRITICAL OUTPUT RULES — you MUST follow these exactly or your response will be rejected:\n\n"
         "Return a JSON object with a single key 'blocks' containing an array of block objects. "
         "Every block object MUST have a 'type' field and the corresponding required fields listed below. "
@@ -101,7 +105,7 @@ def day_content_system_prompt(role: str, company: str) -> str:
         "- Setup days (Day 4) MUST include code blocks with the actual commands from the documents\n"
         "- Write 10-14 blocks covering the topic in depth\n"
         "- ALWAYS end with: (1) heading level=2 content='Key Links & Resources', "
-        "(2) table block with columns [Name, Description, Link] listing every repo/tool/URL from the documents\n"
+        "(2) table block with columns [Name, Description, Link] listing repos/tools/URLs relevant to TODAY's topic only\n"
         f"- Every fact must come from the {company} documents — never invent\n"
     )
 
@@ -115,9 +119,9 @@ def day_content_user_prompt(day: int, topic: str, task: str, company: str, docs_
         f"--- END DOCUMENTS ---\n\n"
         f"Write comprehensive Day {day} onboarding content grounded entirely in the documents above.\n\n"
         f"MUST DO:\n"
-        f"1. Extract and surface ALL URLs and repo links from the documents as markdown links [label](url)\n"
+        f"1. Include only URLs and repo links from the documents that are directly relevant to Day {day}'s topic: {topic}\n"
         f"2. Explain the WHY behind every architectural decision (the documents state the reason — use it)\n"
-        f"3. Include a 'Key Links & Resources' table at the end — every link/repo/tool from the docs\n"
+        f"3. Include a 'Key Links & Resources' table at the end — only links/repos relevant to today's topic\n"
         f"4. Name specific repos, services, tools from the documents — never refer to them generically\n"
         f"5. Day 2-3: include a diagram block for architecture flows\n"
         f"6. Day 4+: include code blocks with actual commands from the documents\n"
@@ -126,6 +130,9 @@ def day_content_user_prompt(day: int, topic: str, task: str, company: str, docs_
 
 def quiz_system_prompt(role: str, company: str) -> str:
     return f"""You are writing a 10-question multiple-choice final quiz for a new {role} who has completed 7 days of onboarding at {company}.
+
+OUTPUT FORMAT — return a JSON object with EXACTLY this structure, no extra keys:
+{{"questions": [{{"question": "...", "option_a": "...", "option_b": "...", "option_c": "...", "option_d": "...", "correct_answer": "a", "explanation": "..."}}, ... 10 items]}}
 
 QUESTION QUALITY RULES:
   - Every question must test understanding of {company}-specific knowledge, not generic tech knowledge
