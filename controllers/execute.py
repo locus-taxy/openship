@@ -188,9 +188,6 @@ def _run_in_docker(lang: str, code: str) -> ExecuteResponse:
         code_file = os.path.join(tmpdir, filename)
         with open(code_file, "w") as f:
             f.write(code)
-        # The sandbox image runs as a non-root user; make the bind mount writable
-        # so it can emit compiled binaries/intermediates into /sandbox.
-        os.chmod(tmpdir, 0o777)
 
         container = None
         try:
@@ -198,6 +195,9 @@ def _run_in_docker(lang: str, code: str) -> ExecuteResponse:
                 image=DOCKER_IMAGE,
                 command=[lang, f"/sandbox/{filename}"],
                 volumes={tmpdir: {"bind": "/sandbox", "mode": "rw"}},
+                # Run as the (non-root) host user that owns tmpdir, so the bind mount
+                # stays owner-only (0700) rather than world-writable.
+                user=f"{os.getuid()}:{os.getgid()}",
                 network_disabled=True,
                 mem_limit="256m",
                 nano_cpus=500_000_000,  # 0.5 CPU

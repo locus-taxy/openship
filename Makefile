@@ -70,7 +70,7 @@ sandbox-build:
 	@echo "Building openship-sandbox Docker image (this takes a few minutes on first run)..."
 	@if [ -f "$(ROOT)/sandbox/corporate-ca.crt" ]; then \
 	    echo "  (corporate CA cert detected — injecting into image)"; \
-	    docker build --build-arg CORPORATE_CA_CERT="$$(cat $(ROOT)/sandbox/corporate-ca.crt)" -t openship-sandbox "$(ROOT)/sandbox"; \
+	    docker build --build-arg CORPORATE_CA_CERT="$$(cat "$(ROOT)/sandbox/corporate-ca.crt")" -t openship-sandbox "$(ROOT)/sandbox"; \
 	else \
 	    docker build -t openship-sandbox "$(ROOT)/sandbox"; \
 	fi
@@ -79,7 +79,7 @@ sandbox-build:
 sandbox-rebuild:
 	@echo "Rebuilding openship-sandbox Docker image from scratch..."
 	@if [ -f "$(ROOT)/sandbox/corporate-ca.crt" ]; then \
-	    docker build --no-cache --build-arg CORPORATE_CA_CERT="$$(cat $(ROOT)/sandbox/corporate-ca.crt)" -t openship-sandbox "$(ROOT)/sandbox"; \
+	    docker build --no-cache --build-arg CORPORATE_CA_CERT="$$(cat "$(ROOT)/sandbox/corporate-ca.crt")" -t openship-sandbox "$(ROOT)/sandbox"; \
 	else \
 	    docker build --no-cache -t openship-sandbox "$(ROOT)/sandbox"; \
 	fi
