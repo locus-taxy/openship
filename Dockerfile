@@ -2,16 +2,15 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/opt/kotlin/bin:/opt/scala/bin:$PATH"
-ENV JS_SANDBOX_DIR=/js-sandbox
 
+# ── Base tooling ──────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl wget unzip zip ca-certificates gnupg git build-essential \
+    software-properties-common \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Optional corporate proxy CA (e.g. Zscaler) ───────────────────────────────
-# Pass via: docker build --build-arg CORPORATE_CA_CERT="$(cat sandbox/corporate-ca.crt)"
-# Or place the cert at sandbox/corporate-ca.crt and use make sandbox-build
+# ── Optional corporate proxy CA ───────────────────────────────────────────────
 ARG CORPORATE_CA_CERT=""
 RUN if [ -n "$CORPORATE_CA_CERT" ]; then \
     printf '%s' "$CORPORATE_CA_CERT" > /usr/local/share/ca-certificates/corporate-ca.crt \
@@ -91,7 +90,7 @@ RUN git clone --depth=1 https://github.com/vlang/v /opt/v \
     && ( cd /opt/v && make && ./v symlink ) \
     || echo "skip V build"
 
-# ── .NET SDK 8 (in Ubuntu 24.04 default repos) ───────────────────────────────
+# ── .NET SDK 8 ────────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dotnet-sdk-8.0 \
     && rm -rf /var/lib/apt/lists/*
@@ -129,7 +128,7 @@ RUN wget --no-check-certificate -q \
     && mv /opt/scala-2.13.15 /opt/scala \
     && rm scala-2.13.15.tgz
 
-# ── Swift (amd64 only — skip on arm64) ────────────────────────────────────────
+# ── Swift (amd64 only) ────────────────────────────────────────────────────────
 RUN ARCH=$(uname -m) && if [ "$ARCH" = "x86_64" ]; then \
     apt-get update && apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev libedit2 libpython3-dev libsqlite3-dev \
@@ -142,7 +141,7 @@ RUN ARCH=$(uname -m) && if [ "$ARCH" = "x86_64" ]; then \
     && rm swift-6.0.3-RELEASE-ubuntu24.04.tar.gz; \
     else echo "Skipping Swift on $ARCH"; fi
 
-# ── Crystal (x86_64 only — no ARM64 Linux binary release) ────────────────────
+# ── Crystal (x86_64 only) ─────────────────────────────────────────────────────
 RUN ARCH=$(uname -m) && if [ "$ARCH" = "x86_64" ]; then \
     curl -fsSL https://crystal-lang.org/install.sh | bash; \
     else echo "Skipping Crystal on $ARCH (no Linux ARM64 release available)"; fi
@@ -180,14 +179,45 @@ RUN ARCH=$(uname -m) \
     && ln -sf "/opt/julia-1.10.0/bin/julia" /usr/local/bin/julia \
     && rm "julia-1.10.0-linux-${ARCH}.tar.gz"
 
-# ── JS sandbox (esbuild + react + jsdom) ─────────────────────────────────────
-RUN mkdir -p /js-sandbox && cd /js-sandbox \
-    && echo '{"dependencies":{"react":"^18","react-dom":"^18","esbuild":"latest","jsdom":"22.1.0"}}' > package.json \
-    && npm install --silent --no-audit --no-fund
+# ── Python (for the app) ──────────────────────────────────────────────────────
+# Use Ubuntu 24.04's system Python 3.12 (the deadsnakes PPA needs a strict-TLS
+# Launchpad call that fails behind intercepting corporate proxies). The app has
+# no 3.13-only requirements.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3-venv python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# ── Entrypoint ───────────────────────────────────────────────────────────────
-COPY run.sh /run.sh
-RUN chmod +x /run.sh
+# ── Pre-install JS sandbox packages (avoids runtime npm install) ──────────────
+# Must match _SANDBOX_VERSION in controllers/execute.py. jsdom pinned to 22.x
+# (jsdom >=24 pulls an ESM-only dep that breaks Node 18 + esbuild CJS bundling).
+ENV OPENSHIP_JS_SANDBOX_PATH=/opt/openship_js_sandbox
+RUN mkdir -p /opt/openship_js_sandbox \
+    && echo '{"dependencies":{"react":"^18","react-dom":"^18","esbuild":"latest","jsdom":"22.1.0"}}' \
+        > /opt/openship_js_sandbox/package.json \
+    && cd /opt/openship_js_sandbox \
+    && npm install --silent --no-audit --no-fund \
+    && echo "3" > /opt/openship_js_sandbox/.ready
 
-WORKDIR /sandbox
-ENTRYPOINT ["/run.sh"]
+# ── App setup ─────────────────────────────────────────────────────────────────
+WORKDIR /app
+
+COPY requirements.txt .
+# --trusted-host keeps pip working behind intercepting corporate proxies.
+RUN python3 -m venv .venv \
+    && .venv/bin/pip install --no-cache-dir \
+        --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+        --upgrade pip \
+    && .venv/bin/pip install --no-cache-dir \
+        --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+        -r requirements.txt
+
+COPY . .
+
+ENV SANDBOX_USE_DOCKER=false
+
+EXPOSE 3005
+
+COPY scripts/docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]

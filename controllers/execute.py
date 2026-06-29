@@ -136,6 +136,42 @@ def _get_filename(lang: str) -> str:
         "nasm": "main.asm",
         "asm": "main.asm",
         "assembly": "main.asm",
+        "fish": "main.fish",
+        "raku": "main.raku",
+        "perl6": "main.raku",
+        "guile": "main.scm",
+        "d": "main.d",
+        "dlang": "main.d",
+        "vala": "main.vala",
+        "pascal": "main.pas",
+        "pas": "main.pas",
+        "ada": "main.adb",
+        "adb": "main.adb",
+        "zsh": "main.zsh",
+        "ksh": "main.ksh",
+        "tcsh": "main.tcsh",
+        "csh": "main.tcsh",
+        "luajit": "main.lua",
+        "clisp": "main.lisp",
+        "newlisp": "main.lsp",
+        "rexx": "main.rexx",
+        "expect": "main.exp",
+        "m4": "main.m4",
+        "gambit": "main.scm",
+        "pike": "main.pike",
+        "yabasic": "main.bas",
+        "basic": "main.bas",
+        "algol68": "main.a68",
+        "a68": "main.a68",
+        "forth": "main.fth",
+        "fth": "main.fth",
+        "chicken": "main.scm",
+        "chickenscheme": "main.scm",
+        "objc": "main.m",
+        "objective-c": "main.m",
+        "objectivec": "main.m",
+        "v": "main.v",
+        "vlang": "main.v",
     }
     return ext_map.get(lang, "main.txt")
 
@@ -193,16 +229,20 @@ def _run_in_docker(lang: str, code: str) -> ExecuteResponse:
 
 # ── Persistent JS sandbox (esbuild + react + jsdom, installed once) ───────────
 
-_JS_SANDBOX = Path(tempfile.gettempdir()) / "openship_js_sandbox"
-_SANDBOX_VERSION = "2"
+_JS_SANDBOX = Path(
+    os.getenv("OPENSHIP_JS_SANDBOX_PATH", str(Path(tempfile.gettempdir()) / "openship_js_sandbox"))
+)
+_SANDBOX_VERSION = "3"
 
 def _ensure_js_sandbox() -> Path:
     marker = _JS_SANDBOX / ".ready"
     if marker.exists() and marker.read_text().strip() == _SANDBOX_VERSION:
         return _JS_SANDBOX
     _JS_SANDBOX.mkdir(exist_ok=True)
+    # jsdom is pinned to 22.x: jsdom >=24 pulls an ESM-only html-encoding-sniffer
+    # that breaks under Node 18 + esbuild CJS bundling.
     (_JS_SANDBOX / "package.json").write_text(
-        '{"dependencies":{"react":"^18","react-dom":"^18","esbuild":"latest","jsdom":"latest"}}'
+        '{"dependencies":{"react":"^18","react-dom":"^18","esbuild":"latest","jsdom":"22.1.0"}}'
     )
     result = subprocess.run(
         ["npm", "install", "--silent", "--no-audit", "--no-fund"],
@@ -277,7 +317,7 @@ _RUNTIME_SPECS = [
     ("odin", ["odin"], ["odin"]),
     ("cobc", ["cobc"], ["cobol", "cob", "cbl"]),
     ("sbcl", ["sbcl"], ["commonlisp", "common-lisp", "cl", "lisp2"]),
-    ("sml", ["sml"], ["sml", "standardml"]),
+    ("sml", ["sml", "poly"], ["sml", "standardml"]),
     ("tclsh", ["tclsh", "tclsh9.0"], ["tcl"]),
     ("awk", ["awk", "gawk"], ["awk"]),
     ("gfortran", ["gfortran"], ["fortran", "f90", "f95", "f77"]),
@@ -285,6 +325,30 @@ _RUNTIME_SPECS = [
     ("clojure", ["clojure"], ["clojure", "clj"]),
     ("coffee", ["coffee"], ["coffeescript", "coffee"]),
     ("nasm", ["nasm"], ["nasm", "asm", "assembly"]),
+    ("raku", ["raku", "perl6"], ["raku", "perl6"]),
+    ("guile", ["guile", "guile-3.0"], ["guile"]),
+    ("gdc", ["gdc"], ["d", "dlang"]),
+    ("valac", ["valac"], ["vala"]),
+    ("fpc", ["fpc"], ["pascal", "pas"]),
+    ("gnatmake", ["gnatmake"], ["ada", "adb"]),
+    # ── Extended batch ──
+    ("zsh", ["zsh"], ["zsh"]),
+    ("ksh", ["ksh"], ["ksh"]),
+    ("tcsh", ["tcsh"], ["tcsh", "csh"]),
+    ("luajit", ["luajit"], ["luajit"]),
+    ("clisp", ["clisp"], ["clisp"]),
+    ("newlisp", ["newlisp"], ["newlisp"]),
+    ("regina", ["regina", "rexx"], ["rexx"]),
+    ("expect", ["expect"], ["expect"]),
+    ("m4", ["m4"], ["m4"]),
+    ("gsi", ["gsi"], ["gambit"]),
+    ("pike", ["pike", "pike8.0"], ["pike"]),
+    ("yabasic", ["yabasic"], ["yabasic", "basic"]),
+    ("a68g", ["a68g"], ["algol68", "a68"]),
+    ("gforth", ["gforth"], ["forth", "fth"]),
+    ("csi", ["chicken-csi", "csi"], ["chicken", "chickenscheme"]),
+    ("objc", ["gcc", "clang"], ["objc", "objective-c", "objectivec"]),
+    ("v", ["v"], ["v", "vlang"]),
     ("sqlite3", [None], ["sql", "sqlite", "postgresql", "postgres", "mysql"]),
 ]
 
@@ -407,8 +471,29 @@ _SIMPLE_RUNNERS: dict[str, tuple[str, str]] = {
     "haxe": ("haxe", ".hx"),
     "coffeescript": ("coffee", ".coffee"),
     "coffee": ("coffee", ".coffee"),
+    "raku": ("raku", ".raku"),
+    "perl6": ("raku", ".raku"),
+    "guile": ("guile", ".scm"),
+    "zsh": ("zsh", ".zsh"),
+    "ksh": ("ksh", ".ksh"),
+    "tcsh": ("tcsh", ".tcsh"),
+    "csh": ("tcsh", ".tcsh"),
+    "luajit": ("luajit", ".lua"),
+    "clisp": ("clisp", ".lisp"),
+    "newlisp": ("newlisp", ".lsp"),
+    "rexx": ("regina", ".rexx"),
+    "expect": ("expect", ".exp"),
+    "m4": ("m4", ".m4"),
+    "gambit": ("gsi", ".scm"),
+    "pike": ("pike", ".pike"),
+    "yabasic": ("yabasic", ".bas"),
+    "basic": ("yabasic", ".bas"),
+    "algol68": ("a68g", ".a68"),
+    "a68": ("a68g", ".a68"),
     # cobol, prolog, fortran, awk handled by dedicated runners
     # crystal, nim, zig, csharp, clojure, nasm handled by dedicated runners
+    # d, vala, pascal, ada handled by dedicated compiled runners
+    # forth, chicken, objc, v handled by dedicated runners
 }
 
 def _run_javascript(code: str, lang: str = "javascript") -> ExecuteResponse:
@@ -449,10 +534,11 @@ for (const [k, v] of Object.entries(_globals)) {{
 }}
 """
     ext = ".tsx" if lang in ("typescript", "ts", "tsx") else ".jsx"
-    src = sandbox / f"main{ext}"
-    out = sandbox / "out.js"
-    final = sandbox / "run.js"
-    try:
+    with tempfile.TemporaryDirectory() as workdir:
+        work = Path(workdir)
+        src = work / f"main{ext}"
+        out = work / "out.js"
+        final = work / "run.js"
         src.write_text(code)
         bundle = subprocess.run(
             [
@@ -496,9 +582,6 @@ require({str(out)!r});
             return ExecuteResponse(
                 stdout="", stderr=f"Execution timed out after {TIMEOUT_SECONDS}s."
             )
-    finally:
-        for f in (src, out, final):
-            f.unlink(missing_ok=True)
 
 def _run_sql(code: str) -> ExecuteResponse:
     output_lines: list[str] = []
@@ -799,6 +882,8 @@ def _find_scala_lib() -> Optional[str]:
         "/opt/homebrew/Cellar/scala/*/libexec/maven2/org/scala-lang/scala-library/*/scala-library-*.jar",
         "/usr/local/share/scala/lib/scala-library.jar",
         "/usr/share/scala/lib/scala-library.jar",
+        "/opt/scala/lib/scala-library.jar",
+        "/opt/scala/lib/scala-library*.jar",
     ]
     for pattern in patterns:
         matches = glob.glob(pattern)
@@ -924,6 +1009,100 @@ def _run_nim(code: str) -> ExecuteResponse:
         lambda o: [o],
     )
 
+def _run_d(code: str) -> ExecuteResponse:
+    return _run_compiled_single(
+        "d", code, "gdc", ".d", lambda b, s, o: [b, s, "-o", o], lambda o: [o]
+    )
+
+def _run_vala(code: str) -> ExecuteResponse:
+    return _run_compiled_single(
+        "vala", code, "valac", ".vala", lambda b, s, o: [b, s, "-o", o], lambda o: [o]
+    )
+
+def _run_pascal(code: str) -> ExecuteResponse:
+    # fpc writes the binary to the path given by -o<file> (no space after -o)
+    return _run_compiled_single(
+        "pascal", code, "fpc", ".pas", lambda b, s, o: [b, f"-o{o}", s], lambda o: [o]
+    )
+
+def _run_ada(code: str) -> ExecuteResponse:
+    # GNAT requires the source file to be named after its main procedure unit.
+    gnatmake = _find_binary(["gnatmake"])
+    if not gnatmake:
+        raise HTTPException(status_code=500, detail="Runtime 'gnatmake' not installed.")
+    m = re.search(r"procedure\s+(\w+)", code)
+    unit = (m.group(1) if m else "Main").lower()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src = os.path.join(tmpdir, f"{unit}.adb")
+        with open(src, "w") as f:
+            f.write(code)
+        compile_result = subprocess.run(
+            [gnatmake, "-q", src],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=tmpdir,
+        )
+        if compile_result.returncode != 0:
+            return ExecuteResponse(stdout="", stderr=compile_result.stderr or compile_result.stdout)
+        try:
+            run_result = subprocess.run(
+                [os.path.join(tmpdir, unit)],
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT_SECONDS,
+                cwd=tmpdir,
+            )
+            return ExecuteResponse(stdout=run_result.stdout, stderr=run_result.stderr)
+        except subprocess.TimeoutExpired:
+            return ExecuteResponse(
+                stdout="", stderr=f"Execution timed out after {TIMEOUT_SECONDS}s."
+            )
+
+def _run_scripted(
+    code: str,
+    binary_candidates: list,
+    ext: str,
+    build_args,
+    timeout: int = TIMEOUT_SECONDS,
+) -> ExecuteResponse:
+    """Run an interpreter that needs extra argv flags (not just [binary, file])."""
+    binary = _find_binary(binary_candidates)
+    if not binary:
+        raise HTTPException(
+            status_code=500, detail=f"Runtime '{binary_candidates[0]}' not installed."
+        )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src = os.path.join(tmpdir, f"main{ext}")
+        with open(src, "w") as f:
+            f.write(code)
+        try:
+            result = subprocess.run(
+                build_args(binary, src),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=tmpdir,
+            )
+            return ExecuteResponse(stdout=result.stdout, stderr=result.stderr)
+        except subprocess.TimeoutExpired:
+            return ExecuteResponse(stdout="", stderr=f"Execution timed out after {timeout}s.")
+
+def _run_forth(code: str) -> ExecuteResponse:
+    # gforth loads the file then needs an explicit `bye` to exit (else it hangs in the REPL)
+    return _run_scripted(code, ["gforth"], ".fth", lambda b, s: [b, s, "-e", "bye"])
+
+def _run_chicken(code: str) -> ExecuteResponse:
+    return _run_scripted(code, ["chicken-csi", "csi"], ".scm", lambda b, s: [b, "-s", s])
+
+def _run_v(code: str) -> ExecuteResponse:
+    return _run_scripted(code, ["v"], ".v", lambda b, s: [b, "run", s], timeout=TIMEOUT_JVM)
+
+def _run_objc(code: str) -> ExecuteResponse:
+    return _run_compiled_single(
+        "objc", code, "gcc", ".m", lambda b, s, o: [b, s, "-o", o, "-lobjc"], lambda o: [o]
+    )
+
 def _run_zig(code: str) -> ExecuteResponse:
     # Zig auto-wraps if no pub fn main
     if "pub fn main" not in code:
@@ -1040,14 +1219,18 @@ def _run_awk(code: str) -> ExecuteResponse:
             )
 
 def _run_sml(code: str) -> ExecuteResponse:
-    sml = _find_binary(["sml"]) or "sml"
+    sml = _find_binary(["sml", "poly"]) or "sml"
+    # polyml's binary is `poly` and runs scripts via `poly --script`;
+    # SML/NJ's `sml` takes the file directly.
+    is_poly = os.path.basename(sml) == "poly"
+    cmd = [sml, "--script", "{src}"] if is_poly else [sml, "{src}"]
     with tempfile.TemporaryDirectory() as tmpdir:
         src = os.path.join(tmpdir, "main.sml")
         with open(src, "w") as f:
             f.write(code)
         try:
             result = subprocess.run(
-                [sml, src],
+                [a.format(src=src) for a in cmd],
                 capture_output=True,
                 text=True,
                 timeout=TIMEOUT_SECONDS,
@@ -1069,7 +1252,18 @@ def _run_sml(code: str) -> ExecuteResponse:
 
 def _run_haxe(code: str) -> ExecuteResponse:
     haxe = _find_binary(["haxe"]) or "haxe"
-    env = {**os.environ, "HAXE_STD_PATH": "/opt/homebrew/lib/haxe/std"}
+    # Locate the Haxe std library across platforms (homebrew on macOS, apt on Linux).
+    # If none is found, leave HAXE_STD_PATH unset so haxe uses its compiled-in default.
+    env = {**os.environ}
+    for std in (
+        "/opt/homebrew/lib/haxe/std",
+        "/usr/local/lib/haxe/std",
+        "/usr/share/haxe/std",
+        "/usr/lib/haxe/std",
+    ):
+        if os.path.isdir(std):
+            env["HAXE_STD_PATH"] = std
+            break
     with tempfile.TemporaryDirectory() as tmpdir:
         # Extract class name
         m = re.search(r"class\s+(\w+)", code)
@@ -1174,6 +1368,14 @@ def _run_nasm(code: str) -> ExecuteResponse:
     nasm = _find_binary(["nasm"])
     if not nasm:
         raise HTTPException(status_code=500, detail="NASM assembler not installed.")
+    if platform.machine() not in ("x86_64", "AMD64"):
+        return ExecuteResponse(
+            stdout="",
+            stderr=(
+                "x86-64 NASM assembly can only run on an x86-64 host; "
+                f"this server is {platform.machine()}."
+            ),
+        )
     is_linux = platform.system() == "Linux"
     fmt = "elf64" if is_linux else "macho64"
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1280,6 +1482,22 @@ def run_code(payload: ExecuteRequest, current_user: User) -> ExecuteResponse:
         return _run_clojure(code)
     if lang in ("nasm", "asm", "assembly"):
         return _run_nasm(code)
+    if lang in ("d", "dlang"):
+        return _run_d(code)
+    if lang in ("vala",):
+        return _run_vala(code)
+    if lang in ("pascal", "pas"):
+        return _run_pascal(code)
+    if lang in ("ada", "adb"):
+        return _run_ada(code)
+    if lang in ("forth", "fth"):
+        return _run_forth(code)
+    if lang in ("chicken", "chickenscheme"):
+        return _run_chicken(code)
+    if lang in ("objc", "objective-c", "objectivec"):
+        return _run_objc(code)
+    if lang in ("v", "vlang"):
+        return _run_v(code)
     if lang in _SIMPLE_RUNNERS:
         return _run_simple(lang, code)
 

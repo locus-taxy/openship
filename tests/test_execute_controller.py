@@ -35,6 +35,14 @@ from controllers.execute import (
     _run_zig,
     _run_crystal,
     _run_nim,
+    _run_d,
+    _run_vala,
+    _run_pascal,
+    _run_ada,
+    _run_forth,
+    _run_chicken,
+    _run_v,
+    _run_objc,
     _run_csharp,
     _run_in_docker,
     _get_docker_client,
@@ -120,6 +128,39 @@ class TestGetFilename:
         assert _get_filename("nasm") == "main.asm"
         assert _get_filename("asm") == "main.asm"
         assert _get_filename("assembly") == "main.asm"
+
+    def test_more_new_languages(self):
+        assert _get_filename("fish") == "main.fish"
+        assert _get_filename("raku") == "main.raku"
+        assert _get_filename("perl6") == "main.raku"
+        assert _get_filename("guile") == "main.scm"
+        assert _get_filename("d") == "main.d"
+        assert _get_filename("dlang") == "main.d"
+        assert _get_filename("vala") == "main.vala"
+        assert _get_filename("pascal") == "main.pas"
+        assert _get_filename("pas") == "main.pas"
+        assert _get_filename("ada") == "main.adb"
+        assert _get_filename("adb") == "main.adb"
+
+    def test_extended_batch_languages(self):
+        assert _get_filename("zsh") == "main.zsh"
+        assert _get_filename("ksh") == "main.ksh"
+        assert _get_filename("tcsh") == "main.tcsh"
+        assert _get_filename("luajit") == "main.lua"
+        assert _get_filename("clisp") == "main.lisp"
+        assert _get_filename("newlisp") == "main.lsp"
+        assert _get_filename("rexx") == "main.rexx"
+        assert _get_filename("expect") == "main.exp"
+        assert _get_filename("m4") == "main.m4"
+        assert _get_filename("gambit") == "main.scm"
+        assert _get_filename("pike") == "main.pike"
+        assert _get_filename("yabasic") == "main.bas"
+        assert _get_filename("algol68") == "main.a68"
+        assert _get_filename("forth") == "main.fth"
+        assert _get_filename("chicken") == "main.scm"
+        assert _get_filename("objc") == "main.m"
+        assert _get_filename("v") == "main.v"
+        assert _get_filename("vlang") == "main.v"
 
     def test_unknown_returns_txt(self):
         assert _get_filename("unknownlang") == "main.txt"
@@ -743,6 +784,165 @@ class TestRunNim:
             result = _run_nim("bad code")
         assert result.stderr != ""
 
+class TestRunD:
+    def test_compiles_and_runs(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/gdc"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(stdout="hi\n")]
+            result = _run_d('import std.stdio; void main() { writeln("hi"); }')
+        assert result.stdout == "hi\n"
+
+    def test_compile_error(self):
+        with (
+            patch("subprocess.run", return_value=_fail(stderr="error:")),
+            patch("shutil.which", return_value="/usr/bin/gdc"),
+        ):
+            result = _run_d("bad code")
+        assert result.stderr != ""
+
+class TestRunVala:
+    def test_compiles_and_runs(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/valac"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(stdout="hi\n")]
+            result = _run_vala('void main() { print("hi\\n"); }')
+        assert result.stdout == "hi\n"
+
+    def test_compile_error(self):
+        with (
+            patch("subprocess.run", return_value=_fail(stderr="error:")),
+            patch("shutil.which", return_value="/usr/bin/valac"),
+        ):
+            result = _run_vala("bad code")
+        assert result.stderr != ""
+
+class TestRunPascal:
+    def test_compiles_and_runs(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/fpc"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(stdout="hi\n")]
+            result = _run_pascal("begin writeln('hi'); end.")
+        assert result.stdout == "hi\n"
+
+    def test_compile_error(self):
+        with (
+            patch("subprocess.run", return_value=_fail(stderr="Error:")),
+            patch("shutil.which", return_value="/usr/bin/fpc"),
+        ):
+            result = _run_pascal("bad code")
+        assert result.stderr != ""
+
+class TestRunAda:
+    def test_compiles_and_runs(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/gnatmake"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(stdout="hi\n")]
+            result = _run_ada(
+                'with Ada.Text_IO; procedure Hello is begin Ada.Text_IO.Put_Line("hi"); end Hello;'
+            )
+        assert result.stdout == "hi\n"
+
+    def test_defaults_unit_name_when_no_procedure(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/gnatmake"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(stdout="ok\n")]
+            result = _run_ada("-- no procedure here")
+        assert result.stdout == "ok\n"
+
+    def test_compile_error(self):
+        with (
+            patch("subprocess.run", return_value=_fail(stderr="gnatmake: error")),
+            patch("shutil.which", return_value="/usr/bin/gnatmake"),
+        ):
+            result = _run_ada("procedure Bad is begin null")
+        assert result.stderr != ""
+
+    def test_timeout(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/gnatmake"),
+        ):
+            mock_run.side_effect = [_ok(), subprocess.TimeoutExpired("./hello", 15)]
+            result = _run_ada("procedure Hello is begin null; end Hello;")
+        assert "timed out" in result.stderr.lower()
+
+    def test_not_installed(self):
+        with patch("shutil.which", return_value=None):
+            with pytest.raises(HTTPException):
+                _run_ada("procedure Hello is begin null; end Hello;")
+
+class TestRunForth:
+    def test_runs_with_bye(self):
+        with (
+            patch("subprocess.run", return_value=_ok(stdout="3 \n")) as mock_run,
+            patch("shutil.which", return_value="/usr/bin/gforth"),
+        ):
+            result = _run_forth("1 2 + . cr")
+        assert result.stdout == "3 \n"
+        # gforth must be invoked with `-e bye` so it does not hang in the REPL
+        assert "bye" in mock_run.call_args[0][0]
+
+    def test_timeout(self):
+        with (
+            patch("subprocess.run", side_effect=subprocess.TimeoutExpired("gforth", 15)),
+            patch("shutil.which", return_value="/usr/bin/gforth"),
+        ):
+            result = _run_forth("begin again")
+        assert "timed out" in result.stderr.lower()
+
+    def test_not_installed(self):
+        with patch("shutil.which", return_value=None):
+            with pytest.raises(HTTPException):
+                _run_forth("1 . cr")
+
+class TestRunChicken:
+    def test_runs_script_mode(self):
+        with (
+            patch("subprocess.run", return_value=_ok(stdout="hi\n")) as mock_run,
+            patch("shutil.which", return_value="/usr/bin/csi"),
+        ):
+            result = _run_chicken('(print "hi")')
+        assert result.stdout == "hi\n"
+        assert "-s" in mock_run.call_args[0][0]
+
+class TestRunV:
+    def test_runs(self):
+        with (
+            patch("subprocess.run", return_value=_ok(stdout="hi\n")) as mock_run,
+            patch("shutil.which", return_value="/usr/local/bin/v"),
+        ):
+            result = _run_v("fn main() { println('hi') }")
+        assert result.stdout == "hi\n"
+        assert "run" in mock_run.call_args[0][0]
+
+class TestRunObjc:
+    def test_compiles_and_runs(self):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("shutil.which", return_value="/usr/bin/gcc"),
+        ):
+            mock_run.side_effect = [_ok(), _ok(stdout="hi\n")]
+            result = _run_objc('#include <stdio.h>\nint main(){printf("hi\\n");}')
+        assert result.stdout == "hi\n"
+
+    def test_compile_error(self):
+        with (
+            patch("subprocess.run", return_value=_fail(stderr="error:")),
+            patch("shutil.which", return_value="/usr/bin/gcc"),
+        ):
+            result = _run_objc("bad code")
+        assert result.stderr != ""
+
 class TestRunClojure:
     def test_runs(self):
         with (
@@ -765,6 +965,7 @@ class TestRunNasm:
         with (
             patch("subprocess.run", return_value=_fail(stderr="error: label")),
             patch("shutil.which", return_value="/usr/bin/nasm"),
+            patch("platform.machine", return_value="x86_64"),
         ):
             result = ec._run_nasm("bad asm code")
         assert result.stderr != ""
@@ -773,6 +974,7 @@ class TestRunNasm:
         with (
             patch("subprocess.run") as mock_run,
             patch("shutil.which", return_value="/usr/bin/nasm"),
+            patch("platform.machine", return_value="x86_64"),
         ):
             mock_run.side_effect = [_ok(), _fail(stderr="ld: error")]
             result = ec._run_nasm("section .text")
@@ -782,6 +984,7 @@ class TestRunNasm:
         with (
             patch("subprocess.run") as mock_run,
             patch("shutil.which", return_value="/usr/bin/nasm"),
+            patch("platform.machine", return_value="x86_64"),
         ):
             mock_run.side_effect = [_ok(), _ok(), _ok(stdout="hi\n")]
             result = ec._run_nasm("section .text\nglobal _start")
@@ -793,10 +996,19 @@ class TestRunNasm:
                 ec._run_nasm("section .text")
             assert exc.value.status_code == 500
 
+    def test_non_x86_returns_message(self):
+        with (
+            patch("shutil.which", return_value="/usr/bin/nasm"),
+            patch("platform.machine", return_value="arm64"),
+        ):
+            result = ec._run_nasm("section .text")
+        assert "x86-64" in result.stderr and "arm64" in result.stderr
+
     def test_timeout(self):
         with (
             patch("subprocess.run") as mock_run,
             patch("shutil.which", return_value="/usr/bin/nasm"),
+            patch("platform.machine", return_value="x86_64"),
         ):
             mock_run.side_effect = [_ok(), _ok(), subprocess.TimeoutExpired("./main", 15)]
             result = ec._run_nasm("section .text")
@@ -1249,6 +1461,94 @@ class TestRunCode:
             run_code(_req("octave", 'disp("hi")'), _user())
         mock_oct.assert_called_once()
 
+    def test_dispatches_to_d(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"d": "/usr/bin/gdc"}),
+            patch.object(
+                ec, "_run_d", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_d,
+        ):
+            run_code(_req("d", "void main() {}"), _user())
+        mock_d.assert_called_once()
+
+    def test_dispatches_to_vala(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"vala": "/usr/bin/valac"}),
+            patch.object(
+                ec, "_run_vala", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_vala,
+        ):
+            run_code(_req("vala", "void main() {}"), _user())
+        mock_vala.assert_called_once()
+
+    def test_dispatches_to_pascal(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"pascal": "/usr/bin/fpc"}),
+            patch.object(
+                ec, "_run_pascal", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_pas,
+        ):
+            run_code(_req("pascal", "begin end."), _user())
+        mock_pas.assert_called_once()
+
+    def test_dispatches_to_ada(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"ada": "/usr/bin/gnatmake"}),
+            patch.object(
+                ec, "_run_ada", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_ada,
+        ):
+            run_code(_req("ada", "procedure Hello is begin null; end Hello;"), _user())
+        mock_ada.assert_called_once()
+
+    def test_dispatches_to_forth(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"forth": "/usr/bin/gforth"}),
+            patch.object(
+                ec, "_run_forth", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_forth,
+        ):
+            run_code(_req("forth", "1 . cr"), _user())
+        mock_forth.assert_called_once()
+
+    def test_dispatches_to_chicken(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"chicken": "/usr/bin/csi"}),
+            patch.object(
+                ec, "_run_chicken", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_chicken,
+        ):
+            run_code(_req("chicken", '(print "hi")'), _user())
+        mock_chicken.assert_called_once()
+
+    def test_dispatches_to_objc(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"objc": "/usr/bin/gcc"}),
+            patch.object(
+                ec, "_run_objc", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_objc,
+        ):
+            run_code(_req("objc", "int main(){}"), _user())
+        mock_objc.assert_called_once()
+
+    def test_dispatches_to_v(self):
+        with (
+            patch.object(ec, "USE_DOCKER", False),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"v": "/usr/local/bin/v"}),
+            patch.object(
+                ec, "_run_v", return_value=ExecuteResponse(stdout="hi", stderr="")
+            ) as mock_v,
+        ):
+            run_code(_req("v", "fn main() {}"), _user())
+        mock_v.assert_called_once()
+
     def test_dispatches_to_simple_runner_for_ruby(self):
         with (
             patch.object(ec, "USE_DOCKER", False),
@@ -1417,6 +1717,7 @@ class TestRunNasmLinux:
             patch("subprocess.run") as mock_run,
             patch("shutil.which", return_value="/usr/bin/nasm"),
             patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
         ):
             mock_run.side_effect = [_ok(), _ok(), _ok(stdout="hello\n")]
             result = ec._run_nasm("section .text\nglobal _start")

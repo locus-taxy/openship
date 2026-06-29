@@ -46,6 +46,7 @@ app.add_middleware(
     CORSMiddleware,
     # Vite may use 5174+ if the default port is busy; include common dev origins.
     allow_origins=[
+        "http://localhost",
         "http://localhost:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5173",

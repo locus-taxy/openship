@@ -4,16 +4,21 @@ VENV := .venv
 PIP := $(VENV)/bin/pip
 ROOT := $(abspath .)
 
-.PHONY: help setup full-setup dev run-api run-ui format format-check install sandbox-build sandbox-rebuild
+.PHONY: help setup full-setup dev run-api run-ui format format-check install sandbox-build sandbox-rebuild bootstrap docker-up docker-down docker-logs docker-reset
 
 help:
 	@echo "Openship Makefile"
-	@echo "  make setup           Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env
-  make full-setup      Same as setup, then builds the Docker sandbox image (all languages ready to go)"
+	@echo "  make bootstrap       Install Docker if missing, then start the full stack (zero setup)"
+	@echo "  make docker-up       Start the full stack with Docker Compose (recommended)"
+	@echo "  make docker-down     Stop the Docker Compose stack"
+	@echo "  make docker-logs     Stream logs from all services"
+	@echo "  make docker-reset    Tear down, wipe volumes, and rebuild from scratch"
+	@echo "  make setup           Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env"
+	@echo "  make full-setup      Same as setup, then builds the Docker sandbox image (all languages ready to go)"
 	@echo "  make dev             Start API and UI in separate Terminal windows"
 	@echo "  make run-api         FastAPI only (reload)"
 	@echo "  make run-ui          Vite dev server only"
-	@echo "  make sandbox-build   Build the Docker sandbox image (all 41 language runtimes)"
+	@echo "  make sandbox-build   Build the Docker sandbox image (60+ language runtimes)"
 	@echo "  make sandbox-rebuild Rebuild the sandbox image from scratch (no cache)"
 	@echo "  make format          Run Black + single-blank-line pass via pre-commit (may run twice)"
 	@echo "  make format-check    CI-style: fail if Python formatting is not clean"
@@ -79,3 +84,24 @@ sandbox-rebuild:
 	fi; \
 	docker build --no-cache $$CERT_ARG -t openship-sandbox "$(ROOT)/sandbox"
 	@echo "Done."
+
+bootstrap:
+	@chmod +x "$(ROOT)/scripts/bootstrap.sh"
+	@bash "$(ROOT)/scripts/bootstrap.sh"
+
+docker-up:
+	@echo "Starting openship via Docker Compose..."
+	@chmod +x "$(ROOT)/scripts/gen-secrets.sh"
+	@bash "$(ROOT)/scripts/gen-secrets.sh"
+	docker compose up --build -d
+	@echo "Done — UI available at http://localhost"
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f
+
+docker-reset:
+	docker compose down -v
+	docker compose up --build -d

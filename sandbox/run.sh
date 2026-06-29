@@ -82,6 +82,25 @@ case "$LANG" in
     groovy)               groovy "$FILE" ;;
     clojure|clj)          clojure -e "(load-file \"$FILE\")" ;;
     coffeescript|coffee)  coffee "$FILE" ;;
+    fish)                 fish "$FILE" ;;
+    raku|perl6)           raku "$FILE" ;;
+    guile)                guile "$FILE" ;;
+    zsh)                  zsh "$FILE" ;;
+    ksh)                  ksh "$FILE" ;;
+    tcsh|csh)             tcsh "$FILE" ;;
+    luajit)               luajit "$FILE" ;;
+    clisp)                clisp "$FILE" ;;
+    newlisp)              newlisp "$FILE" ;;
+    rexx)                 regina "$FILE" ;;
+    expect)               expect "$FILE" ;;
+    m4)                   m4 "$FILE" ;;
+    gambit)               gsi "$FILE" ;;
+    pike)                 pike "$FILE" ;;
+    yabasic|basic)        yabasic "$FILE" ;;
+    algol68|a68)          a68g "$FILE" ;;
+    forth|fth)            gforth "$FILE" -e bye ;;
+    chicken|chickenscheme) csi -s "$FILE" ;;
+    v|vlang)              v run "$FILE" ;;
     nasm|asm|assembly)
         if [ "$(uname -m)" != "x86_64" ]; then
             echo "Assembly (NASM) is only supported on x86_64 hosts." >&2
@@ -169,6 +188,26 @@ case "$LANG" in
         cp "$FILE" "$haxedir/${classname}.hx"
         haxe --main "$classname" --interp --class-path "$haxedir"
         rm -rf "$haxedir" ;;
+
+    d|dlang)
+        gdc "$FILE" -o "$TMPDIR/main" && "$TMPDIR/main" ;;
+
+    vala)
+        valac "$FILE" -o "$TMPDIR/main" && "$TMPDIR/main" ;;
+
+    pascal|pas)
+        fpc -o"$TMPDIR/main" "$FILE" >/dev/null && "$TMPDIR/main" ;;
+
+    objc|objective-c|objectivec)
+        gcc "$FILE" -o "$TMPDIR/main" -lobjc && "$TMPDIR/main" ;;
+
+    ada|adb)
+        unit=$(grep -oiP 'procedure\s+\K\w+' "$FILE" | head -1)
+        unit=$(echo "${unit:-main}" | tr '[:upper:]' '[:lower:]')
+        adadir=$(mktemp -d /tmp/ada.XXXXXX)
+        cp "$FILE" "$adadir/${unit}.adb"
+        ( cd "$adadir" && gnatmake -q "${unit}.adb" && "./${unit}" )
+        rm -rf "$adadir" ;;
 
     *)
         echo "Language '$LANG' is not supported in this sandbox." >&2

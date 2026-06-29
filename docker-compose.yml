@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openship
+      POSTGRES_USER: openship
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openship"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://openship:${DB_PASSWORD:-changeme}@db:5432/openship
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in .env}
+      LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:?LLM_ENCRYPTION_KEY must be set in .env}
+      SANDBOX_USE_DOCKER: "false"
+      OPENSHIP_JS_SANDBOX_PATH: /opt/openship_js_sandbox
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ui:
+    build: ./ui
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
