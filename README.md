@@ -161,6 +161,22 @@ make docker-down   # stop the stack
 make docker-reset  # wipe all data and rebuild from scratch
 ```
 
+#### Behind a TLS-intercepting corporate proxy (e.g. Zscaler)
+
+The build verifies TLS for every download (no `--no-check-certificate`). If your
+network intercepts TLS, some runtime downloads will fail with `unable to get local
+issuer certificate`. Provide your corporate **root CA** so the build trusts it:
+
+```bash
+# Export your org root CA (PEM). To capture the one your proxy presents:
+export CORPORATE_CA_CERT="$(openssl s_client -showcerts -connect ziglang.org:443 </dev/null 2>/dev/null \
+  | awk '/BEGIN CERT/,/END CERT/')"
+make docker-up
+```
+
+`docker compose` passes `CORPORATE_CA_CERT` into the image build, which adds it to the
+trust store. Leave it unset on normal networks.
+
 ---
 
 ### Option 2: Local development

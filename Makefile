@@ -68,21 +68,21 @@ format-check:
 
 sandbox-build:
 	@echo "Building openship-sandbox Docker image (this takes a few minutes on first run)..."
-	@CERT_ARG=""; \
-	if [ -f "$(ROOT)/sandbox/corporate-ca.crt" ]; then \
-	    CERT_ARG="--build-arg CORPORATE_CA_CERT=$$(cat $(ROOT)/sandbox/corporate-ca.crt)"; \
+	@if [ -f "$(ROOT)/sandbox/corporate-ca.crt" ]; then \
 	    echo "  (corporate CA cert detected — injecting into image)"; \
-	fi; \
-	docker build $$CERT_ARG -t openship-sandbox "$(ROOT)/sandbox"
+	    docker build --build-arg CORPORATE_CA_CERT="$$(cat $(ROOT)/sandbox/corporate-ca.crt)" -t openship-sandbox "$(ROOT)/sandbox"; \
+	else \
+	    docker build -t openship-sandbox "$(ROOT)/sandbox"; \
+	fi
 	@echo "Done — sandbox image built. Set SANDBOX_USE_DOCKER=true in .env to activate."
 
 sandbox-rebuild:
 	@echo "Rebuilding openship-sandbox Docker image from scratch..."
-	@CERT_ARG=""; \
-	if [ -f "$(ROOT)/sandbox/corporate-ca.crt" ]; then \
-	    CERT_ARG="--build-arg CORPORATE_CA_CERT=$$(cat $(ROOT)/sandbox/corporate-ca.crt)"; \
-	fi; \
-	docker build --no-cache $$CERT_ARG -t openship-sandbox "$(ROOT)/sandbox"
+	@if [ -f "$(ROOT)/sandbox/corporate-ca.crt" ]; then \
+	    docker build --no-cache --build-arg CORPORATE_CA_CERT="$$(cat $(ROOT)/sandbox/corporate-ca.crt)" -t openship-sandbox "$(ROOT)/sandbox"; \
+	else \
+	    docker build --no-cache -t openship-sandbox "$(ROOT)/sandbox"; \
+	fi
 	@echo "Done."
 
 bootstrap:

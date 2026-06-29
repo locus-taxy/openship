@@ -15,7 +15,12 @@ services:
       retries: 10
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        # For TLS-intercepting corporate proxies: export CORPORATE_CA_CERT with your
+        # root CA (PEM) so the build trusts it instead of disabling TLS verification.
+        CORPORATE_CA_CERT: ${CORPORATE_CA_CERT:-}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://openship:${DB_PASSWORD:-changeme}@db:5432/openship

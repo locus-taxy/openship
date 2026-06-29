@@ -135,6 +135,8 @@ def main():
         print("FAILED:", ", ".join(results["FAIL"]))
     if results["SKIP"]:
         print("SKIPPED (no runtime):", ", ".join(results["SKIP"]))
+    if results["FAIL"]:
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -26,8 +26,9 @@ function _warmCache() {
       _notify()
     })
     .catch(() => {
-      _cache = new Set()
-      _notify()
+      // Transient failure: leave _cache unset so a later mount can retry,
+      // rather than permanently caching "no runtimes".
+      _fetching = false
     })
 }
 
@@ -47,7 +48,8 @@ export function useIsRunnable(language: string): boolean {
       setRunnable(_cache.has(language?.toLowerCase() ?? ""))
       return
     }
-    // Otherwise subscribe for when it loads
+    // Cache not ready (or a prior fetch failed) — retry, then subscribe.
+    _warmCache()
     const check = () => setRunnable(_cache!.has(language?.toLowerCase() ?? ""))
     _listeners.add(check)
     return () => { _listeners.delete(check) }

@@ -210,6 +210,28 @@ class TestGetAvailableRuntimes:
         result = get_available_runtimes()
         assert "python" in result["languages"] or "python3" in result["languages"]
 
+class TestJvmToolchainGating:
+    def test_java_dropped_when_compiler_missing(self):
+        # Java is advertised only with the full toolchain: javac present is required
+        # even when the `java` runtime exists.
+        real = ec._find_binary
+
+        def fake(cands):
+            if cands == ["javac"]:
+                return None
+            if cands == ["java"]:
+                return "/usr/bin/java"
+            return real(cands)
+
+        with patch.object(ec, "_find_binary", side_effect=fake):
+            avail = ec._detect_runtimes()
+        assert "java" not in avail
+
+    def test_scala_dropped_when_library_jar_missing(self):
+        with patch.object(ec, "_find_scala_lib", return_value=None):
+            avail = ec._detect_runtimes()
+        assert "scala" not in avail
+
 # ── _run_sql ──────────────────────────────────────────────────────────────────
 
 class TestRunSql:
@@ -1056,12 +1078,15 @@ class TestEnsureJsSandbox:
                 assert result == p
                 mock_npm.assert_not_called()
 
-    def test_does_not_write_marker_on_npm_failure(self):
+    def test_fails_closed_on_npm_failure(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             p = Path(tmpdir)
             with patch.object(ec, "_JS_SANDBOX", p):
-                with patch("subprocess.run", return_value=_fail()):
-                    ec._ensure_js_sandbox()
+                with patch("subprocess.run", return_value=_fail(stderr=b"npm boom")):
+                    with pytest.raises(HTTPException) as exc:
+                        ec._ensure_js_sandbox()
+            assert exc.value.status_code == 500
+            assert "npm boom" in exc.value.detail
             assert not (p / ".ready").exists()
 
 # ── _run_javascript ───────────────────────────────────────────────────────────
@@ -1569,6 +1594,18 @@ class TestRunCode:
         ):
             run_code(_req("python3", "print('hi')"), _user())
         mock_docker.assert_called_once()
+
+    def test_docker_mode_rejects_unsupported_language(self):
+        # Unsupported languages must hit the 400 path even when Docker is enabled.
+        with (
+            patch.object(ec, "USE_DOCKER", True),
+            patch.object(ec, "_AVAILABLE_RUNTIMES", {"python": "/usr/bin/python3"}),
+            patch.object(ec, "_run_in_docker") as mock_docker,
+        ):
+            with pytest.raises(HTTPException) as exc:
+                run_code(_req("nonexistlang", "x"), _user())
+        assert exc.value.status_code == 400
+        mock_docker.assert_not_called()
 
     def test_dispatches_to_crystal(self):
         with (

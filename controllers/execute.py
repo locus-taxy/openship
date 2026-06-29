@@ -17,7 +17,10 @@ TIMEOUT_JVM = 60  # Scala/Kotlin JVM startup is slow
 
 # ── Docker sandbox ────────────────────────────────────────────────────────────
 
-USE_DOCKER = os.getenv("SANDBOX_USE_DOCKER", "false").lower() == "true"
+# Default to the isolated Docker sandbox path (fail closed for untrusted /execute code).
+# Every supported deployment sets SANDBOX_USE_DOCKER explicitly; this default only governs
+# unconfigured runs, which should not execute user code directly on the host.
+USE_DOCKER = os.getenv("SANDBOX_USE_DOCKER", "true").lower() == "true"
 DOCKER_IMAGE = os.getenv("SANDBOX_DOCKER_IMAGE", "openship-sandbox")
 
 _docker_client = None
@@ -185,6 +188,9 @@ def _run_in_docker(lang: str, code: str) -> ExecuteResponse:
         code_file = os.path.join(tmpdir, filename)
         with open(code_file, "w") as f:
             f.write(code)
+        # The sandbox image runs as a non-root user; make the bind mount writable
+        # so it can emit compiled binaries/intermediates into /sandbox.
+        os.chmod(tmpdir, 0o777)
 
         container = None
         try:
@@ -250,8 +256,15 @@ def _ensure_js_sandbox() -> Path:
         capture_output=True,
         timeout=180,
     )
-    if result.returncode == 0:
-        marker.write_text(_SANDBOX_VERSION)
+    if result.returncode != 0:
+        err = result.stderr
+        if isinstance(err, bytes):
+            err = err.decode("utf-8", errors="replace")
+        raise HTTPException(
+            status_code=500,
+            detail=f"JS sandbox bootstrap failed (npm install): {(err or '').strip()[:500] or 'unknown error'}",
+        )
+    marker.write_text(_SANDBOX_VERSION)
     return _JS_SANDBOX
 
 # ── Runtime detection ─────────────────────────────────────────────────────────
@@ -294,7 +307,7 @@ _RUNTIME_SPECS = [
     ("php", ["php"], ["php"]),
     ("kotlinc", ["kotlinc"], ["kotlin", "kt"]),
     ("dart", ["dart"], ["dart", "flutter"]),
-    ("scala", ["scala"], ["scala"]),
+    ("scala", ["scalac", "scala"], ["scala"]),
     ("perl", ["perl"], ["perl", "pl"]),
     ("lua", ["lua", "lua5.4", "lua5.3", "lua5.5"], ["lua"]),
     ("elixir", ["elixir"], ["elixir", "ex", "exs"]),
@@ -349,7 +362,7 @@ _RUNTIME_SPECS = [
     ("csi", ["chicken-csi", "csi"], ["chicken", "chickenscheme"]),
     ("objc", ["gcc", "clang"], ["objc", "objective-c", "objectivec"]),
     ("v", ["v"], ["v", "vlang"]),
-    ("sqlite3", [None], ["sql", "sqlite", "postgresql", "postgres", "mysql"]),
+    ("sqlite3", [None], ["sql", "sqlite"]),
 ]
 
 # Extra directories to search beyond PATH (e.g. Homebrew on macOS)
@@ -369,6 +382,40 @@ def _find_binary(candidates: list) -> Optional[str]:
                 return full
     return None
 
+def _find_scala_lib() -> Optional[str]:
+    import glob
+
+    patterns = [
+        "/opt/homebrew/Cellar/scala/*/libexec/maven2/org/scala-lang/scala-library/*/scala-library-*.jar",
+        "/usr/local/share/scala/lib/scala-library.jar",
+        "/usr/share/scala/lib/scala-library.jar",
+        "/opt/scala/lib/scala-library.jar",
+        "/opt/scala/lib/scala-library*.jar",
+    ]
+    for pattern in patterns:
+        matches = glob.glob(pattern)
+        if matches:
+            return matches[0]
+    return None
+
+# JVM languages need their full toolchain, not just one binary. Each tag is only
+# advertised if every predicate holds (avoids false positives in /execute/runtimes).
+def _java_ok() -> bool:
+    return bool(_find_binary(["javac"]) and _find_binary(["java"]))
+
+def _kotlin_ok() -> bool:
+    return bool(_find_binary(["kotlinc"]) and _find_binary(["java"]))
+
+def _scala_ok() -> bool:
+    return bool(_find_binary(["scalac"]) and _find_binary(["java"]) and _find_scala_lib())
+
+_TOOLCHAIN_GATES = {
+    "java": _java_ok,
+    "kotlin": _kotlin_ok,
+    "kt": _kotlin_ok,
+    "scala": _scala_ok,
+}
+
 def _detect_runtimes() -> dict[str, str]:
     """Return {language_tag: binary_path} for every available runtime."""
     available: dict[str, str] = {}
@@ -378,6 +425,10 @@ def _detect_runtimes() -> dict[str, str]:
             continue
         for tag in tags:
             available[tag] = path
+    # Drop JVM languages whose full toolchain (compiler + runtime + libs) is missing.
+    for tag, gate in _TOOLCHAIN_GATES.items():
+        if tag in available and not gate():
+            del available[tag]
     return available
 
 # Detected once at import time; cached for the process lifetime
@@ -406,7 +457,8 @@ _JS_LANGS = {
     "angular",
     "express",
 }
-_SQL_LANGS = {"sql", "sqlite", "postgresql", "postgres", "mysql"}
+# Only SQLite-compatible dialects: _run_sql() executes against sqlite3 in-memory.
+_SQL_LANGS = {"sql", "sqlite"}
 _JAVA_LANGS = {"java"}
 _CPP_LANGS = {"cpp", "c++", "cxx", "cc"}
 _C_LANGS = {"c"}
@@ -875,22 +927,6 @@ def _run_kotlin(code: str) -> ExecuteResponse:
 
 _SLOW_LANGS = {"groovy"}  # JVM startup needs more time
 
-def _find_scala_lib() -> Optional[str]:
-    import glob
-
-    patterns = [
-        "/opt/homebrew/Cellar/scala/*/libexec/maven2/org/scala-lang/scala-library/*/scala-library-*.jar",
-        "/usr/local/share/scala/lib/scala-library.jar",
-        "/usr/share/scala/lib/scala-library.jar",
-        "/opt/scala/lib/scala-library.jar",
-        "/opt/scala/lib/scala-library*.jar",
-    ]
-    for pattern in patterns:
-        matches = glob.glob(pattern)
-        if matches:
-            return matches[0]
-    return None
-
 def _run_scala(code: str) -> ExecuteResponse:
     scalac = _find_binary(["scalac"]) or "scalac"
     java = _find_binary(["java"]) or "java"
@@ -979,6 +1015,7 @@ def _run_compiled_single(
             capture_output=True,
             text=True,
             timeout=60,
+            cwd=tmpdir,  # some compilers (e.g. valac) emit intermediates in CWD
         )
         if compile_result.returncode != 0:
             return ExecuteResponse(stdout="", stderr=compile_result.stderr)
@@ -1425,17 +1462,18 @@ def run_code(payload: ExecuteRequest, current_user: User) -> ExecuteResponse:
     if lang in _SQL_LANGS:
         return _run_sql(code)
 
-    # Docker path
-    if USE_DOCKER:
-        return _run_in_docker(lang, code)
-
-    # Subprocess fallback
+    # Validate before dispatch so Docker and subprocess modes enforce the same 400 path.
     if lang not in _AVAILABLE_RUNTIMES:
         raise HTTPException(
             status_code=400,
             detail=f"Language '{payload.language}' is not available on this server.",
         )
 
+    # Docker path
+    if USE_DOCKER:
+        return _run_in_docker(lang, code)
+
+    # Subprocess dispatch
     if lang in _JS_LANGS:
         return _run_javascript(code, lang)
     if lang in _JAVA_LANGS:

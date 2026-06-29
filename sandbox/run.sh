@@ -145,11 +145,11 @@ case "$LANG" in
         swift "$FILE" ;;
 
     kotlin|kt)
-        kotlinc "$FILE" -include-runtime -d "$TMPDIR/main.jar" 2>/dev/null \
+        kotlinc "$FILE" -include-runtime -d "$TMPDIR/main.jar" \
             && java -jar "$TMPDIR/main.jar" ;;
 
     scala)
-        scalac "$FILE" -d "$TMPDIR" 2>/dev/null \
+        scalac "$FILE" -d "$TMPDIR" \
             && objname=$(grep -oP 'object\s+\K\w+' "$FILE" | head -1) \
             && java -cp "$TMPDIR:/opt/scala/lib/*" "${objname:-Main}" ;;
 
@@ -170,7 +170,7 @@ case "$LANG" in
         dotnet new console --language="$lang_flag" --no-restore -o "$proj" -f net8.0 >/dev/null 2>&1
         ext=".cs"; [[ "$lang_flag" == "F#" ]] && ext=".fs"
         cp "$FILE" "$proj/Program$ext"
-        dotnet run --project "$proj" --nologo 2>/dev/null ;;
+        dotnet run --project "$proj" --nologo ;;
 
     fortran|f90|f95|f77)
         gfortran "$FILE" -o "$TMPDIR/main" && "$TMPDIR/main" ;;
@@ -196,7 +196,11 @@ case "$LANG" in
         valac "$FILE" -o "$TMPDIR/main" && "$TMPDIR/main" ;;
 
     pascal|pas)
-        fpc -o"$TMPDIR/main" "$FILE" >/dev/null && "$TMPDIR/main" ;;
+        if fpc -o"$TMPDIR/main" "$FILE" >"$TMPDIR/fpc.log" 2>&1; then
+            "$TMPDIR/main"
+        else
+            cat "$TMPDIR/fpc.log" >&2; exit 1
+        fi ;;
 
     objc|objective-c|objectivec)
         gcc "$FILE" -o "$TMPDIR/main" -lobjc && "$TMPDIR/main" ;;

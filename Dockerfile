@@ -115,14 +115,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends rustc cargo \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Kotlin ───────────────────────────────────────────────────────────────────
-RUN wget --no-check-certificate -q \
+RUN wget -q \
     "https://github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip" \
     && unzip -q kotlin-compiler-2.0.21.zip -d /opt \
     && mv /opt/kotlinc /opt/kotlin \
     && rm kotlin-compiler-2.0.21.zip
 
 # ── Scala ────────────────────────────────────────────────────────────────────
-RUN wget --no-check-certificate -q \
+RUN wget -q \
     "https://github.com/scala/scala/releases/download/v2.13.15/scala-2.13.15.tgz" \
     && tar xzf scala-2.13.15.tgz -C /opt \
     && mv /opt/scala-2.13.15 /opt/scala \
@@ -134,7 +134,7 @@ RUN ARCH=$(uname -m) && if [ "$ARCH" = "x86_64" ]; then \
         libcurl4-openssl-dev libedit2 libpython3-dev libsqlite3-dev \
         libxml2-dev pkg-config tzdata zlib1g-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && wget --no-check-certificate -q \
+    && wget -q \
         "https://download.swift.org/swift-6.0.3-release/ubuntu2404/swift-6.0.3-RELEASE/swift-6.0.3-RELEASE-ubuntu24.04.tar.gz" \
     && tar xzf swift-6.0.3-RELEASE-ubuntu24.04.tar.gz -C /opt \
     && ln -s /opt/swift-6.0.3-RELEASE-ubuntu24.04/usr/bin/swift /usr/local/bin/swift \
@@ -148,7 +148,7 @@ RUN ARCH=$(uname -m) && if [ "$ARCH" = "x86_64" ]; then \
 
 # ── Zig ──────────────────────────────────────────────────────────────────────
 RUN ARCH=$(uname -m) \
-    && wget --no-check-certificate -q \
+    && wget -q \
         "https://ziglang.org/download/0.13.0/zig-linux-${ARCH}-0.13.0.tar.xz" \
     && tar xf "zig-linux-${ARCH}-0.13.0.tar.xz" -C /opt \
     && ln -sf "/opt/zig-linux-${ARCH}-0.13.0/zig" /usr/local/bin/zig \
@@ -156,7 +156,7 @@ RUN ARCH=$(uname -m) \
 
 # ── Dart ─────────────────────────────────────────────────────────────────────
 RUN ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/') \
-    && wget --no-check-certificate -q \
+    && wget -q \
         "https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-${ARCH}-release.zip" \
     && unzip -q "dartsdk-linux-${ARCH}-release.zip" -d /opt \
     && ln -s /opt/dart-sdk/bin/dart /usr/local/bin/dart \
@@ -173,7 +173,7 @@ RUN ARCH=$(uname -m) \
 
 # ── Julia ────────────────────────────────────────────────────────────────────
 RUN ARCH=$(uname -m) \
-    && wget --no-check-certificate -q \
+    && wget -q \
         "https://julialang-s3.julialang.org/bin/linux/${ARCH}/1.10/julia-1.10.0-linux-${ARCH}.tar.gz" \
     && tar xzf "julia-1.10.0-linux-${ARCH}.tar.gz" -C /opt \
     && ln -sf "/opt/julia-1.10.0/bin/julia" /usr/local/bin/julia \
@@ -203,21 +203,27 @@ RUN mkdir -p /opt/openship_js_sandbox \
 WORKDIR /app
 
 COPY requirements.txt .
-# --trusted-host keeps pip working behind intercepting corporate proxies.
+# Verify against the system CA bundle (includes CORPORATE_CA_CERT when provided)
+# instead of disabling TLS verification.
 RUN python3 -m venv .venv \
-    && .venv/bin/pip install --no-cache-dir \
-        --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+    && .venv/bin/pip install --no-cache-dir --cert /etc/ssl/certs/ca-certificates.crt \
         --upgrade pip \
-    && .venv/bin/pip install --no-cache-dir \
-        --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+    && .venv/bin/pip install --no-cache-dir --cert /etc/ssl/certs/ca-certificates.crt \
         -r requirements.txt
 
 COPY . .
 
+# The container itself is the isolation boundary; code runs as subprocesses inside it.
+# (The _run_in_docker path needs a Docker socket, which is intentionally not mounted.)
 ENV SANDBOX_USE_DOCKER=false
 
 EXPOSE 3005
 
 COPY scripts/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+# Run the API — and the user-submitted code it executes — as a non-root user.
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
+USER appuser
+
 ENTRYPOINT ["/entrypoint.sh"]

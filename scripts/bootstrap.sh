@@ -29,13 +29,14 @@ wait_for_daemon() {
 
 install_docker_linux() {
     say "Installing Docker Engine (official get.docker.com script — needs sudo)…"
-    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sudo sh /tmp/get-docker.sh
-    rm -f /tmp/get-docker.sh
+    installer="$(mktemp)"
+    curl -fsSL https://get.docker.com -o "$installer"
+    sudo sh "$installer"
+    rm -f "$installer"
     # Start the daemon and let the current user run docker without sudo.
     sudo systemctl enable --now docker 2>/dev/null || sudo service docker start 2>/dev/null || true
     sudo usermod -aG docker "$USER" 2>/dev/null || true
-    warn "Added you to the 'docker' group — a re-login may be needed for non-sudo access."
+    warn "Added you to the 'docker' group — a re-login is required before this shell can use docker without sudo."
 }
 
 install_docker_macos() {
@@ -50,14 +51,24 @@ install_docker_macos() {
 }
 
 # ── 1. Ensure Docker is installed ─────────────────────────────────────────────
+DID_INSTALL=false
 if command -v docker >/dev/null 2>&1; then
     say "Docker is already installed."
 else
+    DID_INSTALL=true
     case "$OS" in
         Linux)  install_docker_linux ;;
         Darwin) install_docker_macos ;;
         *)      die "Unsupported OS '$OS'. Install Docker Desktop manually, then run: make docker-up" ;;
     esac
+fi
+
+# Fresh Linux install: the 'docker' group isn't active in this shell yet, so plain
+# `docker` (used below and by make docker-up) would fail. Exit with a re-login message.
+if [ "$DID_INSTALL" = true ] && [ "$OS" = "Linux" ] && ! docker info >/dev/null 2>&1; then
+    say "Docker installed and the daemon is starting."
+    warn "Log out and back in (or run: newgrp docker), then run: make docker-up"
+    exit 0
 fi
 
 # ── 2. Ensure the daemon is running ───────────────────────────────────────────
