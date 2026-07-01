@@ -4,6 +4,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/opt/kotlin/bin:/opt/scala/bin:$PATH"
 ENV JS_SANDBOX_DIR=/js-sandbox
 
+# Resilient apt for slow / TLS-intercepting proxies: retry transient fetch failures.
+RUN echo 'Acquire::Retries "5"; Acquire::http::Timeout "120"; Acquire::https::Timeout "120";' \
+    > /etc/apt/apt.conf.d/80-openship-retries
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl wget unzip zip ca-certificates gnupg git build-essential \
     && update-ca-certificates \

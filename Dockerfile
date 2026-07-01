@@ -3,6 +3,11 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/opt/kotlin/bin:/opt/scala/bin:$PATH"
 
+# Resilient apt for slow / TLS-intercepting proxies: retry transient fetch
+# failures (large packages like dotnet-sdk can stall) instead of aborting the build.
+RUN echo 'Acquire::Retries "5"; Acquire::http::Timeout "120"; Acquire::https::Timeout "120";' \
+    > /etc/apt/apt.conf.d/80-openship-retries
+
 # ── Base tooling ──────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl wget unzip zip ca-certificates gnupg git build-essential \
