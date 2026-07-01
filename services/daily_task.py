@@ -145,6 +145,24 @@ def get_max_day_for_skill(skill_id: int) -> int:
         ).first()
         return result or 0
 
+def get_max_day_for_week(skill_id: int, week: int) -> int:
+    """Return the highest day number stored for a specific week (0 if no tasks exist).
+
+    Used by _generate_next_week to find the true start_day for the next week,
+    which may differ from arithmetic when the initial LLM syllabus gave a week
+    more or fewer days than days_in_week.
+    """
+    with Session(engine) as session:
+        from sqlalchemy import func
+
+        result = session.exec(
+            select(func.max(DailyTask.day)).where(
+                DailyTask.skill_id == skill_id,
+                DailyTask.week == week,
+            )
+        ).first()
+        return result or 0
+
 def get_week_content_style(skill_id: int, week: int) -> Optional[str]:
     """Return the content_style already used for any chapter in this week, or None if none set yet."""
     with Session(engine) as session:
@@ -368,6 +386,23 @@ def delete_week_tasks(skill_id: int, week: int) -> None:
         )
         session.commit()
 
+def get_canonical_topic_names(skill_id: int) -> List[str]:
+    """Return deduplicated topic names from non-remediation days (original canonical topics).
+
+    Order-preserving deduplication — the same topic may appear on multiple weeks
+    (review without remediation flag) so we return each name only once.
+    """
+    with Session(engine) as session:
+        tasks = session.exec(
+            select(DailyTask)
+            .where(
+                DailyTask.skill_id == skill_id,
+                DailyTask.is_remediation_day == False,  # noqa: E712
+            )
+            .order_by(DailyTask.week, DailyTask.day)
+        ).all()
+        return list(dict.fromkeys(t.topic for t in tasks if t.topic))
+
 def store_week_tasks(
     user_id: str,
     skill: str,
@@ -376,11 +411,24 @@ def store_week_tasks(
     month: int,
     daily_plan: list,
     hours: int,
+    remediation_days: int = 0,
 ) -> bool:
-    """Store ML-generated DailyTask rows for a specific week."""
+    """Store ML-generated DailyTask rows for a specific week.
+
+    remediation_days: number of leading days in the plan that are remediation/review days.
+    The first remediation_days day objects are flagged with is_remediation_day=True so
+    their LLM-generated names are excluded from canonical topic tracking.
+    """
     try:
         with Session(engine) as session:
-            for day_obj in daily_plan:
+            # Sort by day number first — the LLM may return days out of order.
+            # is_remediation_day is flagged by list position (not absolute day number)
+            # because day numbers are global across the whole syllabus (week 2 may
+            # start at day 6+). After sorting, the first remediation_days entries are
+            # remediation days as instructed in the syllabus prompt.
+            ordered_plan = sorted(daily_plan, key=lambda d: d.get("day") or 0)
+            for i, day_obj in enumerate(ordered_plan):
+                is_remediation = remediation_days > 0 and i < remediation_days
                 task = DailyTask(
                     user_id=user_id,
                     skill=skill,
@@ -391,6 +439,7 @@ def store_week_tasks(
                     topic=day_obj.get("topic"),
                     task=day_obj.get("task"),
                     hours=hours,
+                    is_remediation_day=is_remediation,
                 )
                 session.add(task)
             session.commit()

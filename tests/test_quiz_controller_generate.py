@@ -152,6 +152,40 @@ class TestGenerateQuizForSkill:
         assert result.question_count == 2
         assert result.week == 0
 
+    def test_topic_list_capped_when_more_topics_than_questions(self):
+        """When weak+forgotten exceeds num_questions, the list is capped."""
+        user = _make_user()
+        skill = _make_skill()
+        many_topics = [f"Topic{i}" for i in range(15)]  # more than num_questions=10
+        generated = MagicMock()
+        generated.questions = [MagicMock()]
+        created_quiz = MagicMock()
+        created_quiz.id = 55
+        created_quiz.week = 0
+        created_quiz.status = "available"
+        created_quiz.pass_score = 70
+        with (
+            patch("controllers.quiz.Session") as mock_session_cls,
+            patch("controllers.quiz.quiz_service") as mock_svc,
+            patch("controllers.quiz.get_weak_topics", return_value=many_topics),
+            patch("controllers.quiz.get_forgotten_topics", return_value=[]),
+            patch("controllers.quiz.generate_final_quiz", return_value=generated) as mock_gen,
+            patch("controllers.quiz.get_user_provider_name", return_value="gemini"),
+            patch("controllers.quiz.get_user_api_key", return_value="key"),
+            patch("controllers.quiz.get_user_model", return_value="gemini-flash"),
+        ):
+            session = MagicMock()
+            session.get.return_value = skill
+            mock_session_cls.return_value.__enter__ = MagicMock(return_value=session)
+            mock_session_cls.return_value.__exit__ = MagicMock(return_value=False)
+            mock_svc.get_quiz_by_week.return_value = None
+            mock_svc.get_num_questions.return_value = 10
+            mock_svc.create_quiz.return_value = created_quiz
+            mock_svc.build_topic_map.return_value = {}
+            generate_quiz_for_skill(1, user)
+        call_kwargs = mock_gen.call_args.kwargs
+        assert len(call_kwargs["weak_topics"]) <= 10
+
 def _patch_quiz_session(session_mock):
     patcher = patch("controllers.quiz.Session")
     mock_cls = patcher.start()
@@ -289,6 +323,37 @@ class TestGetLatestAttempt:
         finally:
             patcher.stop()
 
+class TestGetLatestAttemptSuccess:
+    def test_returns_response_when_attempt_exists(self):
+        user = _make_user()
+        skill = _make_skill()
+        quiz = Quiz(id=1, skill_id=1, week=0, pass_score=70)
+        quiz.status = "available"
+        attempt_data = {
+            "attempt_id": 1,
+            "score": 80,
+            "passed": True,
+            "pass_score": 70,
+            "created_at": None,
+            "results": [],
+            "topic_scores": {"Arrays": {"correct": 1, "total": 1, "pct": 100}},
+        }
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_quiz_session(session)
+        try:
+            with (
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
+                patch(
+                    "controllers.quiz.quiz_service.get_latest_attempt_results",
+                    return_value=attempt_data,
+                ),
+            ):
+                result = get_latest_attempt(skill_id=1, current_user=user)
+            assert result.score == 80
+        finally:
+            patcher.stop()
+
 class TestGetWeeklyLatestAttempt:
     def test_raises_404_when_no_attempt_data(self):
         user = _make_user()
@@ -308,5 +373,35 @@ class TestGetWeeklyLatestAttempt:
                 with pytest.raises(HTTPException) as exc:
                     get_weekly_latest_attempt(skill_id=1, week=1, current_user=user)
                 assert exc.value.status_code == 404
+        finally:
+            patcher.stop()
+
+    def test_returns_response_when_attempt_exists(self):
+        user = _make_user()
+        skill = _make_skill()
+        quiz = Quiz(id=2, skill_id=1, week=1, pass_score=60)
+        quiz.status = "available"
+        attempt_data = {
+            "attempt_id": 2,
+            "score": 71,
+            "passed": True,
+            "pass_score": 60,
+            "created_at": None,
+            "results": [],
+            "topic_scores": {"Loops": {"correct": 1, "total": 1, "pct": 100}},
+        }
+        session = MagicMock()
+        session.get.return_value = skill
+        patcher = _patch_quiz_session(session)
+        try:
+            with (
+                patch("controllers.quiz.quiz_service.get_quiz_by_week", return_value=quiz),
+                patch(
+                    "controllers.quiz.quiz_service.get_latest_attempt_results",
+                    return_value=attempt_data,
+                ),
+            ):
+                result = get_weekly_latest_attempt(skill_id=1, week=1, current_user=user)
+            assert result.score == 71
         finally:
             patcher.stop()

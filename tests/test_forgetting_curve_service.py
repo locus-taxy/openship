@@ -43,6 +43,13 @@ class TestGetForgottenTopics:
         mock_cls.return_value.__exit__ = MagicMock(return_value=False)
         return patcher
 
+    def _make_session(self, rows):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = rows
+        session.exec.return_value = exec_mock
+        return session
+
     def test_returns_forgotten_topic_when_retention_below_threshold(self):
         now = datetime.now(timezone.utc)
         old_date = now - timedelta(days=30)
@@ -54,16 +61,16 @@ class TestGetForgottenTopics:
             stability_days=5.0,
             last_studied_at=old_date,
         )
-        session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.all.return_value = [row]
-        session.exec.return_value = exec_mock
+        session = self._make_session([row])
         patcher = self._patch_session(session)
-        try:
-            result = get_forgotten_topics(1, 1)
-            assert "Variables" in result
-        finally:
-            patcher.stop()
+        with patch(
+            "services.forgetting_curve.get_canonical_topic_names", return_value=["Variables"]
+        ):
+            try:
+                result = get_forgotten_topics(1, 1)
+                assert "Variables" in result
+            finally:
+                patcher.stop()
 
     def test_does_not_return_recent_topic(self):
         now = datetime.now(timezone.utc)
@@ -76,19 +83,16 @@ class TestGetForgottenTopics:
             stability_days=21.0,
             last_studied_at=recent,
         )
-        session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.all.return_value = [row]
-        session.exec.return_value = exec_mock
+        session = self._make_session([row])
         patcher = self._patch_session(session)
-        try:
-            result = get_forgotten_topics(1, 1)
-            assert "Loops" not in result
-        finally:
-            patcher.stop()
+        with patch("services.forgetting_curve.get_canonical_topic_names", return_value=["Loops"]):
+            try:
+                result = get_forgotten_topics(1, 1)
+                assert "Loops" not in result
+            finally:
+                patcher.stop()
 
     def test_handles_naive_datetime_by_assuming_utc(self):
-        now = datetime.now(timezone.utc)
         old_naive = datetime.utcnow() - timedelta(days=30)  # naive, no tzinfo
         row = TopicKnowledge(
             skill_id=1,
@@ -98,25 +102,53 @@ class TestGetForgottenTopics:
             stability_days=5.0,
             last_studied_at=old_naive,
         )
-        session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.all.return_value = [row]
-        session.exec.return_value = exec_mock
+        session = self._make_session([row])
         patcher = self._patch_session(session)
-        try:
-            result = get_forgotten_topics(1, 1)
-            assert "Functions" in result
-        finally:
-            patcher.stop()
+        with patch(
+            "services.forgetting_curve.get_canonical_topic_names", return_value=["Functions"]
+        ):
+            try:
+                result = get_forgotten_topics(1, 1)
+                assert "Functions" in result
+            finally:
+                patcher.stop()
 
-    def test_returns_empty_when_no_topics(self):
-        session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.all.return_value = []
-        session.exec.return_value = exec_mock
-        patcher = self._patch_session(session)
-        try:
+    def test_returns_empty_when_no_canonical_topics(self):
+        """Early-exit when skill has no non-remediation days yet."""
+        with patch("services.forgetting_curve.get_canonical_topic_names", return_value=[]):
             result = get_forgotten_topics(1, 1)
             assert result == []
-        finally:
-            patcher.stop()
+
+    def test_returns_empty_when_no_topic_knowledge_rows(self):
+        session = self._make_session([])
+        patcher = self._patch_session(session)
+        with patch(
+            "services.forgetting_curve.get_canonical_topic_names", return_value=["Variables"]
+        ):
+            try:
+                result = get_forgotten_topics(1, 1)
+                assert result == []
+            finally:
+                patcher.stop()
+
+    def test_phantom_alias_topic_excluded(self):
+        """A topic only in TopicKnowledge as a phantom alias is not returned."""
+        now = datetime.now(timezone.utc)
+        old_date = now - timedelta(days=30)
+        phantom = TopicKnowledge(
+            skill_id=1,
+            user_id=1,
+            topic="Reinforcing: Arrays",
+            week=2,
+            stability_days=5.0,
+            last_studied_at=old_date,
+        )
+        # session returns phantom but canonical list does NOT include it
+        session = self._make_session([phantom])
+        patcher = self._patch_session(session)
+        with patch("services.forgetting_curve.get_canonical_topic_names", return_value=["Arrays"]):
+            try:
+                result = get_forgotten_topics(1, 1)
+                assert "Reinforcing: Arrays" not in result
+            finally:
+                patcher.stop()

@@ -65,47 +65,55 @@ class TestAllWeeksComplete:
             patcher.stop()
 
 class TestGetTopicsForWeek:
-    def test_returns_deduped_topics_for_week(self):
-        tasks = [
-            MagicMock(topic="Variables"),
-            MagicMock(topic="Loops"),
-            MagicMock(topic="Variables"),  # duplicate
-        ]
+    """get_topics_for_week returns canonical remediation topics + new-day topics."""
+
+    def _run(self, tasks, canonical=None):
+        """Helper: patch both session (new-day DailyTask query) and canonical lookup."""
         session = MagicMock()
         exec_mock = MagicMock()
         exec_mock.all.return_value = tasks
         session.exec.return_value = exec_mock
         patcher = _patch_session(session)
-        try:
-            result = get_topics_for_week(1, week=1)
-            assert result == ["Variables", "Loops"]
-        finally:
-            patcher.stop()
+        with patch("services.quiz.get_canonical_topics_for_week", return_value=canonical or []):
+            try:
+                return get_topics_for_week(1, week=1)
+            finally:
+                patcher.stop()
+
+    def test_returns_new_topics_when_no_remediation(self):
+        tasks = [MagicMock(topic="Variables"), MagicMock(topic="Loops")]
+        result = self._run(tasks)
+        assert result == ["Variables", "Loops"]
+
+    def test_deduplicates_new_topics(self):
+        tasks = [MagicMock(topic="Variables"), MagicMock(topic="Variables")]
+        result = self._run(tasks)
+        assert result == ["Variables"]
+
+    def test_canonical_topics_come_first(self):
+        tasks = [MagicMock(topic="Functions")]
+        result = self._run(tasks, canonical=["Arrays", "Recursion"])
+        assert result == ["Arrays", "Recursion", "Functions"]
+
+    def test_canonical_topic_not_duplicated_by_new_day(self):
+        # A new-day chapter happens to be named the same as a canonical topic
+        tasks = [MagicMock(topic="Arrays"), MagicMock(topic="Functions")]
+        result = self._run(tasks, canonical=["Arrays"])
+        assert result == ["Arrays", "Functions"]
 
     def test_filters_out_none_topics(self):
         tasks = [MagicMock(topic="Functions"), MagicMock(topic=None)]
-        session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.all.return_value = tasks
-        session.exec.return_value = exec_mock
-        patcher = _patch_session(session)
-        try:
-            result = get_topics_for_week(1, week=1)
-            assert result == ["Functions"]
-        finally:
-            patcher.stop()
+        result = self._run(tasks)
+        assert result == ["Functions"]
 
-    def test_returns_empty_when_no_tasks(self):
-        session = MagicMock()
-        exec_mock = MagicMock()
-        exec_mock.all.return_value = []
-        session.exec.return_value = exec_mock
-        patcher = _patch_session(session)
-        try:
-            result = get_topics_for_week(1, week=99)
-            assert result == []
-        finally:
-            patcher.stop()
+    def test_returns_empty_when_no_tasks_and_no_canonical(self):
+        result = self._run([])
+        assert result == []
+
+    def test_returns_only_canonical_when_all_days_are_remediation(self):
+        # All DailyTask rows are remediation days → session returns empty for non-remediation query
+        result = self._run([], canonical=["Arrays", "Loops"])
+        assert result == ["Arrays", "Loops"]
 
 class TestGetQuizByWeek:
     def test_returns_quiz_when_found(self):

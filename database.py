@@ -8,6 +8,7 @@ engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
 from models.llm_provider import LlmProvider  # noqa: F401, E402
 from models.user import User  # noqa: F401, E402
 from models.user_api_key import UserApiKey  # noqa: F401, E402
+from models.week_remediation_topic import WeekRemediationTopic  # noqa: F401, E402
 
 def get_session():
     with Session(engine) as session:
