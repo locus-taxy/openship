@@ -174,6 +174,61 @@ class TestCompanyResolution:
                 _require_ready_connection(1)
             assert exc.value.status_code == 409
 
+# ── embedding key resolution ─────────────────────────────────────────────────────
+
+class TestEmbeddingKey:
+    def test_prefers_user_gemini_key(self):
+        with (
+            patch(
+                "services.confluence._get_connection", return_value=_conn(connected_by_user_id=7)
+            ),
+            patch("services.confluence.get_user_by_id", return_value=_user()),
+            patch("services.confluence.get_user_gemini_key", return_value="userkey"),
+        ):
+            from services.confluence import resolve_embedding_key
+
+            assert resolve_embedding_key(1) == "userkey"
+
+    def test_falls_back_to_system_key(self):
+        with (
+            patch(
+                "services.confluence._get_connection", return_value=_conn(connected_by_user_id=7)
+            ),
+            patch("services.confluence.get_user_by_id", return_value=_user()),
+            patch("services.confluence.get_user_gemini_key", return_value=None),
+            patch("config.GEMINI_EMBEDDING_API_KEY", "syskey"),
+        ):
+            from services.confluence import resolve_embedding_key
+
+            assert resolve_embedding_key(1) == "syskey"
+
+    def test_no_connection_uses_system_key(self):
+        with (
+            patch("services.confluence._get_connection", return_value=None),
+            patch("config.GEMINI_EMBEDDING_API_KEY", "syskey"),
+        ):
+            from services.confluence import resolve_embedding_key
+
+            assert resolve_embedding_key(1) == "syskey"
+
+class TestGetUserGeminiKey:
+    def test_returns_key(self):
+        provider = MagicMock()
+        provider.id = 3
+        with (
+            patch("services.user.get_provider_by_name", return_value=provider),
+            patch("services.user.get_provider_key", return_value="gk"),
+        ):
+            from services.llm import get_user_gemini_key
+
+            assert get_user_gemini_key(_user()) == "gk"
+
+    def test_no_provider(self):
+        with patch("services.user.get_provider_by_name", return_value=None):
+            from services.llm import get_user_gemini_key
+
+            assert get_user_gemini_key(_user()) is None
+
 # ── OAuth HTTP + connect/callback ────────────────────────────────────────────────
 
 class TestOAuthHttp:
@@ -635,7 +690,7 @@ class TestPersistence:
         ):
             from services.confluence import _embed_page
 
-            assert _embed_page(1, 2, "text") == 2
+            assert _embed_page(1, 2, "text", "gk") == 2
             dele.assert_called_once()
             store.assert_called_once()
 
@@ -646,7 +701,7 @@ class TestPersistence:
         ):
             from services.confluence import _embed_page
 
-            assert _embed_page(1, 2, "") == 0
+            assert _embed_page(1, 2, "", "gk") == 0
             dele.assert_called_once()
 
     def test_counts(self):
@@ -730,7 +785,7 @@ class TestBeginIngest:
                 return_value=Company(id=1, name="a", domain="a"),
             ),
             patch("services.confluence._require_ready_connection", return_value=_conn()),
-            patch("config.is_embeddings_configured", return_value=False),
+            patch("services.confluence.resolve_embedding_key", return_value=None),
         ):
             from services.confluence import begin_ingest
 
@@ -746,7 +801,7 @@ class TestBeginIngest:
                 return_value=Company(id=1, name="a", domain="a"),
             ),
             patch("services.confluence._require_ready_connection", return_value=_conn()),
-            patch("config.is_embeddings_configured", return_value=True),
+            patch("services.confluence.resolve_embedding_key", return_value="gk"),
             patch("services.confluence._create_job", return_value=7),
         ):
             from services.confluence import begin_ingest
@@ -771,7 +826,7 @@ class TestRunIngest:
         ):
             from services.confluence import _run_ingest
 
-            _run_ingest(1, 7)
+            _run_ingest(1, 7, "gk")
             store.assert_called_once()
             assert any(c.kwargs.get("status") == "done" for c in upd.call_args_list)
 
@@ -788,7 +843,7 @@ class TestRunIngest:
         ):
             from services.confluence import _run_ingest
 
-            _run_ingest(1, 7)
+            _run_ingest(1, 7, "gk")
             embed.assert_not_called()
 
     def test_no_connection_failed(self):
@@ -798,7 +853,7 @@ class TestRunIngest:
         ):
             from services.confluence import _run_ingest
 
-            _run_ingest(1, 7)
+            _run_ingest(1, 7, "gk")
         assert upd.call_args_list[-1].kwargs.get("status") == "failed"
 
     def test_search_failure_failed(self):
@@ -813,7 +868,7 @@ class TestRunIngest:
         ):
             from services.confluence import _run_ingest
 
-            _run_ingest(1, 7)
+            _run_ingest(1, 7, "gk")
         last = upd.call_args_list[-1].kwargs
         assert last.get("status") == "failed" and "boom" in (last.get("error") or "")
 
@@ -923,7 +978,7 @@ class TestWebhookHelpers:
         with (
             patch("services.confluence._fetch_single_page", return_value=_page()),
             patch("services.confluence._upsert_page", return_value=(1, True, "text")),
-            patch("config.is_embeddings_configured", return_value=True),
+            patch("services.confluence.resolve_embedding_key", return_value="gk"),
             patch("services.confluence._embed_page") as embed,
         ):
             from services.confluence import _reindex_page

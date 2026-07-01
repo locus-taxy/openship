@@ -9,6 +9,7 @@ from database import engine
 from models.document_chunk import DocumentChunk
 from models.document_page import DocumentPage
 from services import embeddings as embedding_service
+from services import confluence as confluence_service
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +17,10 @@ _DEFAULT_K = 12
 
 def retrieve(company_id: int, query: str, k: int = _DEFAULT_K) -> List[dict]:
     """Return the k most semantically similar active chunks for a query,
-    each as {title, content, page_id}."""
-    query_vector = embedding_service.embed_query(query)
+    each as {title, content, page_id}. Embeds the query with the company's
+    Gemini key."""
+    api_key = confluence_service.resolve_embedding_key(company_id)
+    query_vector = embedding_service.embed_query(query, api_key=api_key)
     with Session(engine) as session:
         rows = session.exec(
             select(DocumentChunk.content, DocumentPage.title, DocumentPage.confluence_page_id)

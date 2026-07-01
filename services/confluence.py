@@ -34,6 +34,7 @@ from models.document_chunk import DocumentChunk
 from models.ingestion_job import IngestionJob
 from services.encryption import encrypt_secret, decrypt_secret
 from services.user import get_user_by_id
+from services.llm import get_user_gemini_key
 from services import embeddings as embedding_service
 from services.chunking import chunk_text, estimate_tokens
 
@@ -107,6 +108,18 @@ def _require_ready_connection(company_id: int) -> ConfluenceConnection:
     if conn is None or conn.status != "ready" or not conn.access_token:
         raise HTTPException(status_code=409, detail="Confluence is not connected for your company.")
     return conn
+
+def resolve_embedding_key(company_id: int) -> Optional[str]:
+    """Key used to embed this company's docs + queries. Prefer the connecting
+    user's saved Gemini key; fall back to a server-configured key."""
+    conn = _get_connection(company_id)
+    if conn is not None and conn.connected_by_user_id:
+        user = get_user_by_id(conn.connected_by_user_id)
+        if user is not None:
+            key = get_user_gemini_key(user)
+            if key:
+                return key
+    return config.GEMINI_EMBEDDING_API_KEY
 
 # ── Atlassian OAuth HTTP ───────────────────────────────────────────────────────
 
@@ -440,13 +453,13 @@ def _store_chunks(
             )
         session.commit()
 
-def _embed_page(company_id: int, page_db_id: int, text: str) -> int:
+def _embed_page(company_id: int, page_db_id: int, text: str, api_key: Optional[str]) -> int:
     """Chunk, embed, and (re)store a page's chunks. Returns chunk count."""
     chunks = chunk_text(text)
     if not chunks:
         _delete_chunks(page_db_id)
         return 0
-    vectors = embedding_service.embed_texts(chunks)
+    vectors = embedding_service.embed_texts(chunks, api_key=api_key)
     _delete_chunks(page_db_id)
     _store_chunks(company_id, page_db_id, chunks, vectors)
     return len(chunks)
@@ -497,13 +510,17 @@ def begin_ingest(user, background_tasks) -> dict:
     """Validate, create a job, and schedule a full ingest in the background."""
     company = get_or_create_company_for_user(user)
     _require_ready_connection(company.id)
-    if not config.is_embeddings_configured():
-        raise HTTPException(status_code=503, detail="Embeddings are not configured on this server.")
+    api_key = resolve_embedding_key(company.id)
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Add your Gemini API key (used for embeddings) to ingest documents.",
+        )
     job_id = _create_job(company.id)
-    background_tasks.add_task(_run_ingest, company.id, job_id)
+    background_tasks.add_task(_run_ingest, company.id, job_id, api_key)
     return {"job_id": job_id, "status": "running"}
 
-def _run_ingest(company_id: int, job_id: int) -> None:
+def _run_ingest(company_id: int, job_id: int, api_key: str) -> None:
     """Background worker: fetch every page → upsert → chunk → embed. Resumable:
     a page is (re)embedded when new, changed, or missing chunks. Failures are
     recorded on the job rather than raised (background context)."""
@@ -535,7 +552,7 @@ def _run_ingest(company_id: int, job_id: int) -> None:
 
         embedded = 0
         for page_db_id, chunks in planned:
-            vectors = embedding_service.embed_texts(chunks)
+            vectors = embedding_service.embed_texts(chunks, api_key=api_key)
             _delete_chunks(page_db_id)
             _store_chunks(company_id, page_db_id, chunks, vectors)
             embedded += len(chunks)
@@ -602,8 +619,9 @@ def _reindex_page(company_id: int, cloud_id: str, token: str, page_id: str) -> b
     if page is None:
         return False
     page_db_id, _changed, text = _upsert_page(company_id, page)
-    if text and config.is_embeddings_configured():
-        _embed_page(company_id, page_db_id, text)
+    api_key = resolve_embedding_key(company_id)
+    if text and api_key:
+        _embed_page(company_id, page_db_id, text, api_key)
     return True
 
 def _handle_page_updated(page_id: str) -> dict:

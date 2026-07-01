@@ -18,7 +18,12 @@ class TestRetrieve:
                 ("chunk one", "Arch", "p1"),
                 ("chunk two", "Setup", "p2"),
             ]
-            with patch("services.retrieval.embedding_service.embed_query", return_value=[0.1, 0.2]):
+            with (
+                patch(
+                    "services.retrieval.confluence_service.resolve_embedding_key", return_value="gk"
+                ),
+                patch("services.retrieval.embedding_service.embed_query", return_value=[0.1, 0.2]),
+            ):
                 from services.retrieval import retrieve
 
                 out = retrieve(1, "how do we deploy?", k=5)
@@ -33,7 +38,12 @@ class TestRetrieve:
         patcher, session = _patch_session()
         try:
             session.exec.return_value.all.return_value = []
-            with patch("services.retrieval.embedding_service.embed_query", return_value=[0.1]):
+            with (
+                patch(
+                    "services.retrieval.confluence_service.resolve_embedding_key", return_value="gk"
+                ),
+                patch("services.retrieval.embedding_service.embed_query", return_value=[0.1]),
+            ):
                 from services.retrieval import retrieve
 
                 assert retrieve(1, "q") == []

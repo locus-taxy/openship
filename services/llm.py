@@ -697,6 +697,16 @@ def get_user_model(user) -> Optional[str]:
     model = get_provider_model(user.id, user.llm_provider_id)
     return model or DEFAULT_MODELS.get(provider.name)
 
+def get_user_gemini_key(user) -> Optional[str]:
+    """Return the user's saved Gemini API key (used for embeddings), regardless
+    of which provider is currently active. Embeddings require Gemini."""
+    from services.user import get_provider_by_name, get_provider_key
+
+    provider = get_provider_by_name("gemini")
+    if provider is None:
+        return None
+    return get_provider_key(user.id, provider.id)
+
 # ── Token extraction ──────────────────────────────────────────────────────────
 
 def extract_token_counts(
