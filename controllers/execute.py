@@ -605,6 +605,9 @@ for (const [k, v] of Object.entries(_globals)) {{
             text=True,
             timeout=30,
             cwd=str(sandbox),
+            # Source lives in a per-run temp dir; point module resolution at the
+            # sandbox's node_modules so bare imports like `react` resolve.
+            env={**os.environ, "NODE_PATH": str(sandbox / "node_modules")},
         )
         if bundle.returncode != 0:
             return ExecuteResponse(stdout="", stderr=bundle.stderr)
