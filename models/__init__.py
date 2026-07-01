@@ -18,12 +18,16 @@ from models.company import Company
 from models.confluence_connection import ConfluenceConnection
 from models.onboarding_doc import OnboardingDoc
 from models.ingestion_job import IngestionJob
+from models.document_page import DocumentPage
+from models.document_chunk import DocumentChunk
 
 __all__ = [
     "Company",
     "ConfluenceConnection",
     "OnboardingDoc",
     "IngestionJob",
+    "DocumentPage",
+    "DocumentChunk",
     "ContentStyleArm",
     "OnboardingPlan",
     "OnboardingDay",

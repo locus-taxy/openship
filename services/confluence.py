@@ -239,20 +239,106 @@ def get_status(user) -> dict:
 
 _TOKEN_SKEW_SECONDS = 60
 # Spaces whose name/key hint at engineering docs are pre-selected for the admin.
+# Substring match on "<name> <key>" (lowercased). Over-selection is harmless —
+# the admin unchecks and the LLM filters page content later — so we lean broad,
+# avoiding only fragments that live inside common non-eng words
+# (e.g. "git" in "digital", "swe" in "answered").
 _SPACE_KEYWORDS = (
+    # core engineering
     "eng",
     "engineering",
-    "platform",
+    "software",
     "developer",
+    "development",
     "dev",
     "tech",
+    "technology",
+    "technical",
+    "coding",
+    "code",
+    "programming",
+    # platform / infra / ops
+    "platform",
     "infra",
-    "backend",
+    "infrastructure",
+    "sre",
     "devops",
-    "sdet",
+    "devsecops",
+    "operations",
+    "cloud",
+    "kubernetes",
+    "docker",
+    "network",
+    "networking",
+    "systems",
+    "system",
+    # backend / frontend / services
+    "backend",
+    "frontend",
+    "fullstack",
+    "full-stack",
+    "server",
+    "api",
+    "microservice",
+    "services",
+    # data / ml
+    "data",
+    "database",
+    "analytics",
+    "machine learning",
+    "data science",
+    "datascience",
+    # quality / testing
     "qa",
+    "quality",
+    "sdet",
+    "test",
+    "testing",
+    "automation",
+    # security
+    "security",
+    "appsec",
+    "infosec",
+    "cybersecurity",
+    # mobile
+    "mobile",
+    "android",
+    "ios",
+    # docs / onboarding / knowledge
     "onboard",
+    "onboarding",
+    "getting started",
+    "wiki",
+    "docs",
+    "documentation",
+    "handbook",
+    "playbook",
+    "runbook",
+    "guide",
+    "knowledge",
+    # architecture / design
     "architecture",
+    "design",
+    "system design",
+    "rfc",
+    "adr",
+    "hld",
+    "lld",
+    "blueprint",
+    # product / delivery
+    "product",
+    "delivery",
+    "release",
+    # repos / source
+    "repo",
+    "repository",
+    "github",
+    "gitlab",
+    "monorepo",
+    # eng org units
+    "squad",
+    "guild",
+    "tribe",
 )
 
 def _api_root(cloud_id: str) -> str:

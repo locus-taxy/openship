@@ -126,6 +126,15 @@ CONFLUENCE_POST_CONNECT_REDIRECT = (
 # Shared secret for authenticating incoming Confluence webhooks.
 CONFLUENCE_WEBHOOK_SECRET = _strip_opt("CONFLUENCE_WEBHOOK_SECRET")
 
+# ── Embeddings (system-level, for ingesting all docs) ───────────────────────
+# A single server-side key funds ingestion embeddings (not a per-user key).
+GEMINI_EMBEDDING_API_KEY = _strip_opt("GEMINI_EMBEDDING_API_KEY")
+EMBEDDING_MODEL = _strip_opt("EMBEDDING_MODEL") or "text-embedding-004"
+EMBEDDING_BATCH_SIZE = _env_int("EMBEDDING_BATCH_SIZE", 100)
+
+def is_embeddings_configured() -> bool:
+    return bool(GEMINI_EMBEDDING_API_KEY)
+
 def is_confluence_oauth_configured() -> bool:
     """True when the Atlassian client id, secret, and redirect URI are all set."""
     return bool(ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET and ATLASSIAN_REDIRECT_URI)

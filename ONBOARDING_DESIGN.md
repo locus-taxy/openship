@@ -1,154 +1,215 @@
-# Confluence-Powered Onboarding: Design
+# Confluence Knowledge Platform (RAG): Design
 
-**Status:** Draft for review · **Component:** Openship · onboarding · **Owner:** Yogesh K
+**Status:** Plan · **Component:** Openship · knowledge/onboarding · **Owner:** Yogesh K
+
+This is the plan for a Confluence-backed knowledge platform: ingest a company's entire
+Confluence once, store it as a searchable vector knowledge base, and serve many
+**sections** (Onboarding, Company Info, …) via RAG. Onboarding is the first section.
 
 ---
 
 ## The idea
 
-New hires don't lack documentation; they lack a **path through it**. The docs already live in Confluence (architecture, setup, repos, platform internals), but a joiner has no idea what to read, in what order, or what's relevant to their role.
+A company's knowledge lives in Confluence. Instead of hand-picking a few onboarding
+docs, we ingest **everything once**, turn it into a searchable knowledge base, and let
+people ask about anything. Different **sections** (Onboarding, About the Company, …)
+are just different views over the same base: a retrieval filter plus a prompt.
 
-We build an onboarding system that:
+The engine is **RAG** (Retrieval-Augmented Generation):
 
-1. **Connects** to a company's Confluence,
-2. **Finds** the onboarding-relevant docs,
-3. **Generates** a structured, role-specific 7-day plan (day content plus a final quiz) from those docs, and
-4. **Keeps itself fresh** as the docs change.
+1. **Ingest** every page from every space.
+2. **Chunk** each page into small pieces and **embed** each chunk into a vector.
+3. **Store** vectors in Postgres (pgvector).
+4. On a question, **embed** the question, **retrieve** the most similar chunks, and
+   **feed only those** to the LLM to generate the answer.
 
-The whole product is grounded in the company's *real* documentation. The LLM never invents; it only reads what we pulled (this is RAG: retrieve first, then generate).
+We never send the whole corpus to the LLM. Retrieval narrows thousands of pages down to
+the handful that matter, so it scales and stays cheap.
 
 ---
 
 ## How it works, end to end
 
 ```
-Connect Confluence  →  Ingest the right docs  →  Employee picks a role  →  Plan + content + quiz
-       (once)              (funnel + confirm)         (any time)              (generated from docs)
-                                                                                      ↑
-                                                            Webhooks keep docs fresh ─┘
+Connect Confluence
+  → Ingest ALL pages  → chunk → embed → store vectors (pgvector)
+                                                   │
+  Ask (any section) → embed question → nearest-k chunks (± section filter)
+                                                   → LLM → answer
+                                                   ↑
+                              Webhooks re-embed changed pages (freshness)
 ```
+
+Onboarding is one section built on top of this: the structured 7-day plan, day content,
+and quiz are generated from **retrieved** chunks, and there's also a freeform
+"ask about onboarding" box.
 
 ---
 
-## 1 · Delivery model: integration layer
+## 1 · Chosen stack
 
-The core question is *where our code runs and who sets it up*. Three shapes exist:
+| Concern | Choice | Why |
+|---|---|---|
+| Vector store | **pgvector** (Postgres extension) | No new infra; you already run Postgres; scales to millions of chunks |
+| Embeddings | **Gemini `text-embedding-004`** (system key) | Strong, cheap, already using Gemini; ingestion-safe with batching + backoff |
+| LLM (generation) | **Per-user** saved key (as today) | Answers use the user's provider; only embeddings are system-funded |
+| Ingestion scope | **All spaces, all pages** | Ingest everything; relevance is decided at query time by retrieval |
+| Sections | **Filter + prompt** over one store | Flexible, scalable; start with Onboarding |
+| Onboarding output | **Structured plan/quiz + freeform Q&A** | Keep the existing flow, add ask-anything |
 
-| Model | Our code runs… | Company connects by… | Build cost |
-|---|---|---|---|
-| **Integration layer** *(chosen)* | On our servers; we call Confluence's API | Clicking "Connect", logging in, approving | Low-Medium |
-| Package / SDK | On the company's servers | Their engineers install & run our library | Medium |
-| Marketplace app (Forge) | Inside their Confluence | An admin installs it from the Atlassian Marketplace | High |
-
-**Decision:** integration layer. Lowest friction (a non-technical person just clicks "Allow"), all logic centralized so we ship and fix fast. The Forge app is a deliberate later graduation (§12), not a starting point.
+**Key split:** the **LLM stays per-user**; **embeddings are a company-wide system job**
+funded by a single server-configured key (like the Atlassian creds in `.env`).
 
 ---
 
 ## 2 · Architecture
 
-Three layers. Confluence is a pure data source. Our integration layer owns connection, pull, classification, and freshness. The onboarding engine consumes stored docs and never touches Confluence.
-
 ```
 ┌─ Company ─────────────────────────────────────────────┐
-│  Confluence: spaces · pages · REST API · webhooks      │
+│  Confluence: spaces · pages · search API · webhooks    │
 └───────────────────────────┬───────────────────────────┘
                             ▼
-┌─ Integration layer (new) ─────────────────────────────┐
-│  OAuth + token store · Connector (REST client)         │
-│  Ingestion funnel · LLM classifier                     │
-│  Webhook receiver · Daily reconciler                   │
+┌─ Ingestion layer ─────────────────────────────────────┐
+│  OAuth + tokens · fetch all pages · chunk              │
+│  embed (Gemini, batched + throttled + resumable)       │
+│  webhook receiver · reconciler                         │
 └───────────────────────────┬───────────────────────────┘
                             ▼
-┌─ Onboarding engine (new) ─────────────────────────────┐
-│  onboarding_docs (source of truth, per company)        │
-│  Plan generator · Day-content generator · Quiz gen     │
-│  Employee UI: plan · content · progress · quiz         │
+┌─ Knowledge base (pgvector) ───────────────────────────┐
+│  document_pages (one row / page, per company)          │
+│  document_chunks (many / page, each with an embedding) │
+└───────────────────────────┬───────────────────────────┘
+                            ▼
+┌─ Retrieval + sections ────────────────────────────────┐
+│  embed query → nearest-k (± section/space filter)      │
+│  section = retrieval filter + prompt template          │
+└───────────────────────────┬───────────────────────────┘
+                            ▼
+┌─ Sections (UI) ───────────────────────────────────────┐
+│  Onboarding: 7-day plan · day content · quiz · Q&A     │
+│  Company Info · (future sections) · ask anything       │
 └────────────────────────────────────────────────────────┘
 ```
 
-**Boundary that keeps it clean:** the onboarding engine only ever reads from `onboarding_docs`, scoped by company and role. Everything that talks to Confluence stays in the integration layer.
+Everything above the knowledge base is tenant-scoped by `company_id`.
 
 ---
 
 ## 3 · Connecting Confluence
 
-We register **one** Atlassian OAuth 2.0 app. Every company uses it and gets its own token. The user creates nothing in Atlassian; they only approve access.
+We register one Atlassian OAuth 2.0 app. A company connects once (the first employee to
+open the platform); everyone else reuses that connection. Tokens are stored at the
+**company** level, encrypted, and auto-refreshed.
 
-```
-Connect → Authorize on Atlassian → Exchange code for tokens → Store encrypted (company-level)
-```
-
-**Who connects:** the first employee from a company does the setup; everyone after reuses the result and never sees the connect screen.
-
-**Why the token lives on the company, not the person:** a personal token dies when that employee leaves, which would silently break sync for the whole company. Company-level storage means *any* employee can re-approve and refresh it.
-
-> **Limitation (v1):** three-legged OAuth only sees what the authorizing user sees, and big enterprises gate third-party access behind an admin. Fine for smaller teams now; the durable fix is the Forge app (§12).
+Note on the Confluence API: we read through the **search API** (`content/search` with
+`expand=body.storage,version,...`), which works with classic OAuth scopes. (The v1
+`/space` and `/content/{id}` collection endpoints are unavailable and the v2 API requires
+granular scopes, so search is the reliable path.)
 
 ---
 
-## 4 · First-time ingestion: the funnel
+## 4 · Ingestion: all docs, once
 
-A company's Confluence can hold thousands of pages, mostly irrelevant. We never LLM-scan everything (slow, costly, noisy). We **narrow cheaply, then judge with the LLM, then let a human confirm:**
+We ingest every space and every page (personal `~` spaces excluded); relevance is decided
+later by semantic search, not upfront.
 
-| Step | What | Tool |
+```
+1. List all spaces (search cql=type=space)
+2. For each space: page through all pages (content/search, body expanded)
+3. Upsert each page into document_pages (skip-if-unchanged by version)
+4. Chunk each new/changed page (~800 tokens, ~100 overlap)
+5. Embed chunks in batches → store in document_chunks
+```
+
+Runs as a **resumable background job** tracked in `ingestion_jobs` (progress + cursor).
+Add-only and idempotent: re-running skips pages whose version is unchanged.
+
+### Embedding at scale without blowing the free tier
+
+Embedding "all docs" is thousands of calls, so ingestion is built to stay under limits:
+
+- **Batch** many chunks per embedding request.
+- **Throttle** to respect the requests-per-minute cap (token-bucket / pacing).
+- **Exponential backoff + retry** on `429`.
+- **Two-pass + resumable:** store chunk *text* first, embed in a second pass; on a limit
+  or crash, resume from the last embedded chunk instead of restarting.
+- **Fallback:** if the free tier is still too tight for a first full ingest, a local
+  open-source embedder (sentence-transformers) has no API limit. Same interface, swap the
+  provider.
+
+---
+
+## 5 · Chunking
+
+A **chunk** is a small slice of a page (~800 tokens) with a little overlap (~100 tokens)
+so meaning that straddles a boundary isn't lost. Each chunk is embedded separately and
+stored with its page's metadata (page id, space, title). Chunking gives:
+
+- **Precision:** retrieve the exact paragraph, not a 10-page doc.
+- **Clean vectors:** one topic per vector instead of a blurry page average.
+- **Context fit:** feed the LLM a few on-target chunks, not whole pages.
+
+---
+
+## 6 · Vector store & retrieval (pgvector)
+
+`document_chunks` holds the text + its embedding. Retrieval is a nearest-neighbour query:
+
+```sql
+SELECT content, page_id
+FROM document_chunks
+WHERE company_id = :company            -- tenant isolation
+  -- (optional section/space filter here)
+ORDER BY embedding <=> :query_embedding  -- <=> = vector distance
+LIMIT :k;
+```
+
+An HNSW index on `embedding` keeps this fast at scale. The retrieved chunks (plus their
+source page links) are what we hand to the LLM.
+
+---
+
+## 7 · Sections
+
+A **section** is a retrieval filter + a prompt template over the same store:
+
+| Section | Retrieval | Prompt |
 |---|---|---|
-| 1 · Pick spaces | Human selects spaces with eng/onboarding docs, so thousands of pages become hundreds | REST API |
-| 2 · Cheap filter | Shortlist by label, title pattern, page location, so hundreds become dozens | REST API · CQL |
-| 3 · Classify | LLM judges only the shortlist: relevant? which role? Dozens of calls, not thousands | LLM |
-| 4 · Confirm | Human sees picks **pre-checked**, unchecks junk or adds misses, confirms | Openship UI |
+| Onboarding | semantic match to the day's topic (optionally scoped to eng spaces) | "structure this into onboarding content…" |
+| Company Info | semantic match to the question | "answer factually about the company…" |
+| (future) | … | … |
 
-**Fetching is always an API job, never the LLM, never MCP.** An LLM can't reach Confluence; it only reasons over text we already pulled, and only at step 3. MCP (a wrapper for an AI agent that decides what to fetch on the fly) is the wrong tool for a fixed pipeline.
-
-**Confirm is add-only:** it can add docs but never delete docs already saved for the company. So a careless employee can't wipe the set. Re-running ingestion is always safe; pages already stored are skipped, never duplicated.
-
-Key API calls: `GET /wiki/api/v2/spaces`, `GET /wiki/api/v2/spaces/{id}/pages`, `GET /wiki/api/v2/pages/{id}?body-format=storage`, plus CQL search for filters.
+Sections are query-time views, so adding one is a filter + a prompt, not a re-ingest.
+We can attach per-page `section_tags` later (by space/label or a cheap classifier) if we
+want hard scoping, but it isn't required to start.
 
 ---
 
-## 5 · Coverage: the one real risk
+## 8 · Onboarding section (built first)
 
-The funnel's weak point is **under-selection**: if the first person misses a space, its docs are invisible and no one notices (over-selecting is harmless; the LLM drops junk). Four layers make under-selection rare and recoverable:
+Both outputs, both RAG-sourced:
 
-1. **Editable, never one-shot:** the space list is a company setting anyone can expand anytime; adding a space ingests only that space (skip-if-exists).
-2. **Visible to everyone:** every employee sees a quiet line, *"Connected to: Engineering, Platform. Missing something? Add more spaces."* The crowd self-corrects.
-3. **Smart defaults:** the space picker pre-ranks and pre-checks likely spaces (onboarding labels, eng-ish titles, recent activity), so the human corrects a good guess.
-4. **Gap detector:** a periodic cheap scan of *unconnected* spaces flags onboarding-looking pages, *"12 likely pages found in HR, QA. Include them?"*
+- **Structured:** the 7-day plan, day content, and final quiz. Generation retrieves the
+  relevant chunks per topic/role and structures them (reuses the current plan/day/quiz UI).
+- **Freeform Q&A:** an "ask about onboarding" box: retrieve → answer with citations.
 
-Principle: **never let a one-time human choice become a permanent blind spot.**
-
----
-
-## 6 · Generating the onboarding
-
-Once docs are stored, generation reads them filtered by `company_id` + role:
-
-- **Plan:** a 7-day structure (topics + tasks), grounded only in that company's docs for that role.
-- **Day content:** for each day, rich explanatory content (what / why / how / where), generated on demand and cached.
-- **Quiz:** a final multiple-choice quiz from the same docs; validates the joiner actually understood, not just read.
-
-All three are RAG: the docs are the source of truth, the LLM only summarizes and structures them. Role filtering means a Backend Engineer and a DevOps Engineer get genuinely different plans from the same doc set.
+Role filtering rides on retrieval: a Backend vs DevOps plan pulls different chunks because
+the query embeddings differ.
 
 ---
 
-## 7 · Keeping docs fresh
+## 9 · Freshness & correctness
 
-Webhooks alone are never enough (dropped on restarts, blips, throttling). So a **fast path** reacts instantly, and a **slow path** guarantees correctness.
-
-**Fast: webhooks**
-
-| Event | We… |
-|---|---|
-| `page_updated` | If tracked, re-fetch body, update row + version. Else ignore. |
-| `page_created` | Fetch it, LLM relevance check. If relevant, auto-add with role tags + notify. Else ignore. |
-| `page_removed` / archived | Mark our copy inactive so it stops feeding plans. |
-
-**Slow: daily reconciler.** Re-list connected spaces, diff against our DB: backfill missed webhooks, deactivate vanished pages, re-check ambiguous changes. Webhooks make us *fast*; reconciliation makes us *correct*.
+- **Webhooks** (`page_created` / `updated` / `removed`): re-chunk and **re-embed** just the
+  changed page; deactivate removed pages so their chunks stop being retrieved.
+- **Reconciler:** periodic full re-list to catch missed webhooks (deactivate vanished
+  pages, re-embed changed ones).
 
 ---
 
-## 8 · Data model
+## 10 · Data model
 
-All tables are scoped by `company_id` for tenant isolation. The first three power the integration layer; the rest hold generated onboarding content.
+All tables are tenant-scoped by `company_id`.
 
 ### `companies`
 
@@ -156,124 +217,122 @@ All tables are scoped by `company_id` for tenant isolation. The first three powe
 |---|---|
 | `id` | Primary key |
 | `name` | Company name |
-| `domain` | e.g. `locus.sh`; maps an employee to their company |
-| `created_at` | Timestamp |
+| `domain` | Email domain (e.g. `locus.sh`); maps an employee to their company/tenant |
+| `created_at` / `updated_at` | Timestamps |
 
-### `confluence_connections`
+### `confluence_connections` (the token store)
+
+One row per company; tokens are **encrypted at rest** (Fernet, via `encrypt_secret`).
 
 | Column | Notes |
 |---|---|
 | `id` | Primary key |
-| `company_id` | One connection per company |
-| `site_url` | Their Atlassian site |
-| `space_keys` | JSON list of connected spaces; editable, additive |
-| `access_token` | **Encrypted** at rest |
-| `refresh_token` | **Encrypted** at rest |
+| `company_id` | One connection per company (unique) |
+| `site_url` | The Atlassian site (e.g. `https://locussh.atlassian.net`) |
+| `cloud_id` | Site cloud id; used in every Confluence API call |
+| `access_token` | **Encrypted**. Short-lived (~1h) |
+| `refresh_token` | **Encrypted**. Rotating; the new one is persisted on every refresh |
+| `token_expires_at` | Drives proactive refresh (with a 60s skew) |
 | `webhook_id` | Registered webhook handle |
 | `status` | `pending` / `syncing` / `ready` / `error` |
-| `connected_by_user_id` | Audit only, not an ownership grant |
+| `connected_by_user_id` | Audit only (who connected); not an ownership grant |
 
-### `onboarding_docs`
+### `document_pages` (one row per Confluence page)
 
 | Column | Notes |
 |---|---|
 | `id` | Primary key |
 | `company_id` | Tenant isolation |
-| `confluence_page_id` | Dedup key for skip-if-exists |
-| `confluence_version` | Detects real changes on update |
-| `title` | Page title |
-| `content_markdown` | Cleaned page body |
-| `role_tags` | JSON, e.g. `["backend", "devops"]` |
-| `is_active` | `false` when archived/removed upstream |
+| `confluence_page_id` | Dedup key (unique per company) |
+| `version` | Detect changes; skip re-embed if unchanged |
+| `space_key` · `title` | Provenance / display |
+| `section_tags` | JSON, optional (for hard section scoping later) |
+| `is_active` | False when archived/removed upstream |
 | `last_synced_at` | Timestamp |
 
-### `onboarding_plans`
+### `document_chunks` (many rows per page)
 
 | Column | Notes |
 |---|---|
 | `id` | Primary key |
 | `company_id` | Tenant isolation |
-| `user_id` | The employee |
-| `role` | Role the plan was generated for |
-| `status` | Plan status |
-| `created_at` | Timestamp |
+| `page_id` | FK → document_pages |
+| `chunk_index` | Order within the page |
+| `content` | The chunk text |
+| `embedding` | `vector(768)` (Gemini text-embedding-004) |
+| `token_count` | For budgeting |
 
-### `onboarding_days`
+**`ingestion_jobs`:** `id` · `company_id` · `total_pages` / `processed_pages` · `total_chunks` / `embedded_chunks` · `status` · `error` · `created_at` / `completed_at`
 
-| Column | Notes |
-|---|---|
-| `id` | Primary key |
-| `plan_id` | Parent plan |
-| `day` | Day number (1–7) |
-| `topic` | Short day title |
-| `task` | What to read / explore / do |
-| `content_blocks` | JSON, generated content (cached) |
-| `completed` | Progress flag |
-
-### `onboarding_quiz` / `quiz_attempts`
-
-| Table | Holds |
-|---|---|
-| `onboarding_quiz` | The generated questions for a plan |
-| `quiz_attempts` | Each attempt with its score, per user |
-
-### `ingestion_jobs`
-
-| Column | Notes |
-|---|---|
-| `id` | Primary key |
-| `company_id` | Tenant isolation |
-| `total_pages` / `processed_pages` | Drives the progress bar |
-| `status` | `running` / `done` / `failed` |
-| `created_at` / `completed_at` | Timestamps |
+**`onboarding_plans` / `onboarding_days` / `onboarding_quiz` / `quiz_attempts`:** hold the generated plan, day content, and quiz for the Onboarding section; content is generated from retrieved chunks.
 
 ---
 
-## 9 · API surface
+## 11 · API surface
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/confluence/connect` | Begin OAuth; redirect to Atlassian |
-| GET | `/confluence/callback` | Exchange code, store encrypted tokens |
-| GET | `/confluence/status` | Is this company connected & ready? |
-| GET | `/confluence/spaces` | List spaces with smart-default pre-selection |
-| POST | `/confluence/ingest` | Run the funnel over chosen spaces (async) |
-| GET | `/confluence/candidates` | Classified shortlist for confirm screen |
-| PATCH | `/confluence/candidates` | Confirm (add-only) → write to `onboarding_docs` |
-| POST | `/webhooks/confluence` | Receive created / updated / removed events |
-| POST | `/onboarding/generate` | Generate a role-based plan for an employee |
-| GET | `/onboarding/{id}/day/{n}` | Get (or generate + cache) a day's content |
-| GET/POST | `/onboarding/{id}/quiz` | Fetch or generate the final quiz |
+| POST | `/confluence/connect` | Begin OAuth |
+| GET | `/confluence/callback` | Store encrypted tokens |
+| GET | `/confluence/status` | Connected? indexed doc/chunk counts |
+| POST | `/confluence/ingest` | Start full ingest (async) |
+| GET | `/confluence/ingest/{job_id}` | Ingest progress |
+| POST | `/webhooks/confluence` | created / updated / removed |
+| POST | `/knowledge/query` | Section-aware RAG query → answer + citations |
+| POST | `/onboarding/generate` | Role-based plan (RAG-sourced) |
+| GET | `/onboarding/{id}/day/{n}` | Day content (RAG-sourced) |
+| GET/POST | `/onboarding/{id}/quiz` | Quiz (RAG-sourced) |
 
 ---
 
-## 10 · Security & tenancy
+## 12 · Security & tenancy
 
-- **Token encryption:** access/refresh tokens encrypted at rest (reuse the existing key-encryption service).
-- **Tenant isolation:** every doc query scoped by `company_id`; an employee only ever reaches their own company's docs.
-- **Company identity:** employees map to a company by email domain in v1 (simple, correct for most B2B); multi-domain/contractors deferred.
-- **Webhook authenticity:** incoming webhooks verified (signature/secret) so forged calls can't inject docs.
-- **Least privilege:** OAuth requests read-only scopes; we never write to a customer's Confluence.
+- **Token encryption:** access/refresh tokens encrypted at rest.
+- **Tenant isolation:** every page/chunk query scoped by `company_id`.
+- **Embeddings key:** a single server-side key funds ingestion; never a user's key.
+- **Webhook authenticity:** shared-secret verification.
+- **Least privilege:** read-only Confluence scopes.
 
 ---
 
-## 11 · Phased rollout
-
-Each phase is independently shippable.
+## 13 · Phased rollout
 
 | Phase | Ships |
 |---|---|
-| 1 · Connect | OAuth app, connect flow, encrypted company-level tokens, `/status` |
-| 2 · Ingest | Space picker + smart defaults, cheap filter, LLM classify, confirm screen, async job |
-| 3 · Generate | Store docs → plan + day content + quiz generation, employee UI. Feature end-to-end |
-| 4 · Freshness | Register webhooks; handle created / updated / removed |
-| 5 · Correctness | Daily reconciler + background gap detector |
+| 1 · Connect | OAuth, company-level encrypted tokens, `/status` (done) |
+| 2 · Ingest-all | Fetch every page → `document_pages`; resumable job + progress |
+| 3 · Embed | pgvector, chunking, batched/throttled embeddings → `document_chunks` |
+| 4 · Retrieve | `/knowledge/query`: embed → nearest-k → LLM answer with citations |
+| 5 · Onboarding | Plan/day/quiz + freeform Q&A sourced from retrieval |
+| 6 · Freshness | Webhooks re-embed changed pages; reconciler |
 
 ---
 
-## 12 · Future work
+## 14 · Components we'll build
 
-- **Forge / Marketplace app:** admin-installed at site level, app-scoped tokens that survive employee churn, native webhooks, Marketplace discoverability. Can coexist with the integration layer.
-- **Vector search:** for large doc sets, replace whole-document prompting with embeddings + semantic retrieval.
-- **More sources:** the same funnel + freshness pattern generalizes to Notion, Google Drive, GitHub wikis behind a common connector interface.
-- **Real RBAC:** a proper org-admin role to gate connection and space edits, replacing the v1 "first connector + add-only" model.
+| Component | What it does |
+|---|---|
+| Confluence connection | One OAuth 2.0 app; company-level connection, `connect` / `callback` / `status` |
+| Token store | Company-level tokens, encrypted at rest (Fernet), auto-refreshed; rotating refresh token persisted on every refresh |
+| Company resolution | Map an employee to their company/tenant by email domain |
+| Confluence client | Read spaces and page bodies via the search API (classic scopes) |
+| Ingestion job | Fetch every page from every space (personal `~` spaces excluded); resumable background job with progress |
+| Chunker | Split pages into ~800-token chunks with overlap |
+| Embedding service | Gemini `text-embedding-004`, batched + throttled + resumable to stay within the free tier |
+| Vector store | pgvector: `document_pages` + `document_chunks` with an HNSW index |
+| Retriever | Embed the query, return nearest-k chunks (± section/space filter) |
+| Section registry | Each section = a retrieval filter + a prompt template |
+| Knowledge query API | `/knowledge/query`: section-aware RAG answer with citations |
+| Onboarding | Structured plan/day/quiz + freeform Q&A, both RAG-sourced |
+| Freshness | Webhooks (re-embed changed pages) + a reconciler |
+| UI | Connect, ingest progress, ask-anything, onboarding views |
+
+---
+
+## 15 · Future work
+
+- Per-page `section_tags` via cheap classifier for hard section scoping.
+- Re-ranking retrieved chunks (cross-encoder) for higher answer precision.
+- More sources behind the same chunker/embedder (Notion, Drive, GitHub wikis).
+- More sections (Company Info, Policies, Product) once Onboarding is solid.
+- Hybrid search (keyword + vector) for exact-term queries.

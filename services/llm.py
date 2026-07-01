@@ -488,6 +488,19 @@ def _raise_if_provider_error(provider: str, exc: Exception) -> None:
     status_code = _get_status_code(exc)
     label = PROVIDER_LABELS.get(provider, provider)
 
+    # Model overloaded / service unavailable
+    if (
+        status_code == 503
+        or "503" in msg
+        or "unavailable" in msg.lower()
+        or "overloaded" in msg.lower()
+        or "high demand" in msg.lower()
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail=f"The {label} model is currently overloaded. Please try again in a moment or switch to a different model.",
+        )
+
     # Rate limit / quota — string matching covers Gemini "resource_exhausted"
     # which doesn't carry a status_code attribute.
     if (
