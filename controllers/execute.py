@@ -599,6 +599,7 @@ for (const [k, v] of Object.entries(_globals)) {{
                 "--bundle",
                 "--platform=node",
                 "--format=cjs",
+                "--jsx=automatic",
                 f"--outfile={out}",
             ],
             capture_output=True,
@@ -734,6 +735,10 @@ def _apply_autowrap(lang: str, code: str) -> str:
                 + f"\n\n{react_import}{reactdom_import}"
                 + f"ReactDOM.createRoot(document.getElementById('root')).render(React.createElement({component_name}));\n"
             )
+        elif "ReactDOM" in code and "react-dom" not in code:
+            # Code calls ReactDOM directly (browser/CDN style) without importing it.
+            # JSX itself needs no React import — esbuild uses the automatic runtime.
+            code = "import ReactDOM from 'react-dom/client';\n" + code
 
     return code
 

@@ -17,7 +17,7 @@ run_javascript() {
     # Bundle with esbuild (handles JSX + React imports)
     NODE_PATH="$JS_SANDBOX_DIR/node_modules" \
     "$JS_SANDBOX_DIR/node_modules/.bin/esbuild" "$file" \
-        --bundle --platform=node --format=cjs "--outfile=$out" \
+        --bundle --platform=node --format=cjs --jsx=automatic "--outfile=$out" \
         --log-level=error 2>/tmp/esbuild_err.txt
     local esbuild_exit=$?
 

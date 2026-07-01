@@ -266,6 +266,22 @@ class TestApplyAutowrap:
         assert "fn main()" in result
         assert "hello();" in result
 
+    def test_react_injects_reactdom_import_when_referenced_unimported(self):
+        code = (
+            "function Greeting() { return <h1>Hi</h1>; }\n"
+            "ReactDOM.createRoot(document.getElementById('root')).render(<Greeting />);"
+        )
+        result = _apply_autowrap("javascript", code)
+        assert "import ReactDOM from 'react-dom/client';" in result
+
+    def test_react_no_double_import_when_already_imported(self):
+        code = (
+            "import ReactDOM from 'react-dom/client';\n"
+            "ReactDOM.createRoot(document.getElementById('root')).render(<h1>Hi</h1>);"
+        )
+        result = _apply_autowrap("javascript", code)
+        assert result.count("react-dom/client") == 1
+
     def test_rust_no_wrap_when_main_exists(self):
         code = 'fn main() { println!("hi"); }'
         result = _apply_autowrap("rust", code)
