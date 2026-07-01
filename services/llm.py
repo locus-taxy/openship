@@ -1451,3 +1451,48 @@ def generate_onboarding_quiz(
         _raise_if_provider_error(provider, e)
         logger.exception("Onboarding quiz generation failed [provider=%s]", provider)
         return None
+
+class OnboardingDocClassification(BaseModel):
+    is_relevant: bool = Field(
+        description="True if the page helps onboard a new engineer (product, architecture, codebase, setup, process)"
+    )
+    role_tags: List[str] = Field(
+        default_factory=list,
+        description='Roles it helps: subset of ["backend","devops","sdet","qa","product","general"]',
+    )
+    confidence: float = Field(description="Confidence from 0.0 to 1.0")
+
+def classify_onboarding_doc(
+    title: str,
+    content_excerpt: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[dict]:
+    """Classify whether a Confluence page is onboarding-relevant. Returns a dict
+    {is_relevant, role_tags, confidence} or None on failure."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+
+    try:
+        client = _build_client(provider, api_key)
+        response: OnboardingDocClassification = client.chat.completions.create(
+            model=model,
+            response_model=OnboardingDocClassification,
+            messages=[
+                {"role": "system", "content": onboarding_prompts.classify_system_prompt()},
+                {
+                    "role": "user",
+                    "content": onboarding_prompts.classify_user_prompt(title, content_excerpt),
+                },
+            ],
+            **_token_kwargs(provider, 512),
+            max_retries=1,
+        )
+        return response.model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.exception("Onboarding doc classification failed [provider=%s]", provider)
+        return None

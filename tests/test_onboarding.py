@@ -351,141 +351,112 @@ class TestGenerateOnboardingQuiz:
 
 # ── onboarding service ────────────────────────────────────────────────────────
 
+def _doc(page_id="p1", title="Doc", content="content", role_tags=None, confidence=0.5):
+    from models.onboarding_doc import OnboardingDoc
+
+    return OnboardingDoc(
+        id=1,
+        company_id=1,
+        confluence_page_id=page_id,
+        title=title,
+        content_markdown=content,
+        role_tags=json.dumps(role_tags) if role_tags is not None else None,
+        confidence=confidence,
+        approved=True,
+        is_active=True,
+    )
+
+class TestRoleTag:
+    def test_backend(self):
+        from services.onboarding import _role_tag
+
+        assert _role_tag("Backend Engineer") == "backend"
+
+    def test_devops_engineer_not_backend(self):
+        from services.onboarding import _role_tag
+
+        # "engineer" must not pull a DevOps role into backend
+        assert _role_tag("DevOps Engineer") == "devops"
+
+    def test_qa(self):
+        from services.onboarding import _role_tag
+
+        assert _role_tag("QA Analyst") == "qa"
+
+    def test_unknown_returns_none(self):
+        from services.onboarding import _role_tag
+
+        assert _role_tag("Data Scientist") is None
+
+class TestDocHasTag:
+    def test_direct_tag(self):
+        from services.onboarding import _doc_has_tag
+
+        assert _doc_has_tag(_doc(role_tags=["backend"]), "backend") is True
+
+    def test_general_matches_any(self):
+        from services.onboarding import _doc_has_tag
+
+        assert _doc_has_tag(_doc(role_tags=["general"]), "devops") is True
+
+    def test_no_tags(self):
+        from services.onboarding import _doc_has_tag
+
+        assert _doc_has_tag(_doc(role_tags=None), "backend") is False
+
 class TestLoadDocs:
-    def test_raises_if_dir_missing(self):
-        from services.onboarding import _load_docs
+    def test_raises_when_no_docs(self):
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.all.return_value = []
+            from services.onboarding import _load_docs
 
-        with patch("services.onboarding.DOCS_DIR") as mock_dir:
-            mock_dir.exists.return_value = False
             with pytest.raises(HTTPException) as exc:
-                _load_docs()
-            assert exc.value.status_code == 500
+                _load_docs(1, "Backend Engineer")
+            assert exc.value.status_code == 404
+        finally:
+            patcher.stop()
 
-    def test_raises_if_no_md_files(self):
-        from services.onboarding import _load_docs
+    def test_returns_concatenated(self):
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.all.return_value = [
+                _doc(title="Arch", content="arch content", role_tags=["backend"])
+            ]
+            from services.onboarding import _load_docs
 
-        with patch("services.onboarding.DOCS_DIR") as mock_dir:
-            mock_dir.exists.return_value = True
-            mock_dir.glob.return_value = []
-            with pytest.raises(HTTPException) as exc:
-                _load_docs()
-            assert exc.value.status_code == 500
+            result = _load_docs(1, "Backend Engineer")
+            assert "Arch" in result
+            assert "arch content" in result
+        finally:
+            patcher.stop()
 
-    def test_returns_concatenated_docs(self):
-        from services.onboarding import _load_docs
+    def test_role_filter_prefers_matching(self):
+        be = _doc(page_id="p1", title="BE", content="be", role_tags=["backend"])
+        sdet = _doc(page_id="p2", title="SDET", content="sdet", role_tags=["sdet"])
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.all.return_value = [be, sdet]
+            from services.onboarding import _load_docs
 
-        mock_path = MagicMock()
-        mock_path.stem = "doc1"
-        mock_path.read_text.return_value = "content"
-        with patch("services.onboarding.DOCS_DIR") as mock_dir:
-            mock_dir.exists.return_value = True
-            mock_dir.glob.return_value = [mock_path]
-            result = _load_docs()
-        assert "doc1" in result
-        assert "content" in result
+            result = _load_docs(1, "Backend Engineer")
+            assert "be" in result
+            assert "sdet" not in result
+        finally:
+            patcher.stop()
 
-    def test_role_filter_includes_only_relevant_files(self):
-        from services.onboarding import _load_docs
+    def test_falls_back_to_all_when_no_role_match(self):
+        d1 = _doc(page_id="p1", title="A", content="aaa", role_tags=["product"])
+        d2 = _doc(page_id="p2", title="B", content="bbb", role_tags=["product"])
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.all.return_value = [d1, d2]
+            from services.onboarding import _load_docs
 
-        # backend role → prefixes 01, 02, 03, 04, 05, 07, 08, 11
-        included = MagicMock()
-        included.name = "01_backend_engineer_onboarding.md"
-        included.stem = "01_backend_engineer_onboarding"
-        included.read_text.return_value = "be content"
-
-        excluded = MagicMock()
-        excluded.name = "13_sdet_new_stack_checklist.md"
-        excluded.stem = "13_sdet_new_stack_checklist"
-        excluded.read_text.return_value = "sdet content"
-
-        with patch("services.onboarding.DOCS_DIR") as mock_dir:
-            mock_dir.exists.return_value = True
-            mock_dir.glob.return_value = [included, excluded]
-            result = _load_docs("Backend Engineer")
-
-        assert "be content" in result
-        assert "sdet content" not in result
-
-    def test_unknown_role_loads_all_docs(self):
-        from services.onboarding import _load_docs
-
-        path1 = MagicMock()
-        path1.name = "01_some.md"
-        path1.stem = "01_some"
-        path1.read_text.return_value = "doc1"
-
-        path2 = MagicMock()
-        path2.name = "13_other.md"
-        path2.stem = "13_other"
-        path2.read_text.return_value = "doc2"
-
-        with patch("services.onboarding.DOCS_DIR") as mock_dir:
-            mock_dir.exists.return_value = True
-            mock_dir.glob.return_value = [path1, path2]
-            result = _load_docs("Data Scientist")
-
-        assert "doc1" in result
-        assert "doc2" in result
-
-class TestSelectDocPrefixes:
-    def test_backend_role_includes_backend_prefixes(self):
-        from services.onboarding import _select_doc_prefixes
-
-        result = _select_doc_prefixes("Backend Engineer")
-        assert "01" in result
-        assert "08" in result
-        assert "11" in result
-        # workflow + OPA docs included
-        assert "16" in result
-        assert "17" in result
-        assert "18" in result
-        # common docs also included
-        assert "07" in result
-        # SDET docs excluded
-        assert "13" not in result
-        assert "14" not in result
-
-    def test_sdet_role_includes_sdet_prefixes(self):
-        from services.onboarding import _select_doc_prefixes
-
-        result = _select_doc_prefixes("SDET Engineer")
-        assert "06" in result
-        assert "13" in result
-        assert "14" in result
-        # backend-specific excluded
-        assert "01" not in result
-        assert "11" not in result
-
-    def test_devops_role_includes_devops_prefixes(self):
-        from services.onboarding import _select_doc_prefixes
-
-        result = _select_doc_prefixes("DevOps Engineer")
-        assert "09" in result
-        assert "10" in result
-        assert "12" in result
-        assert "13" not in result
-
-    def test_unknown_role_returns_none(self):
-        from services.onboarding import _select_doc_prefixes
-
-        result = _select_doc_prefixes("Data Scientist")
-        assert result is None
-
-    def test_product_manager_role(self):
-        from services.onboarding import _select_doc_prefixes
-
-        result = _select_doc_prefixes("Product Manager")
-        assert "15" in result
-        assert "12" in result
-        assert "01" not in result
-
-    def test_qa_role_same_as_sdet(self):
-        from services.onboarding import _select_doc_prefixes
-
-        result = _select_doc_prefixes("QA Automation Engineer")
-        assert "06" in result
-        assert "13" in result
-        assert "14" in result
+            result = _load_docs(1, "Backend Engineer")
+            assert "aaa" in result and "bbb" in result
+        finally:
+            patcher.stop()
 
 class TestOnboardingService:
     def test_generate_plan_success(self):
@@ -505,7 +476,9 @@ class TestOnboardingService:
             ):
                 from services.onboarding import generate_plan
 
-                result = generate_plan("1", "Backend Engineer", "Locus", "openai", "k", None)
+                result = generate_plan(
+                    "1", "Backend Engineer", "Locus", "openai", "k", None, company_id=1
+                )
             assert "plan" in result
             assert "days" in result
         finally:
@@ -523,7 +496,9 @@ class TestOnboardingService:
                 from services.onboarding import generate_plan
 
                 with pytest.raises(HTTPException) as exc:
-                    generate_plan("1", "Backend Engineer", "Locus", "openai", "k", None)
+                    generate_plan(
+                        "1", "Backend Engineer", "Locus", "openai", "k", None, company_id=1
+                    )
             assert exc.value.status_code == 500
         finally:
             patcher.stop()
@@ -575,7 +550,7 @@ class TestOnboardingService:
             from services.onboarding import get_day_content
 
             with pytest.raises(HTTPException) as exc:
-                get_day_content(99, 1, "1", "openai", "k", None)
+                get_day_content(99, 1, "1", "openai", "k", None, company_id=1)
             assert exc.value.status_code == 404
         finally:
             patcher.stop()
@@ -589,7 +564,7 @@ class TestOnboardingService:
             session.exec.return_value.first.return_value = day
             from services.onboarding import get_day_content
 
-            result = get_day_content(1, 1, "1", "openai", "k", None)
+            result = get_day_content(1, 1, "1", "openai", "k", None, company_id=1)
             assert "day" in result
         finally:
             patcher.stop()
@@ -614,7 +589,7 @@ class TestOnboardingService:
             ):
                 from services.onboarding import get_day_content
 
-                result = get_day_content(1, 1, "1", "openai", "k", None)
+                result = get_day_content(1, 1, "1", "openai", "k", None, company_id=1)
             assert "day" in result
         finally:
             patcher.stop()
@@ -636,7 +611,7 @@ class TestOnboardingService:
                 from services.onboarding import get_day_content
 
                 with pytest.raises(HTTPException) as exc:
-                    get_day_content(1, 1, "1", "openai", "k", None)
+                    get_day_content(1, 1, "1", "openai", "k", None, company_id=1)
             assert exc.value.status_code == 500
         finally:
             patcher.stop()
@@ -650,7 +625,7 @@ class TestOnboardingService:
             from services.onboarding import get_day_content
 
             with pytest.raises(HTTPException) as exc:
-                get_day_content(1, 99, "1", "openai", "k", None)
+                get_day_content(1, 99, "1", "openai", "k", None, company_id=1)
             assert exc.value.status_code == 404
         finally:
             patcher.stop()
@@ -784,78 +759,6 @@ class TestOnboardingService:
         finally:
             patcher.stop()
 
-    def test_get_final_quiz_plan_not_found(self):
-        patcher, session = _patch_session()
-        try:
-            session.get.return_value = None
-            from services.onboarding import get_final_quiz
-
-            with pytest.raises(HTTPException) as exc:
-                get_final_quiz(99, "1", "openai", "k", None)
-            assert exc.value.status_code == 404
-        finally:
-            patcher.stop()
-
-    def test_get_final_quiz_generates_and_caches(self):
-        plan = _make_plan()
-        days = [_make_day(i) for i in range(1, 8)]
-        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
-        patcher, session = _patch_session()
-        try:
-            session.get.return_value = plan
-            session.exec.return_value.all.return_value = days
-            with (
-                patch("services.onboarding._load_docs", return_value="docs"),
-                patch(
-                    "services.onboarding.llm_service.generate_onboarding_quiz",
-                    return_value=questions,
-                ),
-            ):
-                from services.onboarding import get_final_quiz
-
-                result = get_final_quiz(1, "1", "openai", "k", None)
-            assert len(result["questions"]) == 10
-            assert result["attempts"] == []
-        finally:
-            patcher.stop()
-
-    def test_get_final_quiz_returns_cached_with_attempts(self):
-        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
-        plan = _make_plan(quiz_questions=json.dumps(questions))
-        attempt = _make_attempt()
-        patcher, session = _patch_session()
-        try:
-            session.get.return_value = plan
-            session.exec.return_value.all.return_value = [attempt]
-            from services.onboarding import get_final_quiz
-
-            result = get_final_quiz(1, "1", "openai", "k", None)
-            assert len(result["questions"]) == 10
-            assert len(result["attempts"]) == 1
-        finally:
-            patcher.stop()
-
-    def test_get_final_quiz_fails_if_llm_returns_none(self):
-        plan = _make_plan()
-        days = [_make_day(i) for i in range(1, 8)]
-        patcher, session = _patch_session()
-        try:
-            session.get.return_value = plan
-            session.exec.return_value.all.return_value = days
-            with (
-                patch("services.onboarding._load_docs", return_value="docs"),
-                patch(
-                    "services.onboarding.llm_service.generate_onboarding_quiz", return_value=None
-                ),
-            ):
-                from services.onboarding import get_final_quiz
-
-                with pytest.raises(HTTPException) as exc:
-                    get_final_quiz(1, "1", "openai", "k", None)
-            assert exc.value.status_code == 500
-        finally:
-            patcher.stop()
-
     def test_save_quiz_attempt_scores_correctly(self):
         questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
         plan = _make_plan(quiz_questions=json.dumps(questions))
@@ -946,7 +849,7 @@ class TestOnboardingService:
             from services.onboarding import generate_quiz
 
             with pytest.raises(HTTPException) as exc:
-                generate_quiz(99, "1", "openai", "k", None)
+                generate_quiz(99, "1", "openai", "k", None, company_id=1)
             assert exc.value.status_code == 404
         finally:
             patcher.stop()
@@ -960,7 +863,7 @@ class TestOnboardingService:
             from services.onboarding import generate_quiz
 
             with pytest.raises(HTTPException) as exc:
-                generate_quiz(1, "1", "openai", "k", None)
+                generate_quiz(1, "1", "openai", "k", None, company_id=1)
             assert exc.value.status_code == 409
         finally:
             patcher.stop()
@@ -982,7 +885,7 @@ class TestOnboardingService:
             ):
                 from services.onboarding import generate_quiz
 
-                result = generate_quiz(1, "1", "openai", "k", None)
+                result = generate_quiz(1, "1", "openai", "k", None, company_id=1)
             assert len(result["questions"]) == 10
             assert result["attempts"] == []
         finally:
@@ -1004,12 +907,24 @@ class TestOnboardingService:
                 from services.onboarding import generate_quiz
 
                 with pytest.raises(HTTPException) as exc:
-                    generate_quiz(1, "1", "openai", "k", None)
+                    generate_quiz(1, "1", "openai", "k", None, company_id=1)
             assert exc.value.status_code == 500
         finally:
             patcher.stop()
 
 # ── routes ────────────────────────────────────────────────────────────────────
+
+class TestCompanyIdHelper:
+    def test_resolves_company_id(self):
+        company = MagicMock()
+        company.id = 42
+        with patch(
+            "controllers.onboarding.confluence_service.get_or_create_company_for_user",
+            return_value=company,
+        ):
+            from controllers.onboarding import _company_id
+
+            assert _company_id(MagicMock()) == 42
 
 class TestOnboardingRoutes:
     def test_list_plans_unauthenticated(self, anon_client):
@@ -1030,7 +945,10 @@ class TestOnboardingRoutes:
         plan = _make_plan()
         days = [_make_day(i) for i in range(1, 8)]
         result = {"plan": plan.model_dump(), "days": [d.model_dump() for d in days]}
-        with patch("controllers.onboarding.onboarding_service.generate_plan", return_value=result):
+        with (
+            patch("controllers.onboarding.onboarding_service.generate_plan", return_value=result),
+            patch("controllers.onboarding._company_id", return_value=1),
+        ):
             response = auth_client.post("/onboarding/generate", json={"role": "SWE"})
         assert response.status_code == 200
 
@@ -1060,9 +978,12 @@ class TestOnboardingRoutes:
 
     def test_get_day_content_success(self, auth_client):
         day = _make_day()
-        with patch(
-            "controllers.onboarding.onboarding_service.get_day_content",
-            return_value={"day": day.model_dump()},
+        with (
+            patch(
+                "controllers.onboarding.onboarding_service.get_day_content",
+                return_value={"day": day.model_dump()},
+            ),
+            patch("controllers.onboarding._company_id", return_value=1),
         ):
             response = auth_client.get("/onboarding/1/day/1")
         assert response.status_code == 200
@@ -1142,9 +1063,12 @@ class TestOnboardingRoutes:
 
     def test_generate_quiz_route_success(self, auth_client):
         questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
-        with patch(
-            "controllers.onboarding.onboarding_service.generate_quiz",
-            return_value={"questions": questions, "attempts": []},
+        with (
+            patch(
+                "controllers.onboarding.onboarding_service.generate_quiz",
+                return_value={"questions": questions, "attempts": []},
+            ),
+            patch("controllers.onboarding._company_id", return_value=1),
         ):
             response = auth_client.post("/onboarding/1/quiz/generate")
         assert response.status_code == 200
@@ -1152,22 +1076,3 @@ class TestOnboardingRoutes:
     def test_generate_quiz_route_unauthenticated(self, anon_client):
         response = anon_client.post("/onboarding/1/quiz/generate")
         assert response.status_code == 401
-
-    def test_get_final_quiz_controller(self):
-        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
-        user = MagicMock()
-        user.id = 1
-        with (
-            patch("controllers.onboarding.get_user_provider_name", return_value="openai"),
-            patch("controllers.onboarding.get_user_api_key", return_value="k"),
-            patch("controllers.onboarding.get_user_model", return_value=None),
-            patch(
-                "controllers.onboarding.onboarding_service.get_final_quiz",
-                return_value={"questions": questions, "attempts": []},
-            ) as mock_svc,
-        ):
-            from controllers.onboarding import get_final_quiz
-
-            result = get_final_quiz(1, user)
-        assert len(result["questions"]) == 10
-        mock_svc.assert_called_once()

@@ -100,3 +100,32 @@ LLM_ENCRYPTION_KEY = _strip_opt("LLM_ENCRYPTION_KEY")
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "2"))
 JWT_REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_HOURS", "7"))
+
+# ── Atlassian / Confluence OAuth (optional) ─────────────────────────────────
+# Three-legged OAuth 2.0 for connecting a company's Confluence. All optional so
+# the server runs without them; the connect flow returns 503 until configured.
+ATLASSIAN_CLIENT_ID = _strip_opt("ATLASSIAN_CLIENT_ID")
+ATLASSIAN_CLIENT_SECRET = _strip_opt("ATLASSIAN_CLIENT_SECRET")
+ATLASSIAN_REDIRECT_URI = _strip_opt("ATLASSIAN_REDIRECT_URI")
+
+# Read-only Confluence scopes plus offline_access (needed for a refresh token).
+_DEFAULT_ATLASSIAN_SCOPES = (
+    "offline_access "
+    "read:confluence-space.summary "
+    "read:confluence-content.summary "
+    "read:confluence-content.all "
+    "search:confluence"
+)
+ATLASSIAN_OAUTH_SCOPES = _strip_opt("ATLASSIAN_OAUTH_SCOPES") or _DEFAULT_ATLASSIAN_SCOPES
+
+# Where to send the browser after a successful connect.
+CONFLUENCE_POST_CONNECT_REDIRECT = (
+    _strip_opt("CONFLUENCE_POST_CONNECT_REDIRECT") or "/onboarding?connected=1"
+)
+
+# Shared secret for authenticating incoming Confluence webhooks.
+CONFLUENCE_WEBHOOK_SECRET = _strip_opt("CONFLUENCE_WEBHOOK_SECRET")
+
+def is_confluence_oauth_configured() -> bool:
+    """True when the Atlassian client id, secret, and redirect URI are all set."""
+    return bool(ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET and ATLASSIAN_REDIRECT_URI)

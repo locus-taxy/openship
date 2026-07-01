@@ -1,7 +1,5 @@
 import json
 import logging
-import os
-from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException
@@ -11,70 +9,78 @@ from database import engine
 from models.onboarding_plan import OnboardingPlan
 from models.onboarding_day import OnboardingDay
 from models.onboarding_quiz_attempt import OnboardingQuizAttempt
+from models.onboarding_doc import OnboardingDoc
 from services import llm as llm_service
 from prompts import onboarding as onboarding_prompts
 
 logger = logging.getLogger(__name__)
 
-DOCS_DIR = Path(__file__).parent.parent / "test_data" / "locus_onboarding_docs"
+# Map free-text role strings (e.g. "Backend Engineer") to a doc role tag.
+# Ordered most-specific first so "DevOps Engineer" resolves to devops, not backend.
+_ROLE_TAG_KEYWORDS = [
+    ("devops", "devops"),
+    ("sre", "devops"),
+    ("platform", "devops"),
+    ("infrastructure", "devops"),
+    ("infra", "devops"),
+    ("sdet", "sdet"),
+    ("automation", "sdet"),
+    ("test", "sdet"),
+    ("qa", "qa"),
+    ("quality", "qa"),
+    ("product", "product"),
+    ("solutions", "product"),
+    ("manager", "product"),
+    ("backend", "backend"),
+    ("software", "backend"),
+]
 
-# File number prefixes (NN_) that are relevant to each role keyword.
-# Common docs (architecture, setup, prerequisites) are always included.
-_COMMON_DOC_PREFIXES: frozenset[str] = frozenset({"03", "04", "05", "07"})
-
-_ROLE_DOC_PREFIXES: dict[str, frozenset[str]] = {
-    "backend": frozenset({"01", "08", "11", "16", "17", "18"}),
-    "software": frozenset({"01", "08", "11", "16", "17", "18"}),
-    "devops": frozenset({"09", "10", "12"}),
-    "sre": frozenset({"09", "10", "12"}),
-    "platform": frozenset({"09", "10", "12"}),
-    "infrastructure": frozenset({"09", "10", "12"}),
-    "sdet": frozenset({"06", "13", "14"}),
-    "qa": frozenset({"06", "13", "14"}),
-    "quality": frozenset({"06", "13", "14"}),
-    "test": frozenset({"06", "13", "14"}),
-    "automation": frozenset({"06", "13", "14"}),
-    "product": frozenset({"15", "12"}),
-    "solutions": frozenset({"15", "12"}),
-    "manager": frozenset({"15", "12"}),
-}
-
-def _select_doc_prefixes(role: str) -> Optional[set[str]]:
-    """Return file-number prefixes to include for this role, or None to load all docs."""
-    role_lower = role.lower()
-    extra: set[str] = set()
-    matched = False
-    for keyword, prefixes in _ROLE_DOC_PREFIXES.items():
+def _role_tag(role: str) -> Optional[str]:
+    """Map a free-text role to a doc role tag, or None if nothing matches."""
+    role_lower = (role or "").lower()
+    for keyword, tag in _ROLE_TAG_KEYWORDS:
         if keyword in role_lower:
-            extra |= prefixes
-            matched = True
-    if not matched:
-        return None  # unknown role → include everything
-    return set(_COMMON_DOC_PREFIXES) | extra
+            return tag
+    return None
 
-def _load_docs(role: str = "") -> str:
-    """Read role-relevant .md docs from the docs directory and concatenate them."""
-    if not DOCS_DIR.exists():
-        raise HTTPException(status_code=500, detail="Onboarding documents not found.")
+def _doc_has_tag(doc: OnboardingDoc, tag: str) -> bool:
+    tags = json.loads(doc.role_tags) if doc.role_tags else []
+    return tag in tags or "general" in tags
 
-    allowed = _select_doc_prefixes(role) if role else None
-
-    parts = []
-    for path in sorted(DOCS_DIR.glob("*.md"), key=lambda p: p.name):
-        if allowed is not None:
-            file_prefix = path.name.split("_")[0]
-            if file_prefix not in allowed:
-                continue
-        parts.append(f"=== {path.stem} ===\n{path.read_text()}")
-
-    if not parts:
-        raise HTTPException(status_code=500, detail="No onboarding documents found.")
+def _load_docs(company_id: int, role: str = "") -> str:
+    """Concatenate the company's approved, active onboarding docs, preferring
+    ones tagged for this role (falling back to all approved docs if none match)."""
+    with Session(engine) as session:
+        docs = session.exec(
+            select(OnboardingDoc)
+            .where(OnboardingDoc.company_id == company_id)
+            .where(OnboardingDoc.approved == True)  # noqa: E712
+            .where(OnboardingDoc.is_active == True)  # noqa: E712
+            .order_by(OnboardingDoc.confidence.desc())
+        ).all()
+    if not docs:
+        raise HTTPException(
+            status_code=404,
+            detail="No onboarding documents are available yet. Connect Confluence and ingest docs first.",
+        )
+    wanted = _role_tag(role)
+    if wanted:
+        filtered = [d for d in docs if _doc_has_tag(d, wanted)]
+        if filtered:
+            docs = filtered
+    parts = [f"=== {d.title} ===\n{d.content_markdown or ''}" for d in docs]
     return "\n\n".join(parts)
 
 def generate_plan(
-    user_id: str, role: str, company: str, provider: str, api_key: str, model: Optional[str]
+    user_id: str,
+    role: str,
+    company: str,
+    provider: str,
+    api_key: str,
+    model: Optional[str],
+    company_id: int,
 ) -> dict:
-    docs_text = _load_docs(role)
+    docs_text = _load_docs(company_id, role)
 
     days_data = llm_service.generate_onboarding_plan(
         role=role,
@@ -132,6 +138,7 @@ def get_day_content(
     provider: str,
     api_key: str,
     model: Optional[str],
+    company_id: int,
     force: bool = False,
 ) -> dict:
     with Session(engine) as session:
@@ -151,7 +158,7 @@ def get_day_content(
         if day.content_blocks and not force:
             return {"day": day.model_dump()}
 
-        docs_text = _load_docs(plan.role)
+        docs_text = _load_docs(company_id, plan.role)
 
         content = llm_service.generate_onboarding_day_content(
             role=plan.role,
@@ -234,57 +241,6 @@ def complete_day(plan_id: int, day_number: int, user_id: str) -> dict:
         session.refresh(day)
         return {"day": day.model_dump()}
 
-def get_final_quiz(
-    plan_id: int, user_id: str, provider: str, api_key: str, model: Optional[str]
-) -> dict:
-    with Session(engine) as session:
-        plan = session.get(OnboardingPlan, plan_id)
-        if not plan or plan.user_id != user_id:
-            raise HTTPException(status_code=404, detail="Onboarding plan not found.")
-
-        # Return cached questions if already generated
-        if plan.quiz_questions:
-            attempts = session.exec(
-                select(OnboardingQuizAttempt)
-                .where(OnboardingQuizAttempt.plan_id == plan_id)
-                .where(OnboardingQuizAttempt.user_id == user_id)
-                .order_by(OnboardingQuizAttempt.created_at.desc())
-            ).all()
-            return {
-                "questions": json.loads(plan.quiz_questions),
-                "attempts": [a.model_dump() for a in attempts],
-            }
-
-        days = session.exec(
-            select(OnboardingDay)
-            .where(OnboardingDay.plan_id == plan_id)
-            .order_by(OnboardingDay.day)
-        ).all()
-        topics = [d.topic for d in days]
-
-    docs_text = _load_docs(plan.role)
-
-    questions = llm_service.generate_onboarding_quiz(
-        role=plan.role,
-        company=plan.company,
-        topics=topics,
-        docs_text=docs_text,
-        num_questions=10,
-        provider=provider,
-        api_key=api_key,
-        model=model,
-    )
-    if not questions:
-        raise HTTPException(status_code=500, detail="Failed to generate final quiz.")
-
-    with Session(engine) as session:
-        plan = session.get(OnboardingPlan, plan_id)
-        plan.quiz_questions = json.dumps(questions)
-        session.add(plan)
-        session.commit()
-
-    return {"questions": questions, "attempts": []}
-
 def get_quiz(plan_id: int, user_id: str) -> dict:
     """Return cached quiz + attempts. Raises 404 if quiz not generated yet."""
     with Session(engine) as session:
@@ -305,7 +261,7 @@ def get_quiz(plan_id: int, user_id: str) -> dict:
         }
 
 def generate_quiz(
-    plan_id: int, user_id: str, provider: str, api_key: str, model: Optional[str]
+    plan_id: int, user_id: str, provider: str, api_key: str, model: Optional[str], company_id: int
 ) -> dict:
     """Generate quiz questions. Returns 409 if already generated."""
     with Session(engine) as session:
@@ -321,7 +277,7 @@ def generate_quiz(
         ).all()
         topics = [d.topic for d in days]
 
-    docs_text = _load_docs(plan.role)
+    docs_text = _load_docs(company_id, plan.role)
     questions = llm_service.generate_onboarding_quiz(
         role=plan.role,
         company=plan.company,

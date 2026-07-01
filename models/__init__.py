@@ -14,8 +14,16 @@ from models.topic_knowledge import TopicKnowledge
 from models.content_style_arms import ContentStyleArm
 from models.onboarding_plan import OnboardingPlan
 from models.onboarding_day import OnboardingDay
+from models.company import Company
+from models.confluence_connection import ConfluenceConnection
+from models.onboarding_doc import OnboardingDoc
+from models.ingestion_job import IngestionJob
 
 __all__ = [
+    "Company",
+    "ConfluenceConnection",
+    "OnboardingDoc",
+    "IngestionJob",
     "ContentStyleArm",
     "OnboardingPlan",
     "OnboardingDay",

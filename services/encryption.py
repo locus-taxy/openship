@@ -63,3 +63,15 @@ def decrypt_api_key(stored: str) -> str:
         return prefix + suffix
     # Legacy plaintext — return as-is
     return stored
+
+def encrypt_secret(raw: str) -> str:
+    """
+    Fully encrypt a secret with Fernet. Used for OAuth tokens, where no
+    plaintext prefix is acceptable (unlike API keys, which keep a display
+    prefix). Decrypt with decrypt_secret.
+    """
+    return _get_fernet().encrypt(raw.encode()).decode()
+
+def decrypt_secret(stored: str) -> str:
+    """Decrypt a value produced by encrypt_secret."""
+    return _get_fernet().decrypt(stored.encode()).decode()
