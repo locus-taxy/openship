@@ -18,6 +18,7 @@ import api from "@/services"
 import useStore from "@/store"
 import { LlmBar } from "@/components/llm-bar"
 import { ConfluenceSetup } from "./confluence-setup"
+import { KnowledgeAsk } from "./knowledge-ask"
 
 const ROLE_SUGGESTIONS = ["Backend Engineer", "DevOps Engineer", "SDET", "Product Manager"]
 
@@ -182,6 +183,9 @@ export default function OnboardingPage() {
 
             {/* Confluence connection + ingestion */}
             <ConfluenceSetup />
+
+            {/* Ask anything over the ingested docs */}
+            <KnowledgeAsk />
 
             {/* LLM selector */}
             <LlmBar />

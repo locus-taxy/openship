@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import instructor
 from prompts import chapter as chapter_prompts
 from prompts import onboarding as onboarding_prompts
+from prompts import knowledge as knowledge_prompts
 from prompts import quiz as quiz_prompts
 from prompts import syllabus as syllabus_prompts
 from anthropic import Anthropic
@@ -1463,4 +1464,41 @@ def generate_onboarding_quiz(
     except Exception as e:
         _raise_if_provider_error(provider, e)
         logger.exception("Onboarding quiz generation failed [provider=%s]", provider)
+        return None
+
+class KnowledgeAnswer(BaseModel):
+    answer: str = Field(description="The answer, grounded only in the provided documentation")
+
+def answer_from_context(
+    question: str,
+    context: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[str]:
+    """Answer a question grounded in retrieved documentation. Returns text or None."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+
+    try:
+        client = _build_client(provider, api_key)
+        response: KnowledgeAnswer = client.chat.completions.create(
+            model=model,
+            response_model=KnowledgeAnswer,
+            messages=[
+                {"role": "system", "content": knowledge_prompts.knowledge_system_prompt()},
+                {
+                    "role": "user",
+                    "content": knowledge_prompts.knowledge_user_prompt(question, context),
+                },
+            ],
+            **_token_kwargs(provider, 2048),
+            max_retries=1,
+        )
+        return response.answer
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.exception("Knowledge answer generation failed [provider=%s]", provider)
         return None
