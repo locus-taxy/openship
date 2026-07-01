@@ -9,67 +9,28 @@ from database import engine
 from models.onboarding_plan import OnboardingPlan
 from models.onboarding_day import OnboardingDay
 from models.onboarding_quiz_attempt import OnboardingQuizAttempt
-from models.onboarding_doc import OnboardingDoc
 from services import llm as llm_service
+from services import retrieval as retrieval_service
 from prompts import onboarding as onboarding_prompts
 
 logger = logging.getLogger(__name__)
 
-# Map free-text role strings (e.g. "Backend Engineer") to a doc role tag.
-# Ordered most-specific first so "DevOps Engineer" resolves to devops, not backend.
-_ROLE_TAG_KEYWORDS = [
-    ("devops", "devops"),
-    ("sre", "devops"),
-    ("platform", "devops"),
-    ("infrastructure", "devops"),
-    ("infra", "devops"),
-    ("sdet", "sdet"),
-    ("automation", "sdet"),
-    ("test", "sdet"),
-    ("qa", "qa"),
-    ("quality", "qa"),
-    ("product", "product"),
-    ("solutions", "product"),
-    ("manager", "product"),
-    ("backend", "backend"),
-    ("software", "backend"),
-]
+# How many chunks to retrieve as grounding for plan/quiz generation.
+_RETRIEVE_K = 24
 
-def _role_tag(role: str) -> Optional[str]:
-    """Map a free-text role to a doc role tag, or None if nothing matches."""
-    role_lower = (role or "").lower()
-    for keyword, tag in _ROLE_TAG_KEYWORDS:
-        if keyword in role_lower:
-            return tag
-    return None
-
-def _doc_has_tag(doc: OnboardingDoc, tag: str) -> bool:
-    tags = json.loads(doc.role_tags) if doc.role_tags else []
-    return tag in tags or "general" in tags
-
-def _load_docs(company_id: int, role: str = "") -> str:
-    """Concatenate the company's approved, active onboarding docs, preferring
-    ones tagged for this role (falling back to all approved docs if none match)."""
-    with Session(engine) as session:
-        docs = session.exec(
-            select(OnboardingDoc)
-            .where(OnboardingDoc.company_id == company_id)
-            .where(OnboardingDoc.approved == True)  # noqa: E712
-            .where(OnboardingDoc.is_active == True)  # noqa: E712
-            .order_by(OnboardingDoc.confidence.desc())
-        ).all()
-    if not docs:
+def _load_docs(company_id: int, role: str = "", topic: str = "") -> str:
+    """Retrieve the most relevant knowledge-base chunks for this role/topic and
+    return them as a grounding context string."""
+    query = " ".join(
+        p for p in [role, topic, "onboarding architecture setup codebase platform process"] if p
+    )
+    context = retrieval_service.retrieve_context(company_id, query, k=_RETRIEVE_K)
+    if not context.strip():
         raise HTTPException(
             status_code=404,
             detail="No onboarding documents are available yet. Connect Confluence and ingest docs first.",
         )
-    wanted = _role_tag(role)
-    if wanted:
-        filtered = [d for d in docs if _doc_has_tag(d, wanted)]
-        if filtered:
-            docs = filtered
-    parts = [f"=== {d.title} ===\n{d.content_markdown or ''}" for d in docs]
-    return "\n\n".join(parts)
+    return context
 
 def generate_plan(
     user_id: str,
@@ -158,7 +119,7 @@ def get_day_content(
         if day.content_blocks and not force:
             return {"day": day.model_dump()}
 
-        docs_text = _load_docs(company_id, plan.role)
+        docs_text = _load_docs(company_id, plan.role, topic=day.topic)
 
         content = llm_service.generate_onboarding_day_content(
             role=plan.role,

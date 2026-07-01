@@ -164,29 +164,3 @@ For each question include:
   - explanation: why the correct answer is right, citing the actual design rationale from the docs
 
 Make questions that a new joiner who carefully read the documents would get right, but a generic engineer who never read them would likely get wrong."""
-
-def classify_system_prompt() -> str:
-    return """You decide whether a company wiki page is useful for onboarding a new engineer.
-
-A page is RELEVANT if it helps a new technical hire understand the company's
-product, architecture, codebase, platform, tooling, setup, or engineering process.
-A page is NOT relevant if it is HR policy, sales/marketing, meeting notes, personal
-pages, or unrelated administrative content.
-
-Return:
-  - is_relevant: true or false
-  - role_tags: which engineering roles it helps, a subset of
-      ["backend", "devops", "sdet", "qa", "product", "general"];
-      use ["general"] if it applies broadly; empty list if not relevant
-  - confidence: your confidence from 0.0 to 1.0
-
-Judge only from the title and excerpt provided. Do not invent."""
-
-def classify_user_prompt(title: str, excerpt: str) -> str:
-    body = excerpt.strip() or "(no readable body)"
-    return f"""Page title: {title}
-
-Excerpt:
-{body}
-
-Is this page useful for onboarding a new engineer?"""

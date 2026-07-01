@@ -11,6 +11,8 @@ class IngestionJob(SQLModel, table=True):
     company_id: int = Field(foreign_key="companies.id", index=True)
     total_pages: int = Field(default=0)
     processed_pages: int = Field(default=0)
+    total_chunks: int = Field(default=0)
+    embedded_chunks: int = Field(default=0)
     status: str = Field(default="running", max_length=32)  # running | done | failed
     error: Optional[str] = Field(default=None)
     created_at: Optional[datetime] = Field(

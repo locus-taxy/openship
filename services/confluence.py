@@ -1,13 +1,13 @@
 """
-Confluence integration — Phase 1: connection.
+Confluence integration for the RAG knowledge base.
 
-Three-legged Atlassian OAuth 2.0. We register one OAuth app; every company
-authorizes it and we store that company's tokens (encrypted, company-level).
+- Connect: three-legged Atlassian OAuth 2.0; one app, company-level encrypted
+  tokens with auto-refresh.
+- Ingest: fetch every page from every space, upsert into document_pages, chunk,
+  embed, and store document_chunks. Resumable background job.
+- Freshness: webhooks re-embed changed pages; a reconciler catches misses.
 
-Flow:
-  start_connect  → build the Atlassian authorize URL (state = signed user id)
-  handle_callback → exchange code for tokens, resolve the company, store them
-  get_status     → is this company connected and ready?
+Reads go through the Confluence search API (works with classic OAuth scopes).
 """
 
 import json
@@ -20,6 +20,7 @@ from urllib.parse import urlencode
 import httpx
 import jwt as pyjwt
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError
 
@@ -28,12 +29,13 @@ from config import JWT_SECRET_KEY, JWT_ALGORITHM
 from database import engine
 from models.company import Company
 from models.confluence_connection import ConfluenceConnection
-from models.onboarding_doc import OnboardingDoc
+from models.document_page import DocumentPage
+from models.document_chunk import DocumentChunk
 from models.ingestion_job import IngestionJob
 from services.encryption import encrypt_secret, decrypt_secret
 from services.user import get_user_by_id
-from services import llm as llm_service
-from services.llm import get_user_api_key, get_user_model, get_user_provider_name
+from services import embeddings as embedding_service
+from services.chunking import chunk_text, estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +45,10 @@ _RESOURCES_URL = "https://api.atlassian.com/oauth/token/accessible-resources"
 _HTTP_TIMEOUT = 15
 _STATE_EXPIRE_MINUTES = 15
 _STATE_TYPE = "confluence_oauth"
+_TOKEN_SKEW_SECONDS = 60
+_PAGE_SEARCH_LIMIT = 100
 
-# ── helpers ────────────────────────────────────────────────────────────────
+# ── OAuth / state helpers ──────────────────────────────────────────────────────
 
 def require_confluence_oauth() -> None:
     if not config.is_confluence_oauth_configured():
@@ -87,7 +91,6 @@ def get_or_create_company_for_user(user) -> Company:
         try:
             session.commit()
         except IntegrityError:
-            # Another request created it concurrently — fetch the winner.
             session.rollback()
             return session.exec(select(Company).where(Company.domain == domain)).first()
         session.refresh(company)
@@ -99,7 +102,13 @@ def _get_connection(company_id: int) -> Optional[ConfluenceConnection]:
             select(ConfluenceConnection).where(ConfluenceConnection.company_id == company_id)
         ).first()
 
-# ── Atlassian HTTP ───────────────────────────────────────────────────────────
+def _require_ready_connection(company_id: int) -> ConfluenceConnection:
+    conn = _get_connection(company_id)
+    if conn is None or conn.status != "ready" or not conn.access_token:
+        raise HTTPException(status_code=409, detail="Confluence is not connected for your company.")
+    return conn
+
+# ── Atlassian OAuth HTTP ───────────────────────────────────────────────────────
 
 def _exchange_code(code: str) -> dict:
     resp = httpx.post(
@@ -154,8 +163,6 @@ def _upsert_connection(
         session.add(conn)
         session.commit()
 
-# ── public API ───────────────────────────────────────────────────────────────
-
 def start_connect(user) -> dict:
     """Return the Atlassian authorize URL the browser should redirect to."""
     require_confluence_oauth()
@@ -204,18 +211,20 @@ def handle_callback(code: str, state: str) -> str:
     )
     return config.CONFLUENCE_POST_CONNECT_REDIRECT
 
-def _approved_doc_count(company_id: int) -> int:
+def _counts(company_id: int):
     with Session(engine) as session:
-        rows = session.exec(
-            select(OnboardingDoc.id)
-            .where(OnboardingDoc.company_id == company_id)
-            .where(OnboardingDoc.approved == True)  # noqa: E712
-            .where(OnboardingDoc.is_active == True)  # noqa: E712
-        ).all()
-        return len(rows)
+        pages = session.exec(
+            select(func.count(DocumentPage.id))
+            .where(DocumentPage.company_id == company_id)
+            .where(DocumentPage.is_active == True)  # noqa: E712
+        ).one()
+        chunks = session.exec(
+            select(func.count(DocumentChunk.id)).where(DocumentChunk.company_id == company_id)
+        ).one()
+    return int(pages), int(chunks)
 
 def get_status(user) -> dict:
-    """Report whether this user's company has a ready Confluence connection."""
+    """Report whether this user's company is connected, and how much is indexed."""
     company = get_or_create_company_for_user(user)
     conn = _get_connection(company.id)
     if conn is None or conn.status != "ready":
@@ -223,123 +232,19 @@ def get_status(user) -> dict:
             "connected": False,
             "status": conn.status if conn else None,
             "site_url": None,
-            "space_count": 0,
-            "doc_count": 0,
+            "page_count": 0,
+            "chunk_count": 0,
         }
-    space_keys = json.loads(conn.space_keys) if conn.space_keys else []
+    page_count, chunk_count = _counts(company.id)
     return {
         "connected": True,
         "status": conn.status,
         "site_url": conn.site_url,
-        "space_count": len(space_keys),
-        "doc_count": _approved_doc_count(company.id),
+        "page_count": page_count,
+        "chunk_count": chunk_count,
     }
 
 # ── Confluence REST client ─────────────────────────────────────────────────────
-
-_TOKEN_SKEW_SECONDS = 60
-# Spaces whose name/key hint at engineering docs are pre-selected for the admin.
-# Substring match on "<name> <key>" (lowercased). Over-selection is harmless —
-# the admin unchecks and the LLM filters page content later — so we lean broad,
-# avoiding only fragments that live inside common non-eng words
-# (e.g. "git" in "digital", "swe" in "answered").
-_SPACE_KEYWORDS = (
-    # core engineering
-    "eng",
-    "engineering",
-    "software",
-    "developer",
-    "development",
-    "dev",
-    "tech",
-    "technology",
-    "technical",
-    "coding",
-    "code",
-    "programming",
-    # platform / infra / ops
-    "platform",
-    "infra",
-    "infrastructure",
-    "sre",
-    "devops",
-    "devsecops",
-    "operations",
-    "cloud",
-    "kubernetes",
-    "docker",
-    "network",
-    "networking",
-    "systems",
-    "system",
-    # backend / frontend / services
-    "backend",
-    "frontend",
-    "fullstack",
-    "full-stack",
-    "server",
-    "api",
-    "microservice",
-    "services",
-    # data / ml
-    "data",
-    "database",
-    "analytics",
-    "machine learning",
-    "data science",
-    "datascience",
-    # quality / testing
-    "qa",
-    "quality",
-    "sdet",
-    "test",
-    "testing",
-    "automation",
-    # security
-    "security",
-    "appsec",
-    "infosec",
-    "cybersecurity",
-    # mobile
-    "mobile",
-    "android",
-    "ios",
-    # docs / onboarding / knowledge
-    "onboard",
-    "onboarding",
-    "getting started",
-    "wiki",
-    "docs",
-    "documentation",
-    "handbook",
-    "playbook",
-    "runbook",
-    "guide",
-    "knowledge",
-    # architecture / design
-    "architecture",
-    "design",
-    "system design",
-    "rfc",
-    "adr",
-    "hld",
-    "lld",
-    "blueprint",
-    # product / delivery
-    "product",
-    "delivery",
-    "release",
-    # repos / source
-    "repo",
-    "repository",
-    "github",
-    "gitlab",
-    "monorepo",
-    # eng org units
-    "squad",
-    "guild",
-    "tribe",
-)
 
 def _api_root(cloud_id: str) -> str:
     return f"https://api.atlassian.com/ex/confluence/{cloud_id}"
@@ -402,21 +307,18 @@ def _get_valid_token(conn: ConfluenceConnection) -> str:
     return _refresh_access_token(conn)
 
 def _fetch_spaces(cloud_id: str, token: str) -> list:
-    """List all spaces in the connected site. The v1 /space collection endpoint
-    is retired, so we use search (cql=type=space), which works with the classic
-    search:confluence scope. Follows pagination links."""
+    """List all spaces via search (cql=type=space). Personal (~) spaces skipped."""
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     query = urlencode({"cql": "type=space", "limit": 250})
     url = f"{_api_root(cloud_id)}/wiki/rest/api/search?{query}"
     results: list = []
-    for _ in range(20):  # safety cap on pages
+    for _ in range(50):  # safety cap on pages
         resp = httpx.get(url, headers=headers, timeout=_HTTP_TIMEOUT)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail="Failed to list Confluence spaces.")
         data = resp.json()
         for item in data.get("results", []):
             space = item.get("space")
-            # Skip personal spaces (keys start with "~") — never onboarding docs.
             if space and not str(space.get("key", "")).startswith("~"):
                 results.append(space)
         nxt = (data.get("_links") or {}).get("next")
@@ -425,78 +327,37 @@ def _fetch_spaces(cloud_id: str, token: str) -> list:
         url = f"{_api_root(cloud_id)}/wiki{nxt}"
     return results
 
-def _is_suggested_space(name: str, key: str) -> bool:
-    blob = f"{name} {key}".lower()
-    return any(keyword in blob for keyword in _SPACE_KEYWORDS)
-
-def list_spaces(user) -> dict:
-    """List the company's Confluence spaces, pre-selecting likely eng/onboarding ones."""
-    company = get_or_create_company_for_user(user)
-    conn = _get_connection(company.id)
-    if conn is None or conn.status != "ready" or not conn.access_token:
-        raise HTTPException(status_code=409, detail="Confluence is not connected for your company.")
-    token = _get_valid_token(conn)
-    raw = _fetch_spaces(conn.cloud_id, token)
-    spaces = [
-        {
-            "key": s.get("key"),
-            "name": s.get("name"),
-            "id": str(s.get("id")) if s.get("id") is not None else None,
-            "suggested": _is_suggested_space(s.get("name", "") or "", s.get("key", "") or ""),
-        }
-        for s in raw
-    ]
-    return {"spaces": spaces}
-
-# ── ingestion funnel ───────────────────────────────────────────────────────────
-
-_CONTENT_EXCERPT_CHARS = 4000
-_PAGE_SEARCH_LIMIT = 100
-# Title/label hints used by the cheap pre-LLM filter.
-_DOC_KEYWORDS = (
-    "onboard",
-    "architecture",
-    "setup",
-    "getting started",
-    "guide",
-    "overview",
-    "service",
-    "platform",
-    "deployment",
-    "runbook",
-    "design",
-    "infra",
-    "api",
-    "repo",
-    "developer",
-    "engineering",
-    "workflow",
-    "process",
-)
-
 _TAG_RE = re.compile(r"<[^>]+>")
 
 def _strip_html(html: str) -> str:
     text = _TAG_RE.sub(" ", html or "")
     return re.sub(r"\s+", " ", text).strip()
 
-def _require_ready_connection(company_id: int) -> ConfluenceConnection:
-    conn = _get_connection(company_id)
-    if conn is None or conn.status != "ready" or not conn.access_token:
-        raise HTTPException(status_code=409, detail="Confluence is not connected for your company.")
-    return conn
-
 def _search_pages(cloud_id: str, token: str, space_key: str) -> list:
-    """List pages in a space via CQL search, expanding body/version/labels so
-    classification needs no extra per-page call. Cheap: one page of up to 100."""
+    """List pages in a space via CQL search, expanding body/version/space so we
+    get full page text in one call. Follows pagination."""
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     cql = f'space="{space_key}" and type=page'
     query = urlencode(
-        {
-            "cql": cql,
-            "limit": _PAGE_SEARCH_LIMIT,
-            "expand": "body.storage,version,metadata.labels,space",
-        }
+        {"cql": cql, "limit": _PAGE_SEARCH_LIMIT, "expand": "body.storage,version,space"}
     )
+    url = f"{_api_root(cloud_id)}/wiki/rest/api/content/search?{query}"
+    results: list = []
+    for _ in range(200):  # safety cap
+        resp = httpx.get(url, headers=headers, timeout=_HTTP_TIMEOUT)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to search Confluence pages.")
+        data = resp.json()
+        results.extend(data.get("results", []))
+        nxt = (data.get("_links") or {}).get("next")
+        if not nxt:
+            break
+        url = f"{_api_root(cloud_id)}/wiki{nxt}"
+    return results
+
+def _fetch_single_page(cloud_id: str, token: str, page_id: str) -> Optional[dict]:
+    """Fetch one page (with body/version/space) via search, or None."""
+    query = urlencode({"cql": f"id={page_id}", "expand": "body.storage,version,space", "limit": 1})
     url = f"{_api_root(cloud_id)}/wiki/rest/api/content/search?{query}"
     resp = httpx.get(
         url,
@@ -504,59 +365,93 @@ def _search_pages(cloud_id: str, token: str, space_key: str) -> list:
         timeout=_HTTP_TIMEOUT,
     )
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to search Confluence pages.")
-    return resp.json().get("results", [])
-
-def _page_labels(page: dict) -> List[str]:
-    labels = (((page.get("metadata") or {}).get("labels") or {}).get("results")) or []
-    return [lbl.get("name", "") for lbl in labels]
-
-def _keyword_match_pages(pages: list) -> list:
-    """Pages whose title/labels hint at engineering docs (strict, no fallback)."""
-    matched = []
-    for page in pages:
-        blob = (page.get("title", "") + " " + " ".join(_page_labels(page))).lower()
-        if any(keyword in blob for keyword in _DOC_KEYWORDS):
-            matched.append(page)
-    return matched
-
-def _cheap_shortlist(pages: list) -> list:
-    """Keep keyword-matching pages. If none match (e.g. a deliberately-picked
-    space with terse titles), keep all rather than dropping the whole space."""
-    matched = _keyword_match_pages(pages)
-    return matched if matched else list(pages)
-
-def _excerpt_from_page(page: dict):
-    """Extract (version, text-excerpt) from a content-search result that was
-    expanded with body.storage and version."""
-    version = (page.get("version") or {}).get("number")
-    body = (((page.get("body") or {}).get("storage") or {}).get("value")) or ""
-    return version, _strip_html(body)[:_CONTENT_EXCERPT_CHARS]
-
-def _fetch_page_excerpt(cloud_id: str, token: str, page_id: str):
-    """Return (version, text-excerpt) for a single page, or (None, '') if
-    unreadable. The v1 /content/{id} endpoint is retired, so we fetch via
-    search (cql=id=...) which works with the classic search scope."""
-    query = urlencode({"cql": f"id={page_id}", "expand": "body.storage,version", "limit": 1})
-    url = f"{_api_root(cloud_id)}/wiki/rest/api/content/search?{query}"
-    resp = httpx.get(
-        url,
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        timeout=_HTTP_TIMEOUT,
-    )
-    if resp.status_code != 200:
-        return None, ""
+        return None
     results = resp.json().get("results", [])
-    if not results:
-        return None, ""
-    return _excerpt_from_page(results[0])
+    return results[0] if results else None
 
-def _existing_page_ids(company_id: int) -> set:
+def _page_fields(page: dict):
+    """Extract (page_id, version, space_key, title, full_text) from a search result."""
+    page_id = str(page.get("id"))
+    version = (page.get("version") or {}).get("number")
+    space = page.get("space")
+    space_key = space.get("key") if isinstance(space, dict) else None
+    title = (page.get("title") or "Untitled")[:512]
+    body = (((page.get("body") or {}).get("storage") or {}).get("value")) or ""
+    return page_id, version, space_key, title, _strip_html(body)
+
+# ── knowledge base persistence ─────────────────────────────────────────────────
+
+def _page_chunk_count(page_db_id: int) -> int:
     with Session(engine) as session:
-        rows = session.exec(
-            select(OnboardingDoc.confluence_page_id).where(OnboardingDoc.company_id == company_id)
-        ).all()
-        return set(rows)
+        return int(
+            session.exec(
+                select(func.count(DocumentChunk.id)).where(DocumentChunk.page_id == page_db_id)
+            ).one()
+        )
+
+def _upsert_page(company_id: int, page: dict):
+    """Insert/update a document_pages row. Returns (page_db_id, changed, text)."""
+    page_id, version, space_key, title, text = _page_fields(page)
+    with Session(engine) as session:
+        row = session.exec(
+            select(DocumentPage)
+            .where(DocumentPage.company_id == company_id)
+            .where(DocumentPage.confluence_page_id == page_id)
+        ).first()
+        changed = False
+        if row is None:
+            row = DocumentPage(company_id=company_id, confluence_page_id=page_id)
+            changed = True
+        elif row.version != version or not row.is_active:
+            changed = True
+        row.version = version
+        row.space_key = space_key
+        row.title = title
+        row.content_text = text
+        row.is_active = True
+        row.last_synced_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row.id, changed, text
+
+def _delete_chunks(page_db_id: int) -> None:
+    with Session(engine) as session:
+        for chunk in session.exec(
+            select(DocumentChunk).where(DocumentChunk.page_id == page_db_id)
+        ).all():
+            session.delete(chunk)
+        session.commit()
+
+def _store_chunks(
+    company_id: int, page_db_id: int, chunks: List[str], vectors: List[List[float]]
+) -> None:
+    with Session(engine) as session:
+        for i, (content, vector) in enumerate(zip(chunks, vectors)):
+            session.add(
+                DocumentChunk(
+                    company_id=company_id,
+                    page_id=page_db_id,
+                    chunk_index=i,
+                    content=content,
+                    embedding=vector,
+                    token_count=estimate_tokens(content),
+                )
+            )
+        session.commit()
+
+def _embed_page(company_id: int, page_db_id: int, text: str) -> int:
+    """Chunk, embed, and (re)store a page's chunks. Returns chunk count."""
+    chunks = chunk_text(text)
+    if not chunks:
+        _delete_chunks(page_db_id)
+        return 0
+    vectors = embedding_service.embed_texts(chunks)
+    _delete_chunks(page_db_id)
+    _store_chunks(company_id, page_db_id, chunks, vectors)
+    return len(chunks)
+
+# ── ingestion job ────────────────────────────────────────────────────────────
 
 def _create_job(company_id: int) -> int:
     with Session(engine) as session:
@@ -569,8 +464,10 @@ def _create_job(company_id: int) -> int:
 def _update_job(
     job_id: int,
     *,
-    total: Optional[int] = None,
-    processed: Optional[int] = None,
+    total_pages: Optional[int] = None,
+    processed_pages: Optional[int] = None,
+    total_chunks: Optional[int] = None,
+    embedded_chunks: Optional[int] = None,
     status: Optional[str] = None,
     error: Optional[str] = None,
     completed: bool = False,
@@ -579,10 +476,14 @@ def _update_job(
         job = session.get(IngestionJob, job_id)
         if job is None:
             return
-        if total is not None:
-            job.total_pages = total
-        if processed is not None:
-            job.processed_pages = processed
+        if total_pages is not None:
+            job.total_pages = total_pages
+        if processed_pages is not None:
+            job.processed_pages = processed_pages
+        if total_chunks is not None:
+            job.total_chunks = total_chunks
+        if embedded_chunks is not None:
+            job.embedded_chunks = embedded_chunks
         if status is not None:
             job.status = status
         if error is not None:
@@ -592,100 +493,56 @@ def _update_job(
         session.add(job)
         session.commit()
 
-def _store_candidate(
-    company_id: int, page_id: str, page: dict, version, excerpt: str, classification: dict
-) -> None:
-    with Session(engine) as session:
-        doc = OnboardingDoc(
-            company_id=company_id,
-            confluence_page_id=page_id,
-            confluence_version=version,
-            space_key=(
-                (page.get("space") or {}).get("key")
-                if isinstance(page.get("space"), dict)
-                else page.get("spaceKey")
-            ),
-            title=page.get("title", "") or "Untitled",
-            content_markdown=excerpt or None,
-            role_tags=json.dumps(classification.get("role_tags") or []),
-            confidence=classification.get("confidence"),
-            approved=False,
-            is_active=True,
-            last_synced_at=datetime.now(timezone.utc),
-        )
-        session.add(doc)
-        session.commit()
-
-def _add_connected_spaces(company_id: int, space_keys: List[str]) -> None:
-    """Remember which spaces a company has ingested (union), so the reconciler
-    and gap detector know what's in scope."""
-    with Session(engine) as session:
-        conn = session.exec(
-            select(ConfluenceConnection).where(ConfluenceConnection.company_id == company_id)
-        ).first()
-        if conn is None:
-            return
-        existing = json.loads(conn.space_keys) if conn.space_keys else []
-        conn.space_keys = json.dumps(sorted(set(existing) | set(space_keys)))
-        session.add(conn)
-        session.commit()
-
-def begin_ingest(
-    user, space_keys: List[str], provider: str, api_key: str, model: Optional[str], background_tasks
-) -> dict:
-    """Validate, create a job row, and schedule the ingestion to run in the
-    background. Returns immediately so the UI can poll get_ingest_status."""
-    if not space_keys:
-        raise HTTPException(status_code=400, detail="Select at least one space to ingest.")
+def begin_ingest(user, background_tasks) -> dict:
+    """Validate, create a job, and schedule a full ingest in the background."""
     company = get_or_create_company_for_user(user)
-    _require_ready_connection(company.id)  # raises 409 if not connected
-    _add_connected_spaces(company.id, space_keys)
+    _require_ready_connection(company.id)
+    if not config.is_embeddings_configured():
+        raise HTTPException(status_code=503, detail="Embeddings are not configured on this server.")
     job_id = _create_job(company.id)
-    background_tasks.add_task(_run_ingest, company.id, space_keys, provider, api_key, model, job_id)
+    background_tasks.add_task(_run_ingest, company.id, job_id)
     return {"job_id": job_id, "status": "running"}
 
-def _run_ingest(
-    company_id: int,
-    space_keys: List[str],
-    provider: str,
-    api_key: str,
-    model: Optional[str],
-    job_id: int,
-) -> None:
-    """Background worker: search → cheap filter → classify → store candidates.
-    Add-only (pages already stored are skipped). Updates the job as it goes;
-    exceptions are recorded on the job rather than raised (background context)."""
+def _run_ingest(company_id: int, job_id: int) -> None:
+    """Background worker: fetch every page → upsert → chunk → embed. Resumable:
+    a page is (re)embedded when new, changed, or missing chunks. Failures are
+    recorded on the job rather than raised (background context)."""
     try:
         conn = _get_connection(company_id)
         if conn is None or not conn.access_token:
             raise HTTPException(status_code=409, detail="Confluence is not connected.")
         token = _get_valid_token(conn)
 
-        pages: list = []
-        for space_key in space_keys:
-            pages.extend(_search_pages(conn.cloud_id, token, space_key))
-        shortlist = _cheap_shortlist(pages)
-        _update_job(job_id, total=len(shortlist), processed=0)
+        raw_pages: list = []
+        for space in _fetch_spaces(conn.cloud_id, token):
+            key = space.get("key")
+            if key:
+                raw_pages.extend(_search_pages(conn.cloud_id, token, key))
+        _update_job(job_id, total_pages=len(raw_pages), processed_pages=0)
 
-        existing = _existing_page_ids(company_id)
+        to_embed: list = []  # (page_db_id, text)
         processed = 0
-        for page in shortlist:
-            page_id = str(page.get("id"))
+        for page in raw_pages:
+            page_db_id, changed, text = _upsert_page(company_id, page)
+            if text and (changed or _page_chunk_count(page_db_id) == 0):
+                to_embed.append((page_db_id, text))
             processed += 1
-            if page_id not in existing:
-                version, excerpt = _excerpt_from_page(page)
-                result = llm_service.classify_onboarding_doc(
-                    title=page.get("title", "") or "",
-                    content_excerpt=excerpt,
-                    provider=provider,
-                    api_key=api_key,
-                    model=model,
-                )
-                if result and result.get("is_relevant"):
-                    _store_candidate(company_id, page_id, page, version, excerpt, result)
-            _update_job(job_id, processed=processed)
+            _update_job(job_id, processed_pages=processed)
+
+        planned = [(pid, chunk_text(text)) for pid, text in to_embed]
+        planned = [(pid, chunks) for pid, chunks in planned if chunks]
+        _update_job(job_id, total_chunks=sum(len(c) for _, c in planned), embedded_chunks=0)
+
+        embedded = 0
+        for page_db_id, chunks in planned:
+            vectors = embedding_service.embed_texts(chunks)
+            _delete_chunks(page_db_id)
+            _store_chunks(company_id, page_db_id, chunks, vectors)
+            embedded += len(chunks)
+            _update_job(job_id, embedded_chunks=embedded)
+
         _update_job(job_id, status="done", completed=True)
-    except Exception as exc:  # background task — record failure, never propagate
+    except Exception as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
         logger.exception("Ingestion job %s failed", job_id)
         _update_job(job_id, status="failed", error=str(detail), completed=True)
@@ -702,50 +559,10 @@ def get_ingest_status(user, job_id: int) -> dict:
             "status": job.status,
             "total_pages": job.total_pages,
             "processed_pages": job.processed_pages,
+            "total_chunks": job.total_chunks,
+            "embedded_chunks": job.embedded_chunks,
             "error": job.error,
         }
-
-def _candidate_dump(doc: OnboardingDoc) -> dict:
-    return {
-        "id": doc.id,
-        "page_id": doc.confluence_page_id,
-        "title": doc.title,
-        "space_key": doc.space_key,
-        "role_tags": json.loads(doc.role_tags) if doc.role_tags else [],
-        "confidence": doc.confidence,
-    }
-
-def get_candidates(user) -> dict:
-    """Return the pending (unapproved) ingested docs for review."""
-    company = get_or_create_company_for_user(user)
-    with Session(engine) as session:
-        docs = session.exec(
-            select(OnboardingDoc)
-            .where(OnboardingDoc.company_id == company.id)
-            .where(OnboardingDoc.approved == False)  # noqa: E712
-            .where(OnboardingDoc.is_active == True)  # noqa: E712
-            .order_by(OnboardingDoc.confidence.desc())
-        ).all()
-        return {"candidates": [_candidate_dump(d) for d in docs]}
-
-def confirm_candidates(user, page_ids: List[str]) -> dict:
-    """Approve the selected candidate pages. Add-only: this never deletes docs,
-    so a careless selection can't wipe the company's onboarding set."""
-    if not page_ids:
-        raise HTTPException(status_code=400, detail="Select at least one document to confirm.")
-    company = get_or_create_company_for_user(user)
-    with Session(engine) as session:
-        docs = session.exec(
-            select(OnboardingDoc)
-            .where(OnboardingDoc.company_id == company.id)
-            .where(OnboardingDoc.confluence_page_id.in_(page_ids))
-            .where(OnboardingDoc.approved == False)  # noqa: E712
-        ).all()
-        for doc in docs:
-            doc.approved = True
-            session.add(doc)
-        session.commit()
-        return {"approved": len(docs)}
 
 # ── webhooks (freshness) ────────────────────────────────────────────────────────
 
@@ -756,10 +573,10 @@ def verify_webhook_secret(provided: Optional[str]) -> None:
     if not provided or provided != expected:
         raise HTTPException(status_code=401, detail="Invalid webhook secret.")
 
-def _docs_by_page_id(page_id: str) -> list:
+def _pages_by_page_id(page_id: str) -> list:
     with Session(engine) as session:
         return session.exec(
-            select(OnboardingDoc).where(OnboardingDoc.confluence_page_id == page_id)
+            select(DocumentPage).where(DocumentPage.confluence_page_id == page_id)
         ).all()
 
 def _connection_by_cloud_id(cloud_id: str) -> Optional[ConfluenceConnection]:
@@ -768,95 +585,59 @@ def _connection_by_cloud_id(cloud_id: str) -> Optional[ConfluenceConnection]:
             select(ConfluenceConnection).where(ConfluenceConnection.cloud_id == cloud_id)
         ).first()
 
-def _update_doc_content(doc_id: int, version, excerpt: str) -> None:
+def _deactivate_pages(page_id: str) -> int:
     with Session(engine) as session:
-        doc = session.get(OnboardingDoc, doc_id)
-        if doc is None:
-            return
-        if version is not None:
-            doc.confluence_version = version
-        if excerpt:
-            doc.content_markdown = excerpt
-        doc.is_active = True
-        doc.last_synced_at = datetime.now(timezone.utc)
-        session.add(doc)
-        session.commit()
-
-def _deactivate_docs(page_id: str) -> int:
-    with Session(engine) as session:
-        docs = session.exec(
-            select(OnboardingDoc).where(OnboardingDoc.confluence_page_id == page_id)
+        pages = session.exec(
+            select(DocumentPage).where(DocumentPage.confluence_page_id == page_id)
         ).all()
-        for doc in docs:
-            doc.is_active = False
-            session.add(doc)
+        for page in pages:
+            page.is_active = False
+            session.add(page)
         session.commit()
-        return len(docs)
+        return len(pages)
 
-def _admin_llm_creds(user_id: Optional[int]):
-    """Return (provider, api_key, model) for the user who connected, or None."""
-    if not user_id:
-        return None
-    user = get_user_by_id(user_id)
-    if user is None:
-        return None
-    try:
-        return (
-            get_user_provider_name(user),
-            get_user_api_key(user),
-            get_user_model(user),
-        )
-    except Exception:
-        return None
+def _reindex_page(company_id: int, cloud_id: str, token: str, page_id: str) -> bool:
+    """Fetch one page, upsert it, and re-embed. Returns False if unreadable."""
+    page = _fetch_single_page(cloud_id, token, page_id)
+    if page is None:
+        return False
+    page_db_id, _changed, text = _upsert_page(company_id, page)
+    if text and config.is_embeddings_configured():
+        _embed_page(company_id, page_db_id, text)
+    return True
 
 def _handle_page_updated(page_id: str) -> dict:
-    docs = _docs_by_page_id(page_id)
-    if not docs:
+    pages = _pages_by_page_id(page_id)
+    if not pages:
         return {"status": "ignored"}
-    for doc in docs:
-        conn = _get_connection(doc.company_id)
+    for page in pages:
+        conn = _get_connection(page.company_id)
         if conn is not None and conn.access_token:
             token = _get_valid_token(conn)
-            version, excerpt = _fetch_page_excerpt(conn.cloud_id, token, page_id)
-            _update_doc_content(doc.id, version, excerpt)
+            _reindex_page(page.company_id, conn.cloud_id, token, page_id)
     return {"status": "updated"}
 
 def _handle_page_removed(page_id: str) -> dict:
-    count = _deactivate_docs(page_id)
+    count = _deactivate_pages(page_id)
     return {"status": "removed" if count else "ignored"}
 
 def _handle_page_created(payload: dict) -> dict:
-    page = payload.get("page") or {}
-    page_id = str(page.get("id")) if page.get("id") is not None else None
+    page_min = payload.get("page") or {}
+    page_id = str(page_min.get("id")) if page_min.get("id") is not None else None
     cloud_id = payload.get("cloudId") or payload.get("cloud_id")
     if not page_id or not cloud_id:
         return {"status": "ignored"}
     conn = _connection_by_cloud_id(cloud_id)
     if conn is None or not conn.access_token:
         return {"status": "ignored"}
-    if page_id in _existing_page_ids(conn.company_id):
-        return {"status": "exists"}
-    creds = _admin_llm_creds(conn.connected_by_user_id)
-    if creds is None:
-        return {"status": "skipped_no_creds"}
-    provider, api_key, model = creds
     token = _get_valid_token(conn)
-    version, excerpt = _fetch_page_excerpt(conn.cloud_id, token, page_id)
-    result = llm_service.classify_onboarding_doc(
-        title=page.get("title", "") or "",
-        content_excerpt=excerpt,
-        provider=provider,
-        api_key=api_key,
-        model=model,
-    )
-    if result and result.get("is_relevant"):
-        _store_candidate(conn.company_id, page_id, page, version, excerpt, result)
+    if _reindex_page(conn.company_id, conn.cloud_id, token, page_id):
         return {"status": "added"}
-    return {"status": "not_relevant"}
+    return {"status": "ignored"}
 
 def handle_webhook(payload: dict) -> dict:
-    """Dispatch a Confluence webhook. Updates/removals match by page id (globally
-    unique); creations resolve the company by cloud id then classify."""
+    """Dispatch a Confluence webhook. Update/remove match by page id (globally
+    unique); create resolves the company by cloud id."""
     event = (payload.get("event") or payload.get("webhookEvent") or "").lower()
     page = payload.get("page") or {}
     page_id = str(page.get("id")) if page.get("id") is not None else None
@@ -873,57 +654,37 @@ def handle_webhook(payload: dict) -> dict:
         return {"status": "ignored"}
     return {"status": "ignored"}
 
-# ── reconciliation & gap detection (correctness) ────────────────────────────────
+# ── reconciliation ─────────────────────────────────────────────────────────────
 
 def reconcile_company(company_id: int) -> dict:
-    """Re-list the connected spaces and sync activation state: deactivate docs
-    whose page has vanished upstream, reactivate ones that reappeared. The slow
-    path that catches anything missed webhooks dropped."""
+    """Re-list every space and sync page activation: deactivate pages that
+    vanished upstream, reactivate ones that reappeared. Catches missed webhooks."""
     conn = _get_connection(company_id)
     if conn is None or conn.status != "ready" or not conn.access_token:
         raise HTTPException(status_code=409, detail="Confluence is not connected for your company.")
-    spaces = json.loads(conn.space_keys) if conn.space_keys else []
-    if not spaces:
-        return {"deactivated": 0, "reactivated": 0}
     token = _get_valid_token(conn)
 
     live_ids: set = set()
-    for space_key in spaces:
-        for page in _search_pages(conn.cloud_id, token, space_key):
-            live_ids.add(str(page.get("id")))
+    for space in _fetch_spaces(conn.cloud_id, token):
+        key = space.get("key")
+        if key:
+            for page in _search_pages(conn.cloud_id, token, key):
+                live_ids.add(str(page.get("id")))
 
     deactivated = reactivated = 0
     with Session(engine) as session:
-        docs = session.exec(
-            select(OnboardingDoc).where(OnboardingDoc.company_id == company_id)
+        pages = session.exec(
+            select(DocumentPage).where(DocumentPage.company_id == company_id)
         ).all()
-        for doc in docs:
-            present = doc.confluence_page_id in live_ids
-            if not present and doc.is_active:
-                doc.is_active = False
-                session.add(doc)
+        for page in pages:
+            present = page.confluence_page_id in live_ids
+            if not present and page.is_active:
+                page.is_active = False
+                session.add(page)
                 deactivated += 1
-            elif present and not doc.is_active:
-                doc.is_active = True
-                session.add(doc)
+            elif present and not page.is_active:
+                page.is_active = True
+                session.add(page)
                 reactivated += 1
         session.commit()
     return {"deactivated": deactivated, "reactivated": reactivated}
-
-def detect_gaps(user) -> dict:
-    """Scan spaces the company hasn't connected and flag onboarding-looking pages
-    they may be missing."""
-    company = get_or_create_company_for_user(user)
-    conn = _require_ready_connection(company.id)
-    token = _get_valid_token(conn)
-    connected = set(json.loads(conn.space_keys) if conn.space_keys else [])
-
-    gaps = []
-    for space in _fetch_spaces(conn.cloud_id, token):
-        key = space.get("key")
-        if not key or key in connected:
-            continue
-        likely = _keyword_match_pages(_search_pages(conn.cloud_id, token, key))
-        if likely:
-            gaps.append({"space_key": key, "name": space.get("name"), "likely_docs": len(likely)})
-    return {"gaps": gaps, "total": sum(g["likely_docs"] for g in gaps)}

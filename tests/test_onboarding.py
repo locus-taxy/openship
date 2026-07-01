@@ -351,112 +351,37 @@ class TestGenerateOnboardingQuiz:
 
 # ── onboarding service ────────────────────────────────────────────────────────
 
-def _doc(page_id="p1", title="Doc", content="content", role_tags=None, confidence=0.5):
-    from models.onboarding_doc import OnboardingDoc
-
-    return OnboardingDoc(
-        id=1,
-        company_id=1,
-        confluence_page_id=page_id,
-        title=title,
-        content_markdown=content,
-        role_tags=json.dumps(role_tags) if role_tags is not None else None,
-        confidence=confidence,
-        approved=True,
-        is_active=True,
-    )
-
-class TestRoleTag:
-    def test_backend(self):
-        from services.onboarding import _role_tag
-
-        assert _role_tag("Backend Engineer") == "backend"
-
-    def test_devops_engineer_not_backend(self):
-        from services.onboarding import _role_tag
-
-        # "engineer" must not pull a DevOps role into backend
-        assert _role_tag("DevOps Engineer") == "devops"
-
-    def test_qa(self):
-        from services.onboarding import _role_tag
-
-        assert _role_tag("QA Analyst") == "qa"
-
-    def test_unknown_returns_none(self):
-        from services.onboarding import _role_tag
-
-        assert _role_tag("Data Scientist") is None
-
-class TestDocHasTag:
-    def test_direct_tag(self):
-        from services.onboarding import _doc_has_tag
-
-        assert _doc_has_tag(_doc(role_tags=["backend"]), "backend") is True
-
-    def test_general_matches_any(self):
-        from services.onboarding import _doc_has_tag
-
-        assert _doc_has_tag(_doc(role_tags=["general"]), "devops") is True
-
-    def test_no_tags(self):
-        from services.onboarding import _doc_has_tag
-
-        assert _doc_has_tag(_doc(role_tags=None), "backend") is False
-
 class TestLoadDocs:
-    def test_raises_when_no_docs(self):
-        patcher, session = _patch_session()
-        try:
-            session.exec.return_value.all.return_value = []
+    def test_raises_when_no_context(self):
+        with patch("services.onboarding.retrieval_service.retrieve_context", return_value=""):
             from services.onboarding import _load_docs
 
             with pytest.raises(HTTPException) as exc:
                 _load_docs(1, "Backend Engineer")
             assert exc.value.status_code == 404
-        finally:
-            patcher.stop()
 
-    def test_returns_concatenated(self):
-        patcher, session = _patch_session()
-        try:
-            session.exec.return_value.all.return_value = [
-                _doc(title="Arch", content="arch content", role_tags=["backend"])
-            ]
+    def test_returns_retrieved_context(self):
+        with patch(
+            "services.onboarding.retrieval_service.retrieve_context",
+            return_value="=== Arch ===\narch content",
+        ):
             from services.onboarding import _load_docs
 
-            result = _load_docs(1, "Backend Engineer")
-            assert "Arch" in result
+            result = _load_docs(1, "Backend Engineer", topic="Architecture")
             assert "arch content" in result
-        finally:
-            patcher.stop()
 
-    def test_role_filter_prefers_matching(self):
-        be = _doc(page_id="p1", title="BE", content="be", role_tags=["backend"])
-        sdet = _doc(page_id="p2", title="SDET", content="sdet", role_tags=["sdet"])
-        patcher, session = _patch_session()
-        try:
-            session.exec.return_value.all.return_value = [be, sdet]
+    def test_query_includes_role_and_topic(self):
+        captured = {}
+
+        def fake(company_id, query, k):
+            captured["query"] = query
+            return "ctx"
+
+        with patch("services.onboarding.retrieval_service.retrieve_context", side_effect=fake):
             from services.onboarding import _load_docs
 
-            result = _load_docs(1, "Backend Engineer")
-            assert "be" in result
-            assert "sdet" not in result
-        finally:
-            patcher.stop()
-
-    def test_falls_back_to_all_when_no_role_match(self):
-        d1 = _doc(page_id="p1", title="A", content="aaa", role_tags=["product"])
-        d2 = _doc(page_id="p2", title="B", content="bbb", role_tags=["product"])
-        patcher, session = _patch_session()
-        try:
-            session.exec.return_value.all.return_value = [d1, d2]
-            from services.onboarding import _load_docs
-
-            result = _load_docs(1, "Backend Engineer")
-            assert "aaa" in result and "bbb" in result
-        finally:
-            patcher.stop()
+            _load_docs(1, "DevOps Engineer", topic="Pulsar")
+        assert "DevOps Engineer" in captured["query"] and "Pulsar" in captured["query"]
 
 class TestOnboardingService:
     def test_generate_plan_success(self):
