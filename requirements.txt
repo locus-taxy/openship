@@ -21,3 +21,4 @@ openai
 mistralai>=1.0.0,<2.0.0
 cryptography
 pgvector>=0.3.0
+fastembed>=0.7.0

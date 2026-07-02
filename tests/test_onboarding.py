@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from models.onboarding_day import OnboardingDay
-from models.onboarding_plan import OnboardingPlan
-from models.onboarding_quiz_attempt import OnboardingQuizAttempt
-from prompts import onboarding as onboarding_prompts
-from services.llm import (
+from onboarding.models.onboarding_day import OnboardingDay
+from onboarding.models.onboarding_plan import OnboardingPlan
+from onboarding.models.onboarding_quiz_attempt import OnboardingQuizAttempt
+from onboarding.prompts import onboarding as onboarding_prompts
+from onboarding.services.generation import (
     OnboardingQuestion,
     StructuredOnboardingDayContent,
     generate_onboarding_day_content,
@@ -53,7 +53,7 @@ def _make_attempt(plan_id=1, user_id="1", score=80, correct=8, total=10):
         answers=json.dumps({"0": "a"}),
     )
 
-def _patch_session(target="services.onboarding.Session"):
+def _patch_session(target="onboarding.services.onboarding.Session"):
     patcher = patch(target)
     mock_cls = patcher.start()
     session_mock = MagicMock()
@@ -183,9 +183,9 @@ class TestGenerateOnboardingPlan:
         mock_response = MagicMock()
         mock_response.days = self._mock_days()
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client") as mock_build,
-            patch("services.llm._token_kwargs", return_value={}),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as mock_build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
         ):
             mock_build.return_value.chat.completions.create.return_value = mock_response
             result = generate_onboarding_plan("BE", "Locus", "docs", "openai", "k")
@@ -196,9 +196,9 @@ class TestGenerateOnboardingPlan:
         mock_response = MagicMock()
         mock_response.days = self._mock_days()[:5]
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client") as mock_build,
-            patch("services.llm._token_kwargs", return_value={}),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as mock_build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
         ):
             mock_build.return_value.chat.completions.create.return_value = mock_response
             result = generate_onboarding_plan("BE", "Locus", "docs", "openai", "k")
@@ -206,17 +206,20 @@ class TestGenerateOnboardingPlan:
 
     def test_returns_none_on_generic_exception(self):
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client", side_effect=Exception("boom")),
-            patch("services.llm._raise_if_provider_error"),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client", side_effect=Exception("boom")),
+            patch("onboarding.services.generation._raise_if_provider_error"),
         ):
             result = generate_onboarding_plan("BE", "Locus", "docs", "openai", "k")
         assert result is None
 
     def test_re_raises_http_exception(self):
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client", side_effect=HTTPException(status_code=401)),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch(
+                "onboarding.services.generation._build_client",
+                side_effect=HTTPException(status_code=401),
+            ),
         ):
             with pytest.raises(HTTPException):
                 generate_onboarding_plan("BE", "Locus", "docs", "openai", "k")
@@ -232,9 +235,9 @@ class TestGenerateOnboardingDayContent:
     def test_returns_content_on_success(self):
         response = self._make_response()
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client") as mock_build,
-            patch("services.llm._token_kwargs", return_value={}),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as mock_build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
         ):
             mock_build.return_value.chat.completions.create.return_value = response
             result = generate_onboarding_day_content(
@@ -246,9 +249,9 @@ class TestGenerateOnboardingDayContent:
         response = MagicMock(spec=StructuredOnboardingDayContent)
         response.blocks = []
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client") as mock_build,
-            patch("services.llm._token_kwargs", return_value={}),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as mock_build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
         ):
             mock_build.return_value.chat.completions.create.return_value = response
             result = generate_onboarding_day_content(
@@ -259,9 +262,9 @@ class TestGenerateOnboardingDayContent:
     def test_uses_gemini_max_tokens(self):
         response = self._make_response()
         with (
-            patch("services.llm._require_settings", return_value=("gemini", "k")),
-            patch("services.llm._build_client") as mock_build,
-            patch("services.llm._token_kwargs", return_value={}) as mock_tok,
+            patch("onboarding.services.generation._require_settings", return_value=("gemini", "k")),
+            patch("onboarding.services.generation._build_client") as mock_build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}) as mock_tok,
         ):
             mock_build.return_value.chat.completions.create.return_value = response
             generate_onboarding_day_content("BE", "Locus", 2, "T", "T", "d", "gemini", "k")
@@ -270,9 +273,9 @@ class TestGenerateOnboardingDayContent:
     def test_uses_openai_max_tokens(self):
         response = self._make_response()
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client") as mock_build,
-            patch("services.llm._token_kwargs", return_value={}) as mock_tok,
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as mock_build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}) as mock_tok,
         ):
             mock_build.return_value.chat.completions.create.return_value = response
             generate_onboarding_day_content("BE", "Locus", 2, "T", "T", "d", "openai", "k")
@@ -280,17 +283,20 @@ class TestGenerateOnboardingDayContent:
 
     def test_returns_none_on_generic_exception(self):
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client", side_effect=Exception("boom")),
-            patch("services.llm._raise_if_provider_error"),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client", side_effect=Exception("boom")),
+            patch("onboarding.services.generation._raise_if_provider_error"),
         ):
             result = generate_onboarding_day_content("BE", "Locus", 1, "T", "T", "d", "openai", "k")
         assert result is None
 
     def test_re_raises_http_exception(self):
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client", side_effect=HTTPException(status_code=403)),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch(
+                "onboarding.services.generation._build_client",
+                side_effect=HTTPException(status_code=403),
+            ),
         ):
             with pytest.raises(HTTPException):
                 generate_onboarding_day_content("BE", "Locus", 1, "T", "T", "d", "openai", "k")
@@ -305,9 +311,9 @@ class TestGenerateOnboardingQuiz:
         response = MagicMock()
         response.questions = [self._make_question() for _ in range(10)]
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client") as mock_build,
-            patch("services.llm._token_kwargs", return_value={}),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as mock_build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
         ):
             mock_build.return_value.chat.completions.create.return_value = response
             result = generate_onboarding_quiz(
@@ -320,9 +326,9 @@ class TestGenerateOnboardingQuiz:
         response = MagicMock()
         response.questions = []
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client") as mock_build,
-            patch("services.llm._token_kwargs", return_value={}),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as mock_build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
         ):
             mock_build.return_value.chat.completions.create.return_value = response
             result = generate_onboarding_quiz(
@@ -332,9 +338,9 @@ class TestGenerateOnboardingQuiz:
 
     def test_returns_none_on_generic_exception(self):
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client", side_effect=Exception("boom")),
-            patch("services.llm._raise_if_provider_error"),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client", side_effect=Exception("boom")),
+            patch("onboarding.services.generation._raise_if_provider_error"),
         ):
             result = generate_onboarding_quiz(
                 "BE", "Locus", [], "docs", provider="openai", api_key="k"
@@ -343,8 +349,11 @@ class TestGenerateOnboardingQuiz:
 
     def test_re_raises_http_exception(self):
         with (
-            patch("services.llm._require_settings", return_value=("openai", "k")),
-            patch("services.llm._build_client", side_effect=HTTPException(status_code=401)),
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch(
+                "onboarding.services.generation._build_client",
+                side_effect=HTTPException(status_code=401),
+            ),
         ):
             with pytest.raises(HTTPException):
                 generate_onboarding_quiz("BE", "Locus", [], "docs", provider="openai", api_key="k")
@@ -353,8 +362,10 @@ class TestGenerateOnboardingQuiz:
 
 class TestLoadDocs:
     def test_raises_when_no_context(self):
-        with patch("services.onboarding.retrieval_service.retrieve_context", return_value=""):
-            from services.onboarding import _load_docs
+        with patch(
+            "onboarding.services.onboarding.retrieval_service.retrieve_context", return_value=""
+        ):
+            from onboarding.services.onboarding import _load_docs
 
             with pytest.raises(HTTPException) as exc:
                 _load_docs(1, "Backend Engineer")
@@ -362,10 +373,10 @@ class TestLoadDocs:
 
     def test_returns_retrieved_context(self):
         with patch(
-            "services.onboarding.retrieval_service.retrieve_context",
+            "onboarding.services.onboarding.retrieval_service.retrieve_context",
             return_value="=== Arch ===\narch content",
         ):
-            from services.onboarding import _load_docs
+            from onboarding.services.onboarding import _load_docs
 
             result = _load_docs(1, "Backend Engineer", topic="Architecture")
             assert "arch content" in result
@@ -377,8 +388,10 @@ class TestLoadDocs:
             captured["query"] = query
             return "ctx"
 
-        with patch("services.onboarding.retrieval_service.retrieve_context", side_effect=fake):
-            from services.onboarding import _load_docs
+        with patch(
+            "onboarding.services.onboarding.retrieval_service.retrieve_context", side_effect=fake
+        ):
+            from onboarding.services.onboarding import _load_docs
 
             _load_docs(1, "DevOps Engineer", topic="Pulsar")
         assert "DevOps Engineer" in captured["query"] and "Pulsar" in captured["query"]
@@ -393,13 +406,13 @@ class TestOnboardingService:
             session.get.return_value = plan
             session.exec.return_value.all.return_value = [day_obj] * 7
             with (
-                patch("services.onboarding._load_docs", return_value="docs"),
+                patch("onboarding.services.onboarding._load_docs", return_value="docs"),
                 patch(
-                    "services.onboarding.llm_service.generate_onboarding_plan",
+                    "onboarding.services.onboarding.llm_service.generate_onboarding_plan",
                     return_value=days_data,
                 ),
             ):
-                from services.onboarding import generate_plan
+                from onboarding.services.onboarding import generate_plan
 
                 result = generate_plan(
                     "1", "Backend Engineer", "Locus", "openai", "k", None, company_id=1
@@ -413,12 +426,13 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             with (
-                patch("services.onboarding._load_docs", return_value="docs"),
+                patch("onboarding.services.onboarding._load_docs", return_value="docs"),
                 patch(
-                    "services.onboarding.llm_service.generate_onboarding_plan", return_value=None
+                    "onboarding.services.onboarding.llm_service.generate_onboarding_plan",
+                    return_value=None,
                 ),
             ):
-                from services.onboarding import generate_plan
+                from onboarding.services.onboarding import generate_plan
 
                 with pytest.raises(HTTPException) as exc:
                     generate_plan(
@@ -435,7 +449,7 @@ class TestOnboardingService:
         try:
             session.get.return_value = plan
             session.exec.return_value.all.return_value = days
-            from services.onboarding import get_plan
+            from onboarding.services.onboarding import get_plan
 
             result = get_plan(1, "1")
             assert result["plan"]["id"] == 1
@@ -447,7 +461,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = None
-            from services.onboarding import get_plan
+            from onboarding.services.onboarding import get_plan
 
             with pytest.raises(HTTPException) as exc:
                 get_plan(99, "1")
@@ -460,7 +474,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = plan
-            from services.onboarding import get_plan
+            from onboarding.services.onboarding import get_plan
 
             with pytest.raises(HTTPException) as exc:
                 get_plan(1, "1")
@@ -472,7 +486,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = None
-            from services.onboarding import get_day_content
+            from onboarding.services.onboarding import get_day_content
 
             with pytest.raises(HTTPException) as exc:
                 get_day_content(99, 1, "1", "openai", "k", None, company_id=1)
@@ -487,7 +501,7 @@ class TestOnboardingService:
         try:
             session.get.return_value = plan
             session.exec.return_value.first.return_value = day
-            from services.onboarding import get_day_content
+            from onboarding.services.onboarding import get_day_content
 
             result = get_day_content(1, 1, "1", "openai", "k", None, company_id=1)
             assert "day" in result
@@ -506,13 +520,13 @@ class TestOnboardingService:
             session.get.return_value = plan
             session.exec.return_value.first.return_value = day
             with (
-                patch("services.onboarding._load_docs", return_value="docs"),
+                patch("onboarding.services.onboarding._load_docs", return_value="docs"),
                 patch(
-                    "services.onboarding.llm_service.generate_onboarding_day_content",
+                    "onboarding.services.onboarding.llm_service.generate_onboarding_day_content",
                     return_value=content_mock,
                 ),
             ):
-                from services.onboarding import get_day_content
+                from onboarding.services.onboarding import get_day_content
 
                 result = get_day_content(1, 1, "1", "openai", "k", None, company_id=1)
             assert "day" in result
@@ -527,13 +541,13 @@ class TestOnboardingService:
             session.get.return_value = plan
             session.exec.return_value.first.return_value = day
             with (
-                patch("services.onboarding._load_docs", return_value="docs"),
+                patch("onboarding.services.onboarding._load_docs", return_value="docs"),
                 patch(
-                    "services.onboarding.llm_service.generate_onboarding_day_content",
+                    "onboarding.services.onboarding.llm_service.generate_onboarding_day_content",
                     return_value=None,
                 ),
             ):
-                from services.onboarding import get_day_content
+                from onboarding.services.onboarding import get_day_content
 
                 with pytest.raises(HTTPException) as exc:
                     get_day_content(1, 1, "1", "openai", "k", None, company_id=1)
@@ -547,7 +561,7 @@ class TestOnboardingService:
         try:
             session.get.return_value = plan
             session.exec.return_value.first.return_value = None
-            from services.onboarding import get_day_content
+            from onboarding.services.onboarding import get_day_content
 
             with pytest.raises(HTTPException) as exc:
                 get_day_content(1, 99, "1", "openai", "k", None, company_id=1)
@@ -561,7 +575,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.exec.return_value.all.side_effect = [[plan], days]
-            from services.onboarding import list_plans
+            from onboarding.services.onboarding import list_plans
 
             result = list_plans("1")
             assert isinstance(result, list)
@@ -573,7 +587,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = plan
-            from services.onboarding import toggle_share
+            from onboarding.services.onboarding import toggle_share
 
             result = toggle_share(1, "1", True)
             assert result["share_enabled"] is True
@@ -584,7 +598,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = None
-            from services.onboarding import toggle_share
+            from onboarding.services.onboarding import toggle_share
 
             with pytest.raises(HTTPException) as exc:
                 toggle_share(99, "1", True)
@@ -600,7 +614,7 @@ class TestOnboardingService:
         try:
             session.get.return_value = plan
             session.exec.return_value.all.return_value = days
-            from services.onboarding import get_public_plan
+            from onboarding.services.onboarding import get_public_plan
 
             result = get_public_plan(1)
             assert "plan" in result
@@ -612,7 +626,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = plan
-            from services.onboarding import get_public_plan
+            from onboarding.services.onboarding import get_public_plan
 
             with pytest.raises(HTTPException) as exc:
                 get_public_plan(1)
@@ -627,7 +641,7 @@ class TestOnboardingService:
         try:
             session.get.return_value = plan
             session.exec.return_value.first.return_value = day
-            from services.onboarding import complete_day
+            from onboarding.services.onboarding import complete_day
 
             result = complete_day(1, 1, "1")
             assert result["day"]["completed"] is True
@@ -638,7 +652,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = None
-            from services.onboarding import complete_day
+            from onboarding.services.onboarding import complete_day
 
             with pytest.raises(HTTPException) as exc:
                 complete_day(99, 1, "1")
@@ -652,7 +666,7 @@ class TestOnboardingService:
         try:
             session.get.return_value = plan
             session.exec.return_value.first.return_value = None
-            from services.onboarding import complete_day
+            from onboarding.services.onboarding import complete_day
 
             with pytest.raises(HTTPException) as exc:
                 complete_day(1, 99, "1")
@@ -665,7 +679,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = plan
-            from services.onboarding import delete_plan
+            from onboarding.services.onboarding import delete_plan
 
             result = delete_plan(1, "1")
             assert result["deleted"] is True
@@ -676,7 +690,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = None
-            from services.onboarding import delete_plan
+            from onboarding.services.onboarding import delete_plan
 
             with pytest.raises(HTTPException) as exc:
                 delete_plan(99, "1")
@@ -693,7 +707,7 @@ class TestOnboardingService:
             attempt = _make_attempt(score=100, correct=10)
             session.exec.return_value.first.return_value = attempt
             answers = {str(i): "a" for i in range(10)}  # all correct
-            from services.onboarding import save_quiz_attempt
+            from onboarding.services.onboarding import save_quiz_attempt
 
             result = save_quiz_attempt(1, "1", answers)
             assert result["score"] == 100
@@ -706,7 +720,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = plan
-            from services.onboarding import save_quiz_attempt
+            from onboarding.services.onboarding import save_quiz_attempt
 
             with pytest.raises(HTTPException) as exc:
                 save_quiz_attempt(1, "1", {"0": "a"})
@@ -718,7 +732,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = None
-            from services.onboarding import save_quiz_attempt
+            from onboarding.services.onboarding import save_quiz_attempt
 
             with pytest.raises(HTTPException) as exc:
                 save_quiz_attempt(99, "1", {})
@@ -730,7 +744,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = None
-            from services.onboarding import get_quiz
+            from onboarding.services.onboarding import get_quiz
 
             with pytest.raises(HTTPException) as exc:
                 get_quiz(99, "1")
@@ -743,7 +757,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = plan
-            from services.onboarding import get_quiz
+            from onboarding.services.onboarding import get_quiz
 
             with pytest.raises(HTTPException) as exc:
                 get_quiz(1, "1")
@@ -759,7 +773,7 @@ class TestOnboardingService:
         try:
             session.get.return_value = plan
             session.exec.return_value.all.return_value = [attempt]
-            from services.onboarding import get_quiz
+            from onboarding.services.onboarding import get_quiz
 
             result = get_quiz(1, "1")
             assert len(result["questions"]) == 10
@@ -771,7 +785,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = None
-            from services.onboarding import generate_quiz
+            from onboarding.services.onboarding import generate_quiz
 
             with pytest.raises(HTTPException) as exc:
                 generate_quiz(99, "1", "openai", "k", None, company_id=1)
@@ -785,7 +799,7 @@ class TestOnboardingService:
         patcher, session = _patch_session()
         try:
             session.get.return_value = plan
-            from services.onboarding import generate_quiz
+            from onboarding.services.onboarding import generate_quiz
 
             with pytest.raises(HTTPException) as exc:
                 generate_quiz(1, "1", "openai", "k", None, company_id=1)
@@ -802,13 +816,13 @@ class TestOnboardingService:
             session.get.return_value = plan
             session.exec.return_value.all.return_value = days
             with (
-                patch("services.onboarding._load_docs", return_value="docs"),
+                patch("onboarding.services.onboarding._load_docs", return_value="docs"),
                 patch(
-                    "services.onboarding.llm_service.generate_onboarding_quiz",
+                    "onboarding.services.onboarding.llm_service.generate_onboarding_quiz",
                     return_value=questions,
                 ),
             ):
-                from services.onboarding import generate_quiz
+                from onboarding.services.onboarding import generate_quiz
 
                 result = generate_quiz(1, "1", "openai", "k", None, company_id=1)
             assert len(result["questions"]) == 10
@@ -824,12 +838,13 @@ class TestOnboardingService:
             session.get.return_value = plan
             session.exec.return_value.all.return_value = days
             with (
-                patch("services.onboarding._load_docs", return_value="docs"),
+                patch("onboarding.services.onboarding._load_docs", return_value="docs"),
                 patch(
-                    "services.onboarding.llm_service.generate_onboarding_quiz", return_value=None
+                    "onboarding.services.onboarding.llm_service.generate_onboarding_quiz",
+                    return_value=None,
                 ),
             ):
-                from services.onboarding import generate_quiz
+                from onboarding.services.onboarding import generate_quiz
 
                 with pytest.raises(HTTPException) as exc:
                     generate_quiz(1, "1", "openai", "k", None, company_id=1)
@@ -844,10 +859,10 @@ class TestCompanyIdHelper:
         company = MagicMock()
         company.id = 42
         with patch(
-            "controllers.onboarding.confluence_service.get_or_create_company_for_user",
+            "onboarding.controllers.onboarding.confluence_service.get_or_create_company_for_user",
             return_value=company,
         ):
-            from controllers.onboarding import _company_id
+            from onboarding.controllers.onboarding import _company_id
 
             assert _company_id(MagicMock()) == 42
 
@@ -857,7 +872,9 @@ class TestOnboardingRoutes:
         assert response.status_code == 401
 
     def test_list_plans_authenticated(self, auth_client):
-        with patch("controllers.onboarding.onboarding_service.list_plans", return_value=[]):
+        with patch(
+            "onboarding.controllers.onboarding.onboarding_service.list_plans", return_value=[]
+        ):
             response = auth_client.get("/onboarding")
         assert response.status_code == 200
         assert response.json() == []
@@ -871,8 +888,11 @@ class TestOnboardingRoutes:
         days = [_make_day(i) for i in range(1, 8)]
         result = {"plan": plan.model_dump(), "days": [d.model_dump() for d in days]}
         with (
-            patch("controllers.onboarding.onboarding_service.generate_plan", return_value=result),
-            patch("controllers.onboarding._company_id", return_value=1),
+            patch(
+                "onboarding.controllers.onboarding.onboarding_service.generate_plan",
+                return_value=result,
+            ),
+            patch("onboarding.controllers.onboarding._company_id", return_value=1),
         ):
             response = auth_client.post("/onboarding/generate", json={"role": "SWE"})
         assert response.status_code == 200
@@ -885,13 +905,15 @@ class TestOnboardingRoutes:
         plan = _make_plan()
         days = [_make_day(i) for i in range(1, 8)]
         result = {"plan": plan.model_dump(), "days": [d.model_dump() for d in days]}
-        with patch("controllers.onboarding.onboarding_service.get_plan", return_value=result):
+        with patch(
+            "onboarding.controllers.onboarding.onboarding_service.get_plan", return_value=result
+        ):
             response = auth_client.get("/onboarding/1")
         assert response.status_code == 200
 
     def test_get_plan_not_found(self, auth_client):
         with patch(
-            "controllers.onboarding.onboarding_service.get_plan",
+            "onboarding.controllers.onboarding.onboarding_service.get_plan",
             side_effect=HTTPException(status_code=404, detail="Not found"),
         ):
             response = auth_client.get("/onboarding/99")
@@ -905,10 +927,10 @@ class TestOnboardingRoutes:
         day = _make_day()
         with (
             patch(
-                "controllers.onboarding.onboarding_service.get_day_content",
+                "onboarding.controllers.onboarding.onboarding_service.get_day_content",
                 return_value={"day": day.model_dump()},
             ),
-            patch("controllers.onboarding._company_id", return_value=1),
+            patch("onboarding.controllers.onboarding._company_id", return_value=1),
         ):
             response = auth_client.get("/onboarding/1/day/1")
         assert response.status_code == 200
@@ -916,7 +938,7 @@ class TestOnboardingRoutes:
     def test_complete_day_success(self, auth_client):
         day = _make_day(completed=True)
         with patch(
-            "controllers.onboarding.onboarding_service.complete_day",
+            "onboarding.controllers.onboarding.onboarding_service.complete_day",
             return_value={"day": day.model_dump()},
         ):
             response = auth_client.post("/onboarding/1/day/1/complete")
@@ -928,7 +950,8 @@ class TestOnboardingRoutes:
 
     def test_delete_plan_success(self, auth_client):
         with patch(
-            "controllers.onboarding.onboarding_service.delete_plan", return_value={"deleted": True}
+            "onboarding.controllers.onboarding.onboarding_service.delete_plan",
+            return_value={"deleted": True},
         ):
             response = auth_client.delete("/onboarding/1")
         assert response.status_code == 200
@@ -940,7 +963,7 @@ class TestOnboardingRoutes:
     def test_get_quiz_success(self, auth_client):
         questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
         with patch(
-            "controllers.onboarding.onboarding_service.get_quiz",
+            "onboarding.controllers.onboarding.onboarding_service.get_quiz",
             return_value={"questions": questions, "attempts": []},
         ):
             response = auth_client.get("/onboarding/1/quiz")
@@ -949,7 +972,8 @@ class TestOnboardingRoutes:
     def test_submit_quiz_attempt_success(self, auth_client):
         result = {"attempt": {"id": 1, "score": 80}, "score": 80, "correct": 8, "total": 10}
         with patch(
-            "controllers.onboarding.onboarding_service.save_quiz_attempt", return_value=result
+            "onboarding.controllers.onboarding.onboarding_service.save_quiz_attempt",
+            return_value=result,
         ):
             response = auth_client.post("/onboarding/1/quiz/attempt", json={"answers": {"0": "a"}})
         assert response.status_code == 200
@@ -962,7 +986,8 @@ class TestOnboardingRoutes:
         plan = _make_plan()
         plan.share_enabled = True
         with patch(
-            "controllers.onboarding.onboarding_service.toggle_share", return_value=plan.model_dump()
+            "onboarding.controllers.onboarding.onboarding_service.toggle_share",
+            return_value=plan.model_dump(),
         ):
             response = auth_client.patch("/onboarding/1/share?enable=true")
         assert response.status_code == 200
@@ -973,14 +998,15 @@ class TestOnboardingRoutes:
         days = [_make_day(i) for i in range(1, 8)]
         result = {"plan": plan.model_dump(), "days": [d.model_dump() for d in days]}
         with patch(
-            "controllers.onboarding.onboarding_service.get_public_plan", return_value=result
+            "onboarding.controllers.onboarding.onboarding_service.get_public_plan",
+            return_value=result,
         ):
             response = anon_client.get("/public/onboarding/1")
         assert response.status_code == 200
 
     def test_get_public_plan_not_found(self, anon_client):
         with patch(
-            "controllers.onboarding.onboarding_service.get_public_plan",
+            "onboarding.controllers.onboarding.onboarding_service.get_public_plan",
             side_effect=HTTPException(status_code=404, detail="Not found"),
         ):
             response = anon_client.get("/public/onboarding/99")
@@ -990,10 +1016,10 @@ class TestOnboardingRoutes:
         questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
         with (
             patch(
-                "controllers.onboarding.onboarding_service.generate_quiz",
+                "onboarding.controllers.onboarding.onboarding_service.generate_quiz",
                 return_value={"questions": questions, "attempts": []},
             ),
-            patch("controllers.onboarding._company_id", return_value=1),
+            patch("onboarding.controllers.onboarding._company_id", return_value=1),
         ):
             response = auth_client.post("/onboarding/1/quiz/generate")
         assert response.status_code == 200

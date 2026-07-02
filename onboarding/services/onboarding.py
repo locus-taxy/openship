@@ -6,12 +6,12 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from database import engine
-from models.onboarding_plan import OnboardingPlan
-from models.onboarding_day import OnboardingDay
-from models.onboarding_quiz_attempt import OnboardingQuizAttempt
-from services import llm as llm_service
-from services import retrieval as retrieval_service
-from prompts import onboarding as onboarding_prompts
+from onboarding.models.onboarding_plan import OnboardingPlan
+from onboarding.models.onboarding_day import OnboardingDay
+from onboarding.models.onboarding_quiz_attempt import OnboardingQuizAttempt
+from onboarding.services import generation as llm_service
+from onboarding.services import retrieval as retrieval_service
+from onboarding.prompts import onboarding as onboarding_prompts
 
 logger = logging.getLogger(__name__)
 

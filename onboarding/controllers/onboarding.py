@@ -1,6 +1,6 @@
-from schemas.onboarding import GenerateOnboardingRequest, SubmitQuizAttemptRequest
-from services import onboarding as onboarding_service
-from services import confluence as confluence_service
+from onboarding.schemas.onboarding import GenerateOnboardingRequest, SubmitQuizAttemptRequest
+from onboarding.services import onboarding as onboarding_service
+from onboarding.services import confluence as confluence_service
 from services.llm import get_user_api_key, get_user_model, get_user_provider_name
 
 def _company_id(user) -> int:

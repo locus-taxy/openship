@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Header, Query, Request
 from fastapi.responses import RedirectResponse
 
-from controllers import confluence as confluence_controller
+from onboarding.controllers import confluence as confluence_controller
 
 router = APIRouter(tags=["confluence"])
 

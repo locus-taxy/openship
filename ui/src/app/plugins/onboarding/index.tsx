@@ -129,6 +129,7 @@ export default function OnboardingPage() {
     const [generating, setGenerating] = useState(false)
     const [deleteId, setDeleteId] = useState<number | null>(null)
     const [deleting, setDeleting] = useState(false)
+    const [kbReady, setKbReady] = useState(false)
     const navigate = useNavigate()
     const { setPluginName } = useStore((state: any) => state)
 
@@ -182,10 +183,10 @@ export default function OnboardingPage() {
             </div>
 
             {/* Confluence connection + ingestion */}
-            <ConfluenceSetup />
+            <ConfluenceSetup onStatus={s => setKbReady(s.connected && s.chunk_count > 0)} />
 
-            {/* Ask anything over the ingested docs */}
-            <KnowledgeAsk />
+            {/* Ask anything over the ingested docs (only once something is indexed) */}
+            {kbReady && <KnowledgeAsk />}
 
             {/* LLM selector */}
             <LlmBar />

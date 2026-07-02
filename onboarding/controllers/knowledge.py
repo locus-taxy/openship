@@ -1,5 +1,5 @@
-from services import knowledge as knowledge_service
-from services import confluence as confluence_service
+from onboarding.services import knowledge as knowledge_service
+from onboarding.services import confluence as confluence_service
 from services.llm import get_user_api_key, get_user_model, get_user_provider_name
 
 def query(payload, user):

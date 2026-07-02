@@ -9,6 +9,11 @@ class IngestionJob(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     company_id: int = Field(foreign_key="companies.id", index=True)
+    # Sub-stage within a running job, drives the UI's staged progress:
+    # reading (fetching spaces/pages) | indexing (upserting pages) | embedding | done | failed
+    phase: Optional[str] = Field(default=None, max_length=32)
+    total_spaces: int = Field(default=0)
+    processed_spaces: int = Field(default=0)
     total_pages: int = Field(default=0)
     processed_pages: int = Field(default=0)
     total_chunks: int = Field(default=0)

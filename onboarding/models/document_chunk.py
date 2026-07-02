@@ -3,8 +3,9 @@ from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, DateTime, func
 from pgvector.sqlalchemy import Vector
 
-# Gemini text-embedding-004 output dimension.
-EMBEDDING_DIM = 768
+# Embedding output dimension. Must match config.EMBEDDING_DIMENSIONS and the
+# fastembed model (BAAI/bge-small-en-v1.5 → 384).
+EMBEDDING_DIM = 384
 
 class DocumentChunk(SQLModel, table=True):
     """A ~800-token slice of a page, with its embedding for semantic search.

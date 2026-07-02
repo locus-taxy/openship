@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-def _patch_session(target="services.retrieval.Session"):
+def _patch_session(target="onboarding.services.retrieval.Session"):
     patcher = patch(target)
     mock_cls = patcher.start()
     session_mock = MagicMock()
@@ -18,13 +18,11 @@ class TestRetrieve:
                 ("chunk one", "Arch", "p1"),
                 ("chunk two", "Setup", "p2"),
             ]
-            with (
-                patch(
-                    "services.retrieval.confluence_service.resolve_embedding_key", return_value="gk"
-                ),
-                patch("services.retrieval.embedding_service.embed_query", return_value=[0.1, 0.2]),
+            with patch(
+                "onboarding.services.retrieval.embedding_service.embed_query",
+                return_value=[0.1, 0.2],
             ):
-                from services.retrieval import retrieve
+                from onboarding.services.retrieval import retrieve
 
                 out = retrieve(1, "how do we deploy?", k=5)
             assert out == [
@@ -38,13 +36,10 @@ class TestRetrieve:
         patcher, session = _patch_session()
         try:
             session.exec.return_value.all.return_value = []
-            with (
-                patch(
-                    "services.retrieval.confluence_service.resolve_embedding_key", return_value="gk"
-                ),
-                patch("services.retrieval.embedding_service.embed_query", return_value=[0.1]),
+            with patch(
+                "onboarding.services.retrieval.embedding_service.embed_query", return_value=[0.1]
             ):
-                from services.retrieval import retrieve
+                from onboarding.services.retrieval import retrieve
 
                 assert retrieve(1, "q") == []
         finally:
@@ -53,19 +48,19 @@ class TestRetrieve:
 class TestRetrieveContext:
     def test_formats(self):
         with patch(
-            "services.retrieval.retrieve",
+            "onboarding.services.retrieval.retrieve",
             return_value=[
                 {"content": "c1", "title": "A", "page_id": "p1"},
                 {"content": "c2", "title": "B", "page_id": "p2"},
             ],
         ):
-            from services.retrieval import retrieve_context
+            from onboarding.services.retrieval import retrieve_context
 
             ctx = retrieve_context(1, "q")
         assert "=== A ===\nc1" in ctx and "=== B ===\nc2" in ctx
 
     def test_empty(self):
-        with patch("services.retrieval.retrieve", return_value=[]):
-            from services.retrieval import retrieve_context
+        with patch("onboarding.services.retrieval.retrieve", return_value=[]):
+            from onboarding.services.retrieval import retrieve_context
 
             assert retrieve_context(1, "q") == ""

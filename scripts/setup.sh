@@ -188,6 +188,13 @@ info "Step 5/6 — Installing dependencies & running migrations"
 "$VENV/bin/pip" install -r "$ROOT/requirements.txt" -r "$ROOT/requirements-dev.txt" -r "$ROOT/requirements-test.txt" -q
 success "Python dependencies installed."
 
+info "Pre-downloading the local embedding model (one-time, ~a few hundred MB)..."
+if "$VENV/bin/python" "$ROOT/scripts/warm_embeddings.py"; then
+    success "Embedding model ready — first ingest won't wait on a download."
+else
+    warn "Could not pre-download the embedding model; it will download on first ingest instead."
+fi
+
 cd "$ROOT/ui" && npm install --silent
 success "Node dependencies installed."
 

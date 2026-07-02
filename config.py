@@ -127,11 +127,11 @@ CONFLUENCE_POST_CONNECT_REDIRECT = (
 CONFLUENCE_WEBHOOK_SECRET = _strip_opt("CONFLUENCE_WEBHOOK_SECRET")
 
 # ── Embeddings ───────────────────────────────────────────────────────────────
-# Embeddings use the connecting user's saved Gemini key by default; this is an
-# optional server-side fallback key.
-GEMINI_EMBEDDING_API_KEY = _strip_opt("GEMINI_EMBEDDING_API_KEY")
-EMBEDDING_MODEL = _strip_opt("EMBEDDING_MODEL") or "text-embedding-004"
-EMBEDDING_BATCH_SIZE = _env_int("EMBEDDING_BATCH_SIZE", 100)
+# Embeddings run locally via fastembed (a small ONNX sentence-transformer) — no
+# API key or quota. bge-small-en-v1.5 outputs 384-dim vectors; keep
+# EMBEDDING_DIMENSIONS in sync with both the model and the document_chunks column.
+EMBEDDING_MODEL = _strip_opt("EMBEDDING_MODEL") or "BAAI/bge-small-en-v1.5"
+EMBEDDING_DIMENSIONS = _env_int("EMBEDDING_DIMENSIONS", 384)
 
 def is_confluence_oauth_configured() -> bool:
     """True when the Atlassian client id, secret, and redirect URI are all set."""

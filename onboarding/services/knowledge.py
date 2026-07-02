@@ -4,8 +4,8 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from services import retrieval as retrieval_service
-from services import llm as llm_service
+from onboarding.services import retrieval as retrieval_service
+from onboarding.services import generation as llm_service
 
 _RETRIEVE_K = 8
 

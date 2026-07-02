@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query, Request
-from schemas.onboarding import GenerateOnboardingRequest, SubmitQuizAttemptRequest
-from controllers import onboarding as onboarding_controller
+from onboarding.schemas.onboarding import GenerateOnboardingRequest, SubmitQuizAttemptRequest
+from onboarding.controllers import onboarding as onboarding_controller
 from config import limiter
 
 router = APIRouter(tags=["onboarding"])

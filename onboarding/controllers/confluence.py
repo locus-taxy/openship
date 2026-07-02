@@ -1,4 +1,4 @@
-from services import confluence as confluence_service
+from onboarding.services import confluence as confluence_service
 
 def connect(user):
     return confluence_service.start_connect(user)

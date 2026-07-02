@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 
-from controllers import knowledge as knowledge_controller
-from schemas.knowledge import KnowledgeQueryRequest
+from onboarding.controllers import knowledge as knowledge_controller
+from onboarding.schemas.knowledge import KnowledgeQueryRequest
 
 router = APIRouter(tags=["knowledge"])
 

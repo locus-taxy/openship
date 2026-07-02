@@ -10,9 +10,11 @@ Confluence integration for the RAG knowledge base.
 Reads go through the Confluence search API (works with classic OAuth scopes).
 """
 
+import hmac
 import json
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from urllib.parse import urlencode
@@ -27,16 +29,15 @@ from sqlalchemy.exc import IntegrityError
 import config
 from config import JWT_SECRET_KEY, JWT_ALGORITHM
 from database import engine
-from models.company import Company
-from models.confluence_connection import ConfluenceConnection
-from models.document_page import DocumentPage
-from models.document_chunk import DocumentChunk
-from models.ingestion_job import IngestionJob
+from onboarding.models.company import Company
+from onboarding.models.confluence_connection import ConfluenceConnection
+from onboarding.models.document_page import DocumentPage
+from onboarding.models.document_chunk import DocumentChunk
+from onboarding.models.ingestion_job import IngestionJob
 from services.encryption import encrypt_secret, decrypt_secret
 from services.user import get_user_by_id
-from services.llm import get_user_gemini_key
-from services import embeddings as embedding_service
-from services.chunking import chunk_text, estimate_tokens
+from onboarding.services import embeddings as embedding_service
+from onboarding.services.chunking import chunk_text, estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +45,19 @@ _AUTHORIZE_URL = "https://auth.atlassian.com/authorize"
 _TOKEN_URL = "https://auth.atlassian.com/oauth/token"
 _RESOURCES_URL = "https://api.atlassian.com/oauth/token/accessible-resources"
 _HTTP_TIMEOUT = 15
+# The read phase makes hundreds of sequential calls over several minutes; retry
+# transient network errors / 5xx so one blip doesn't fail the whole ingest.
+_HTTP_MAX_ATTEMPTS = 4
+_HTTP_RETRY_BACKOFF = 2.0
+_HTTP_RETRY_STATUSES = frozenset({429, 502, 503, 504})
+_sleep = time.sleep  # module-level so tests can patch it
 _STATE_EXPIRE_MINUTES = 15
 _STATE_TYPE = "confluence_oauth"
 _TOKEN_SKEW_SECONDS = 60
 _PAGE_SEARCH_LIMIT = 100
+# Chunks are embedded in cross-page batches of ~this size; one big embed call is
+# far faster than one call per page (most pages hold only a few chunks).
+_EMBED_BATCH_SIZE = 256
 
 # ── OAuth / state helpers ──────────────────────────────────────────────────────
 
@@ -108,18 +118,6 @@ def _require_ready_connection(company_id: int) -> ConfluenceConnection:
     if conn is None or conn.status != "ready" or not conn.access_token:
         raise HTTPException(status_code=409, detail="Confluence is not connected for your company.")
     return conn
-
-def resolve_embedding_key(company_id: int) -> Optional[str]:
-    """Key used to embed this company's docs + queries. Prefer the connecting
-    user's saved Gemini key; fall back to a server-configured key."""
-    conn = _get_connection(company_id)
-    if conn is not None and conn.connected_by_user_id:
-        user = get_user_by_id(conn.connected_by_user_id)
-        if user is not None:
-            key = get_user_gemini_key(user)
-            if key:
-                return key
-    return config.GEMINI_EMBEDDING_API_KEY
 
 # ── Atlassian OAuth HTTP ───────────────────────────────────────────────────────
 
@@ -236,6 +234,13 @@ def _counts(company_id: int):
         ).one()
     return int(pages), int(chunks)
 
+def _running_job_progress(company_id: int) -> Optional[dict]:
+    """Progress of the company's in-flight ingest, or None. Lets the UI resume
+    the live progress view after a page refresh (the job is company-wide, not
+    tied to one browser session)."""
+    job = _running_job(company_id)
+    return _job_progress(job) if job is not None else None
+
 def get_status(user) -> dict:
     """Report whether this user's company is connected, and how much is indexed."""
     company = get_or_create_company_for_user(user)
@@ -247,6 +252,7 @@ def get_status(user) -> dict:
             "site_url": None,
             "page_count": 0,
             "chunk_count": 0,
+            "ingest": None,
         }
     page_count, chunk_count = _counts(company.id)
     return {
@@ -255,6 +261,7 @@ def get_status(user) -> dict:
         "site_url": conn.site_url,
         "page_count": page_count,
         "chunk_count": chunk_count,
+        "ingest": _running_job_progress(company.id),
     }
 
 # ── Confluence REST client ─────────────────────────────────────────────────────
@@ -319,6 +326,27 @@ def _get_valid_token(conn: ConfluenceConnection) -> str:
         return decrypt_secret(conn.access_token)
     return _refresh_access_token(conn)
 
+def _read_get(url: str, headers: dict) -> httpx.Response:
+    """GET with retries on transient network errors and retryable 5xx/429, so a
+    single blip during the long read phase doesn't fail the whole ingest."""
+    last_exc: Optional[Exception] = None
+    resp: Optional[httpx.Response] = None
+    for attempt in range(_HTTP_MAX_ATTEMPTS):
+        try:
+            resp = httpx.get(url, headers=headers, timeout=_HTTP_TIMEOUT)
+        except httpx.HTTPError as exc:  # timeouts, SSL/handshake, connection resets
+            last_exc = exc
+            resp = None
+        else:
+            if resp.status_code not in _HTTP_RETRY_STATUSES:
+                return resp
+            last_exc = None
+        if attempt < _HTTP_MAX_ATTEMPTS - 1:
+            _sleep(_HTTP_RETRY_BACKOFF * (2**attempt))
+    if resp is not None:
+        return resp  # a retryable status that never cleared; caller maps to 502
+    raise HTTPException(status_code=502, detail=f"Confluence request failed: {last_exc}")
+
 def _fetch_spaces(cloud_id: str, token: str) -> list:
     """List all spaces via search (cql=type=space). Personal (~) spaces skipped."""
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
@@ -326,7 +354,7 @@ def _fetch_spaces(cloud_id: str, token: str) -> list:
     url = f"{_api_root(cloud_id)}/wiki/rest/api/search?{query}"
     results: list = []
     for _ in range(50):  # safety cap on pages
-        resp = httpx.get(url, headers=headers, timeout=_HTTP_TIMEOUT)
+        resp = _read_get(url, headers)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail="Failed to list Confluence spaces.")
         data = resp.json()
@@ -357,7 +385,7 @@ def _search_pages(cloud_id: str, token: str, space_key: str) -> list:
     url = f"{_api_root(cloud_id)}/wiki/rest/api/content/search?{query}"
     results: list = []
     for _ in range(200):  # safety cap
-        resp = httpx.get(url, headers=headers, timeout=_HTTP_TIMEOUT)
+        resp = _read_get(url, headers)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail="Failed to search Confluence pages.")
         data = resp.json()
@@ -370,13 +398,13 @@ def _search_pages(cloud_id: str, token: str, space_key: str) -> list:
 
 def _fetch_single_page(cloud_id: str, token: str, page_id: str) -> Optional[dict]:
     """Fetch one page (with body/version/space) via search, or None."""
+    # Confluence content ids are numeric; reject anything else so a webhook
+    # payload can't inject into the CQL query.
+    if not str(page_id).isdigit():
+        return None
     query = urlencode({"cql": f"id={page_id}", "expand": "body.storage,version,space", "limit": 1})
     url = f"{_api_root(cloud_id)}/wiki/rest/api/content/search?{query}"
-    resp = httpx.get(
-        url,
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        timeout=_HTTP_TIMEOUT,
-    )
+    resp = _read_get(url, {"Authorization": f"Bearer {token}", "Accept": "application/json"})
     if resp.status_code != 200:
         return None
     results = resp.json().get("results", [])
@@ -453,13 +481,13 @@ def _store_chunks(
             )
         session.commit()
 
-def _embed_page(company_id: int, page_db_id: int, text: str, api_key: Optional[str]) -> int:
+def _embed_page(company_id: int, page_db_id: int, text: str) -> int:
     """Chunk, embed, and (re)store a page's chunks. Returns chunk count."""
     chunks = chunk_text(text)
     if not chunks:
         _delete_chunks(page_db_id)
         return 0
-    vectors = embedding_service.embed_texts(chunks, api_key=api_key)
+    vectors = embedding_service.embed_texts(chunks)
     _delete_chunks(page_db_id)
     _store_chunks(company_id, page_db_id, chunks, vectors)
     return len(chunks)
@@ -477,6 +505,9 @@ def _create_job(company_id: int) -> int:
 def _update_job(
     job_id: int,
     *,
+    phase: Optional[str] = None,
+    total_spaces: Optional[int] = None,
+    processed_spaces: Optional[int] = None,
     total_pages: Optional[int] = None,
     processed_pages: Optional[int] = None,
     total_chunks: Optional[int] = None,
@@ -489,6 +520,12 @@ def _update_job(
         job = session.get(IngestionJob, job_id)
         if job is None:
             return
+        if phase is not None:
+            job.phase = phase
+        if total_spaces is not None:
+            job.total_spaces = total_spaces
+        if processed_spaces is not None:
+            job.processed_spaces = processed_spaces
         if total_pages is not None:
             job.total_pages = total_pages
         if processed_pages is not None:
@@ -506,63 +543,157 @@ def _update_job(
         session.add(job)
         session.commit()
 
+def _running_job(company_id: int) -> Optional[IngestionJob]:
+    with Session(engine) as session:
+        return session.exec(
+            select(IngestionJob)
+            .where(IngestionJob.company_id == company_id)
+            .where(IngestionJob.status == "running")
+            .order_by(IngestionJob.id.desc())
+        ).first()
+
 def begin_ingest(user, background_tasks) -> dict:
-    """Validate, create a job, and schedule a full ingest in the background."""
+    """Validate, create a job, and schedule a full ingest in the background.
+    If an ingest is already running for the company, return it instead of
+    starting a second (avoids duplicate work and token-refresh races)."""
     company = get_or_create_company_for_user(user)
     _require_ready_connection(company.id)
-    api_key = resolve_embedding_key(company.id)
-    if not api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Add your Gemini API key (used for embeddings) to ingest documents.",
-        )
+    existing = _running_job(company.id)
+    if existing is not None:
+        return {"job_id": existing.id, "status": "running"}
     job_id = _create_job(company.id)
-    background_tasks.add_task(_run_ingest, company.id, job_id, api_key)
+    background_tasks.add_task(_run_ingest, company.id, job_id)
     return {"job_id": job_id, "status": "running"}
 
-def _run_ingest(company_id: int, job_id: int, api_key: str) -> None:
-    """Background worker: fetch every page → upsert → chunk → embed. Resumable:
-    a page is (re)embedded when new, changed, or missing chunks. Failures are
-    recorded on the job rather than raised (background context)."""
+def _flush_embed_batch(company_id: int, buffer: list) -> int:
+    """Embed a buffer of (page_db_id, chunks) in ONE batched call, then store each
+    page's chunks. Batching across pages is far faster than one call per page.
+    Returns the number of chunks embedded."""
+    texts = [chunk for _, chunks in buffer for chunk in chunks]
+    vectors = embedding_service.embed_texts(texts)
+    offset = 0
+    for page_db_id, chunks in buffer:
+        n = len(chunks)
+        _delete_chunks(page_db_id)
+        _store_chunks(company_id, page_db_id, chunks, vectors[offset : offset + n])
+        offset += n
+    return len(texts)
+
+def _run_ingest(company_id: int, job_id: int) -> None:
+    """Background worker, in three visible phases: reading (fetch every page from
+    every space) → indexing (upsert pages) → embedding (batch-embed their chunks).
+
+    Robustness: a failure confined to one space / page / embed-batch is logged and
+    SKIPPED (counted, surfaced as a note, retried on the next ingest) rather than
+    aborting the whole run. Only whole-run problems — no connection, an expired
+    session, or nothing embedding at all — fail the job. Resumable: a page is
+    (re)embedded only when new, changed, or missing chunks."""
     try:
         conn = _get_connection(company_id)
         if conn is None or not conn.access_token:
             raise HTTPException(status_code=409, detail="Confluence is not connected.")
         token = _get_valid_token(conn)
 
+        # Phase 1 — reading: fetch every page from every space. A space that keeps
+        # failing (after retries) is skipped so it can't sink the whole read.
+        spaces = _fetch_spaces(conn.cloud_id, token)
+        _update_job(job_id, phase="reading", total_spaces=len(spaces), processed_spaces=0)
         raw_pages: list = []
-        for space in _fetch_spaces(conn.cloud_id, token):
+        skipped_spaces = 0
+        for i, space in enumerate(spaces, start=1):
             key = space.get("key")
             if key:
-                raw_pages.extend(_search_pages(conn.cloud_id, token, key))
-        _update_job(job_id, total_pages=len(raw_pages), processed_pages=0)
+                try:
+                    raw_pages.extend(_search_pages(conn.cloud_id, token, key))
+                except Exception as exc:
+                    logger.warning("Ingest %s: skipping space %s (%s)", job_id, key, exc)
+                    skipped_spaces += 1
+            _update_job(job_id, processed_spaces=i, total_pages=len(raw_pages))
 
+        # Phase 2 — indexing: upsert pages, deciding which need (re)embedding.
+        _update_job(job_id, phase="indexing", total_pages=len(raw_pages), processed_pages=0)
         to_embed: list = []  # (page_db_id, text)
         processed = 0
+        skipped_pages = 0
         for page in raw_pages:
-            page_db_id, changed, text = _upsert_page(company_id, page)
-            if text and (changed or _page_chunk_count(page_db_id) == 0):
-                to_embed.append((page_db_id, text))
+            if page.get("id"):  # skip malformed results with no id (don't key on "None")
+                try:
+                    page_db_id, changed, text = _upsert_page(company_id, page)
+                    if text and (changed or _page_chunk_count(page_db_id) == 0):
+                        to_embed.append((page_db_id, text))
+                except Exception as exc:
+                    logger.warning("Ingest %s: skipping page (%s)", job_id, exc)
+                    skipped_pages += 1
             processed += 1
             _update_job(job_id, processed_pages=processed)
 
+        # Phase 3 — embedding: chunk each page, then embed in cross-page batches.
+        # A batch that fails is skipped (its pages keep 0 chunks → retried next run).
         planned = [(pid, chunk_text(text)) for pid, text in to_embed]
         planned = [(pid, chunks) for pid, chunks in planned if chunks]
-        _update_job(job_id, total_chunks=sum(len(c) for _, c in planned), embedded_chunks=0)
+        total_chunks = sum(len(c) for _, c in planned)
+        _update_job(job_id, phase="embedding", total_chunks=total_chunks, embedded_chunks=0)
 
         embedded = 0
+        failed_chunks = 0
+        buffer: list = []
+        buffered_chunks = 0
         for page_db_id, chunks in planned:
-            vectors = embedding_service.embed_texts(chunks, api_key=api_key)
-            _delete_chunks(page_db_id)
-            _store_chunks(company_id, page_db_id, chunks, vectors)
-            embedded += len(chunks)
-            _update_job(job_id, embedded_chunks=embedded)
+            buffer.append((page_db_id, chunks))
+            buffered_chunks += len(chunks)
+            if buffered_chunks >= _EMBED_BATCH_SIZE:
+                embedded, failed_chunks = _flush_and_track(
+                    company_id, job_id, buffer, embedded, failed_chunks
+                )
+                buffer, buffered_chunks = [], 0
+        if buffer:
+            embedded, failed_chunks = _flush_and_track(
+                company_id, job_id, buffer, embedded, failed_chunks
+            )
 
-        _update_job(job_id, status="done", completed=True)
+        # If there was work to embed but nothing landed, embedding is broken — fail.
+        if total_chunks and embedded == 0:
+            raise HTTPException(status_code=502, detail="Embedding failed for every page.")
+
+        parts = []
+        if skipped_spaces:
+            parts.append(f"{skipped_spaces} space(s) skipped")
+        if skipped_pages:
+            parts.append(f"{skipped_pages} page(s) skipped")
+        if failed_chunks:
+            parts.append(f"{failed_chunks} chunk(s) failed")
+        note = ("; ".join(parts) + " — re-ingest to retry.") if parts else None
+        _update_job(job_id, status="done", phase="done", error=note, completed=True)
     except Exception as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
         logger.exception("Ingestion job %s failed", job_id)
-        _update_job(job_id, status="failed", error=str(detail), completed=True)
+        _update_job(job_id, status="failed", phase="failed", error=str(detail), completed=True)
+
+def _flush_and_track(company_id, job_id, buffer, embedded, failed_chunks):
+    """Flush an embed batch, updating progress. On failure, log and count the
+    batch's chunks as failed instead of raising. Returns (embedded, failed_chunks)."""
+    try:
+        embedded += _flush_embed_batch(company_id, buffer)
+        _update_job(job_id, embedded_chunks=embedded)
+    except Exception as exc:
+        logger.warning("Ingest %s: embed batch failed (%s)", job_id, exc)
+        failed_chunks += sum(len(chunks) for _, chunks in buffer)
+    return embedded, failed_chunks
+
+def _job_progress(job: IngestionJob) -> dict:
+    """Serialise a job's staged progress for the UI."""
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "phase": job.phase,
+        "total_spaces": job.total_spaces,
+        "processed_spaces": job.processed_spaces,
+        "total_pages": job.total_pages,
+        "processed_pages": job.processed_pages,
+        "total_chunks": job.total_chunks,
+        "embedded_chunks": job.embedded_chunks,
+        "error": job.error,
+    }
 
 def get_ingest_status(user, job_id: int) -> dict:
     """Report progress for one ingestion job (company-scoped)."""
@@ -571,15 +702,7 @@ def get_ingest_status(user, job_id: int) -> dict:
         job = session.get(IngestionJob, job_id)
         if job is None or job.company_id != company.id:
             raise HTTPException(status_code=404, detail="Ingestion job not found.")
-        return {
-            "job_id": job.id,
-            "status": job.status,
-            "total_pages": job.total_pages,
-            "processed_pages": job.processed_pages,
-            "total_chunks": job.total_chunks,
-            "embedded_chunks": job.embedded_chunks,
-            "error": job.error,
-        }
+        return _job_progress(job)
 
 # ── webhooks (freshness) ────────────────────────────────────────────────────────
 
@@ -587,14 +710,15 @@ def verify_webhook_secret(provided: Optional[str]) -> None:
     expected = config.CONFLUENCE_WEBHOOK_SECRET
     if not expected:
         raise HTTPException(status_code=503, detail="Confluence webhooks are not configured.")
-    if not provided or provided != expected:
+    if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid webhook secret.")
 
-def _pages_by_page_id(page_id: str) -> list:
+def _pages_by_page_id(page_id: str, company_id: Optional[int] = None) -> list:
     with Session(engine) as session:
-        return session.exec(
-            select(DocumentPage).where(DocumentPage.confluence_page_id == page_id)
-        ).all()
+        stmt = select(DocumentPage).where(DocumentPage.confluence_page_id == page_id)
+        if company_id is not None:
+            stmt = stmt.where(DocumentPage.company_id == company_id)
+        return session.exec(stmt).all()
 
 def _connection_by_cloud_id(cloud_id: str) -> Optional[ConfluenceConnection]:
     with Session(engine) as session:
@@ -602,11 +726,12 @@ def _connection_by_cloud_id(cloud_id: str) -> Optional[ConfluenceConnection]:
             select(ConfluenceConnection).where(ConfluenceConnection.cloud_id == cloud_id)
         ).first()
 
-def _deactivate_pages(page_id: str) -> int:
+def _deactivate_pages(page_id: str, company_id: Optional[int] = None) -> int:
     with Session(engine) as session:
-        pages = session.exec(
-            select(DocumentPage).where(DocumentPage.confluence_page_id == page_id)
-        ).all()
+        stmt = select(DocumentPage).where(DocumentPage.confluence_page_id == page_id)
+        if company_id is not None:
+            stmt = stmt.where(DocumentPage.company_id == company_id)
+        pages = session.exec(stmt).all()
         for page in pages:
             page.is_active = False
             session.add(page)
@@ -619,13 +744,12 @@ def _reindex_page(company_id: int, cloud_id: str, token: str, page_id: str) -> b
     if page is None:
         return False
     page_db_id, _changed, text = _upsert_page(company_id, page)
-    api_key = resolve_embedding_key(company_id)
-    if text and api_key:
-        _embed_page(company_id, page_db_id, text, api_key)
+    if text:
+        _embed_page(company_id, page_db_id, text)
     return True
 
-def _handle_page_updated(page_id: str) -> dict:
-    pages = _pages_by_page_id(page_id)
+def _handle_page_updated(page_id: str, company_id: Optional[int] = None) -> dict:
+    pages = _pages_by_page_id(page_id, company_id)
     if not pages:
         return {"status": "ignored"}
     for page in pages:
@@ -635,8 +759,8 @@ def _handle_page_updated(page_id: str) -> dict:
             _reindex_page(page.company_id, conn.cloud_id, token, page_id)
     return {"status": "updated"}
 
-def _handle_page_removed(page_id: str) -> dict:
-    count = _deactivate_pages(page_id)
+def _handle_page_removed(page_id: str, company_id: Optional[int] = None) -> dict:
+    count = _deactivate_pages(page_id, company_id)
     return {"status": "removed" if count else "ignored"}
 
 def _handle_page_created(payload: dict) -> dict:
@@ -654,21 +778,31 @@ def _handle_page_created(payload: dict) -> dict:
     return {"status": "ignored"}
 
 def handle_webhook(payload: dict) -> dict:
-    """Dispatch a Confluence webhook. Update/remove match by page id (globally
-    unique); create resolves the company by cloud id."""
+    """Dispatch a Confluence webhook. Create resolves the company by cloud id;
+    update/remove scope to that company too (when a cloud id is present) so a
+    webhook for one tenant can't touch another tenant's page that happens to
+    share the same Confluence page id."""
     event = (payload.get("event") or payload.get("webhookEvent") or "").lower()
     page = payload.get("page") or {}
     page_id = str(page.get("id")) if page.get("id") is not None else None
+
+    company_id: Optional[int] = None
+    cloud_id = payload.get("cloudId") or payload.get("cloud_id")
+    if cloud_id:
+        conn = _connection_by_cloud_id(cloud_id)
+        if conn is None:  # a cloud site we don't have a connection for
+            return {"status": "ignored"}
+        company_id = conn.company_id
 
     if "creat" in event:
         return _handle_page_created(payload)
     if "remov" in event or "trash" in event or "delet" in event:
         if page_id:
-            return _handle_page_removed(page_id)
+            return _handle_page_removed(page_id, company_id)
         return {"status": "ignored"}
     if "updat" in event:
         if page_id:
-            return _handle_page_updated(page_id)
+            return _handle_page_updated(page_id, company_id)
         return {"status": "ignored"}
     return {"status": "ignored"}
 

@@ -14,8 +14,6 @@ class ConfluenceConnection(SQLModel, table=True):
     company_id: int = Field(foreign_key="companies.id", index=True)
     site_url: Optional[str] = Field(default=None, max_length=512)
     cloud_id: Optional[str] = Field(default=None, max_length=255)
-    # JSON TEXT list of connected space keys (set in Phase 2).
-    space_keys: Optional[str] = Field(default=None)
     access_token: Optional[str] = Field(default=None)  # encrypted
     refresh_token: Optional[str] = Field(default=None)  # encrypted
     token_expires_at: Optional[datetime] = Field(default=None)
