@@ -19,6 +19,5 @@ def webhook(payload, secret):
     confluence_service.verify_webhook_secret(secret)
     return confluence_service.handle_webhook(payload)
 
-def reconcile(user):
-    company = confluence_service.get_or_create_company_for_user(user)
-    return confluence_service.reconcile_company(company.id)
+def reconcile(user, background_tasks):
+    return confluence_service.begin_reconcile(user=user, background_tasks=background_tasks)

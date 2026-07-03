@@ -447,10 +447,10 @@ class TestKnowledgeChats:
         )
         assert "Title" in text and "one" in text and "A | B" in text and "1 | 2" in text
 
-    def test_blocks_to_text_empty_fallback(self):
+    def test_blocks_to_text_empty_is_blank(self):
         from onboarding.services.knowledge import _blocks_to_text
 
-        assert _blocks_to_text([{"type": "divider"}]) == "(no answer)"
+        assert _blocks_to_text([{"type": "divider"}]) == ""
 
 class TestKnowledgePrompts:
     def test_system_prompt(self):

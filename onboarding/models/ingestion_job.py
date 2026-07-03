@@ -9,6 +9,7 @@ class IngestionJob(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     company_id: int = Field(foreign_key="companies.id", index=True)
+    kind: str = Field(default="ingest", max_length=16)  # ingest | reconcile
     # Sub-stage within a running job, drives the UI's staged progress:
     # reading (fetching spaces/pages) | indexing (upserting pages) | embedding | done | failed
     phase: Optional[str] = Field(default=None, max_length=32)

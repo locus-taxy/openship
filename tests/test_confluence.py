@@ -256,6 +256,14 @@ class TestStartConnect:
             out = start_connect(_user())
         assert "client_id=cid" in out["authorize_url"]
 
+    def test_blocks_generic_email(self):
+        from onboarding.services.confluence import start_connect
+
+        with patch("config.is_confluence_oauth_configured", return_value=True):
+            with pytest.raises(HTTPException) as exc:
+                start_connect(_user(email="someone@gmail.com"))
+            assert exc.value.status_code == 403
+
 class TestHandleCallback:
     def _state(self, uid=1):
         from onboarding.services.confluence import _create_state
@@ -371,13 +379,43 @@ class TestGetStatus:
             ),
             patch("onboarding.services.confluence._counts", return_value=(12, 340)),
             patch("onboarding.services.confluence._running_job", return_value=None),
+            patch("onboarding.services.confluence._latest_finished_job", return_value=None),
         ):
             from onboarding.services.confluence import get_status
 
             s = get_status(_user())
             assert s["connected"] is True
             assert s["page_count"] == 12 and s["chunk_count"] == 340
+            assert s["ingest"] is None and s["last_result"] is None
+
+    def test_ready_reports_last_result(self):
+        with (
+            patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=self._company(),
+            ),
+            patch(
+                "onboarding.services.confluence._get_connection",
+                return_value=_conn(site_url="https://x"),
+            ),
+            patch("onboarding.services.confluence._counts", return_value=(12, 340)),
+            patch("onboarding.services.confluence._running_job", return_value=None),
+            patch(
+                "onboarding.services.confluence._latest_finished_job",
+                return_value=IngestionJob(
+                    id=7,
+                    company_id=1,
+                    kind="reconcile",
+                    status="done",
+                    error="0 removed, 0 restored",
+                ),
+            ),
+        ):
+            from onboarding.services.confluence import get_status
+
+            s = get_status(_user())
             assert s["ingest"] is None
+            assert s["last_result"]["job_id"] == 7 and s["last_result"]["kind"] == "reconcile"
 
     def test_ready_reports_running_ingest(self):
         with (
@@ -591,10 +629,18 @@ class TestFetchSpaces:
     def test_failure(self):
         from onboarding.services.confluence import _fetch_spaces
 
-        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(403, {})):
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(500, {})):
             with pytest.raises(HTTPException) as exc:
                 _fetch_spaces("c1", "t")
             assert exc.value.status_code == 502
+
+    def test_auth_failure_raises_401(self):
+        from onboarding.services.confluence import _fetch_spaces
+
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(401, {})):
+            with pytest.raises(HTTPException) as exc:
+                _fetch_spaces("c1", "t")
+            assert exc.value.status_code == 401
 
 class TestSearchPages:
     def test_single(self):
@@ -623,6 +669,14 @@ class TestSearchPages:
             with pytest.raises(HTTPException) as exc:
                 _search_pages("c1", "t", "ENG")
             assert exc.value.status_code == 502
+
+    def test_auth_failure_raises_401(self):
+        from onboarding.services.confluence import _search_pages
+
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(401, {})):
+            with pytest.raises(HTTPException) as exc:
+                _search_pages("c1", "t", "ENG")
+            assert exc.value.status_code == 401
 
 class TestFetchSinglePage:
     def test_found(self):
@@ -783,6 +837,18 @@ class TestIngestionJob:
         finally:
             patcher.stop()
 
+    def test_reap_running_jobs(self):
+        stuck = IngestionJob(id=1, company_id=1, status="running")
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.all.return_value = [stuck]
+            from onboarding.services.confluence import reap_running_jobs
+
+            assert reap_running_jobs() == 1
+            assert stuck.status == "failed" and stuck.phase == "failed"
+        finally:
+            patcher.stop()
+
     def test_update_job(self):
         job = IngestionJob(id=1, company_id=1, status="running")
         patcher, session = _patch_session()
@@ -851,7 +917,7 @@ class TestBeginIngest:
         ):
             from onboarding.services.confluence import begin_ingest, _run_ingest
 
-            assert begin_ingest(_user(), bg) == {"job_id": 7, "status": "running"}
+            assert begin_ingest(_user(), bg) == {"job_id": 7, "status": "running", "kind": "ingest"}
             bg.add_task.assert_called_once_with(_run_ingest, 1, 7)
 
     def test_returns_existing_running_job(self):
@@ -870,7 +936,11 @@ class TestBeginIngest:
         ):
             from onboarding.services.confluence import begin_ingest
 
-            assert begin_ingest(_user(), bg) == {"job_id": 42, "status": "running"}
+            assert begin_ingest(_user(), bg) == {
+                "job_id": 42,
+                "status": "running",
+                "kind": "ingest",
+            }
             create.assert_not_called()
             bg.add_task.assert_not_called()
 
@@ -882,6 +952,17 @@ class TestBeginIngest:
             from onboarding.services.confluence import _running_job
 
             assert _running_job(1) is job
+        finally:
+            patcher.stop()
+
+    def test_latest_finished_job_query(self):
+        job = IngestionJob(id=5, company_id=1, status="done")
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.first.return_value = job
+            from onboarding.services.confluence import _latest_finished_job
+
+            assert _latest_finished_job(1) is job
         finally:
             patcher.stop()
 
@@ -1002,6 +1083,57 @@ class TestRunIngest:
             _run_ingest(1, 7)
             last = upd.call_args_list[-1].kwargs
             assert last.get("status") == "failed" and last.get("phase") == "failed"
+
+    def test_skips_space_on_generic_error(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch(
+                "onboarding.services.confluence._fetch_spaces",
+                return_value=[{"key": "A"}, {"key": "B"}],
+            ),
+            patch(
+                "onboarding.services.confluence._search_pages",
+                side_effect=[RuntimeError("blip"), [_page("100")]],
+            ),
+            patch("onboarding.services.confluence._upsert_page", return_value=(1, True, "text")),
+            patch("onboarding.services.confluence._page_chunk_count", return_value=0),
+            patch("onboarding.services.confluence.chunk_text", return_value=["c1"]),
+            patch(
+                "onboarding.services.confluence.embedding_service.embed_texts", return_value=[[0.1]]
+            ),
+            patch("onboarding.services.confluence._delete_chunks"),
+            patch("onboarding.services.confluence._store_chunks"),
+            patch("onboarding.services.confluence._update_job") as upd,
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7)
+            done = [c for c in upd.call_args_list if c.kwargs.get("status") == "done"]
+            assert done and "space(s) skipped" in (done[-1].kwargs.get("error") or "")
+
+    def test_auth_failure_fails_job_not_silent_skip(self):
+        # A 401 mid-read (token died) must fail the job, not skip every space and
+        # report a green "done" with an empty index.
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch(
+                "onboarding.services.confluence._fetch_spaces",
+                return_value=[{"key": "A"}, {"key": "B"}],
+            ),
+            patch(
+                "onboarding.services.confluence._search_pages",
+                side_effect=HTTPException(status_code=401, detail="expired"),
+            ),
+            patch("onboarding.services.confluence._mark_status") as mark,
+            patch("onboarding.services.confluence._update_job") as upd,
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7)
+            assert upd.call_args_list[-1].kwargs.get("status") == "failed"
+            mark.assert_called_once_with(1, "error")
 
     def test_batches_embeds_across_pages(self):
         # With a batch size of 1 chunk, each page's chunk triggers its own flush —
@@ -1270,6 +1402,16 @@ class TestHandleWebhook:
 
         assert handle_webhook({"event": "label_added"})["status"] == "ignored"
 
+    def test_never_raises_on_internal_error(self):
+        # A failure (e.g. embed model can't load) must return, not 500-storm Atlassian.
+        from onboarding.services.confluence import handle_webhook
+
+        with patch(
+            "onboarding.services.confluence._connection_by_cloud_id",
+            side_effect=RuntimeError("model down"),
+        ):
+            assert handle_webhook({"event": "page_created", "cloudId": "c1"})["status"] == "error"
+
     def test_updated_no_page(self):
         from onboarding.services.confluence import handle_webhook
 
@@ -1438,15 +1580,105 @@ class TestHandlePageCreated:
 # ── reconcile ────────────────────────────────────────────────────────────────────
 
 class TestReconcile:
-    def test_not_connected(self):
-        with patch("onboarding.services.confluence._get_connection", return_value=None):
-            from onboarding.services.confluence import reconcile_company
+    def test_begin_reconcile_schedules(self):
+        bg = MagicMock()
+        with (
+            patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=Company(id=1, name="a", domain="a"),
+            ),
+            patch("onboarding.services.confluence._require_ready_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._running_job", return_value=None),
+            patch("onboarding.services.confluence._create_job", return_value=9),
+        ):
+            from onboarding.services.confluence import begin_reconcile, _run_reconcile
 
-            with pytest.raises(HTTPException) as exc:
-                reconcile_company(1)
-            assert exc.value.status_code == 409
+            assert begin_reconcile(_user(), bg) == {
+                "job_id": 9,
+                "status": "running",
+                "kind": "reconcile",
+            }
+            bg.add_task.assert_called_once_with(_run_reconcile, 1, 9)
 
-    def test_deactivates_and_reactivates(self):
+    def test_begin_reconcile_returns_existing(self):
+        bg = MagicMock()
+        with (
+            patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=Company(id=1, name="a", domain="a"),
+            ),
+            patch("onboarding.services.confluence._require_ready_connection", return_value=_conn()),
+            patch(
+                "onboarding.services.confluence._running_job",
+                return_value=IngestionJob(id=42, company_id=1, status="running"),
+            ),
+            patch("onboarding.services.confluence._create_job") as create,
+        ):
+            from onboarding.services.confluence import begin_reconcile
+
+            assert begin_reconcile(_user(), bg) == {
+                "job_id": 42,
+                "status": "running",
+                "kind": "ingest",
+            }
+            create.assert_not_called()
+            bg.add_task.assert_not_called()
+
+    def test_run_reconcile_no_connection_failed(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=None),
+            patch("onboarding.services.confluence._update_job") as upd,
+        ):
+            from onboarding.services.confluence import _run_reconcile
+
+            _run_reconcile(1, 9)
+        assert upd.call_args_list[-1].kwargs.get("status") == "failed"
+
+    def test_run_reconcile_skips_space_on_generic_error(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch(
+                "onboarding.services.confluence._fetch_spaces",
+                return_value=[{"key": "A"}, {"key": "B"}],
+            ),
+            patch(
+                "onboarding.services.confluence._search_pages",
+                side_effect=[RuntimeError("blip"), [_page("p1")]],
+            ),
+            patch("onboarding.services.confluence._update_job") as upd,
+        ):
+            patcher, session = _patch_session()
+            try:
+                session.exec.return_value.all.return_value = []
+                from onboarding.services.confluence import _run_reconcile
+
+                _run_reconcile(1, 9)
+                done = [c for c in upd.call_args_list if c.kwargs.get("status") == "done"]
+                assert done and "space(s) skipped" in (done[-1].kwargs.get("error") or "")
+            finally:
+                patcher.stop()
+
+    def test_run_reconcile_auth_failure_fails_not_deactivate_all(self):
+        # A 401 mid-read must fail the job — otherwise 0 live pages would deactivate
+        # the entire knowledge base.
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "A"}]),
+            patch(
+                "onboarding.services.confluence._search_pages",
+                side_effect=HTTPException(status_code=401, detail="expired"),
+            ),
+            patch("onboarding.services.confluence._mark_status"),
+            patch("onboarding.services.confluence._update_job") as upd,
+        ):
+            from onboarding.services.confluence import _run_reconcile
+
+            _run_reconcile(1, 9)
+            assert upd.call_args_list[-1].kwargs.get("status") == "failed"
+
+    def test_run_reconcile_deactivates_and_reactivates(self):
         gone = DocumentPage(
             id=1, company_id=1, confluence_page_id="gone", title="t", is_active=True
         )
@@ -1456,14 +1688,61 @@ class TestReconcile:
             patch("onboarding.services.confluence._get_valid_token", return_value="t"),
             patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
             patch("onboarding.services.confluence._search_pages", return_value=[_page("p1")]),
+            patch("onboarding.services.confluence._update_job") as upd,
         ):
             patcher, session = _patch_session()
             try:
                 session.exec.return_value.all.return_value = [gone, back]
-                from onboarding.services.confluence import reconcile_company
+                from onboarding.services.confluence import _run_reconcile
 
-                assert reconcile_company(1) == {"deactivated": 1, "reactivated": 1}
+                _run_reconcile(1, 9)
                 assert gone.is_active is False and back.is_active is True
+                done = [c for c in upd.call_args_list if c.kwargs.get("status") == "done"]
+                assert done and "1 removed, 1 restored" in (done[-1].kwargs.get("error") or "")
+            finally:
+                patcher.stop()
+
+    def test_run_reconcile_no_changes_note(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
+            patch("onboarding.services.confluence._search_pages", return_value=[_page("p1")]),
+            patch("onboarding.services.confluence._update_job") as upd,
+        ):
+            patcher, session = _patch_session()
+            try:
+                session.exec.return_value.all.return_value = []  # no stored pages → no changes
+                from onboarding.services.confluence import _run_reconcile
+
+                _run_reconcile(1, 9)
+                done = [c for c in upd.call_args_list if c.kwargs.get("status") == "done"]
+                assert done and "up to date" in (done[-1].kwargs.get("error") or "").lower()
+            finally:
+                patcher.stop()
+
+    def test_run_reconcile_skips_failed_space(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch(
+                "onboarding.services.confluence._fetch_spaces",
+                return_value=[{"key": "A"}, {"key": "B"}],
+            ),
+            patch(
+                "onboarding.services.confluence._search_pages",
+                side_effect=[HTTPException(status_code=502, detail="blip"), [_page("p1")]],
+            ),
+            patch("onboarding.services.confluence._update_job") as upd,
+        ):
+            patcher, session = _patch_session()
+            try:
+                session.exec.return_value.all.return_value = []
+                from onboarding.services.confluence import _run_reconcile
+
+                _run_reconcile(1, 9)
+                done = [c for c in upd.call_args_list if c.kwargs.get("status") == "done"]
+                assert done and "1 space(s) skipped" in (done[-1].kwargs.get("error") or "")
             finally:
                 patcher.stop()
 
@@ -1513,17 +1792,11 @@ class TestRoutes:
             assert auth_client.get("/confluence/ingest/1").json()["status"] == "done"
 
     def test_reconcile(self, auth_client):
-        with (
-            patch(
-                "onboarding.controllers.confluence.confluence_service.get_or_create_company_for_user",
-                return_value=Company(id=1, name="a", domain="a"),
-            ),
-            patch(
-                "onboarding.controllers.confluence.confluence_service.reconcile_company",
-                return_value={"deactivated": 1, "reactivated": 0},
-            ),
+        with patch(
+            "onboarding.controllers.confluence.confluence_service.begin_reconcile",
+            return_value={"job_id": 9, "status": "running"},
         ):
-            assert auth_client.post("/confluence/reconcile").json()["deactivated"] == 1
+            assert auth_client.post("/confluence/reconcile").json()["job_id"] == 9
 
     def test_webhook_missing_secret(self, anon_client):
         with patch("config.CONFLUENCE_WEBHOOK_SECRET", "right"):

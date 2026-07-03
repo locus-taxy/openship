@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useParams } from "react-router"
-import { GraduationCap, FileText, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import { GraduationCap, FileText, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"

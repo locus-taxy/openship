@@ -68,8 +68,51 @@ def require_confluence_oauth() -> None:
             detail="Confluence integration is not configured on this server.",
         )
 
+def _utcnow() -> datetime:
+    """Naive UTC 'now'. Our datetime columns are `timestamp without time zone`; if
+    the DB session tz isn't UTC, storing an aware-UTC value gets shifted and stripped
+    to local wall-time, which then reads back mis-interpreted as UTC (breaks token
+    expiry math). Storing naive UTC round-trips correctly regardless of session tz."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 def _domain_from_email(email: str) -> str:
     return email.rsplit("@", 1)[-1].strip().lower()
+
+# Free/public email providers. Users on these must NOT be pooled into a shared
+# company by domain (two strangers @gmail.com are not one org), so we block them
+# from connecting Confluence. Any real corporate domain is allowed automatically.
+_GENERIC_EMAIL_DOMAINS = frozenset(
+    {
+        "gmail.com",
+        "googlemail.com",
+        "outlook.com",
+        "hotmail.com",
+        "live.com",
+        "msn.com",
+        "yahoo.com",
+        "ymail.com",
+        "icloud.com",
+        "me.com",
+        "mac.com",
+        "aol.com",
+        "proton.me",
+        "protonmail.com",
+        "gmx.com",
+        "zoho.com",
+        "mail.com",
+        "yandex.com",
+        "pm.me",
+    }
+)
+
+def _require_company_email(user) -> None:
+    """Reject personal/free email domains from connecting — they'd pool unrelated
+    users into one shared company and leak documents across them."""
+    if _domain_from_email(user.email) in _GENERIC_EMAIL_DOMAINS:
+        raise HTTPException(
+            status_code=403,
+            detail="Please connect with your company email, not a personal email address.",
+        )
 
 def _create_state(user_id: int) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=_STATE_EXPIRE_MINUTES)
@@ -177,6 +220,7 @@ def _upsert_connection(
 def start_connect(user) -> dict:
     """Return the Atlassian authorize URL the browser should redirect to."""
     require_confluence_oauth()
+    _require_company_email(user)
     state = _create_state(int(user.id))
     params = {
         "audience": "api.atlassian.com",
@@ -210,7 +254,7 @@ def handle_callback(code: str, state: str) -> str:
             detail="No accessible Confluence sites for this Atlassian account.",
         )
     site = resources[0]
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(tokens.get("expires_in", 3600)))
+    expires_at = _utcnow() + timedelta(seconds=int(tokens.get("expires_in", 3600)))
     _upsert_connection(
         company_id=company.id,
         user_id=user_id,
@@ -241,6 +285,12 @@ def _running_job_progress(company_id: int) -> Optional[dict]:
     job = _running_job(company_id)
     return _job_progress(job) if job is not None else None
 
+def _last_result_progress(company_id: int) -> Optional[dict]:
+    """The most recent finished job's result, shown once so a sync/ingest that
+    completed while the user was away still surfaces its outcome."""
+    job = _latest_finished_job(company_id)
+    return _job_progress(job) if job is not None else None
+
 def get_status(user) -> dict:
     """Report whether this user's company is connected, and how much is indexed."""
     company = get_or_create_company_for_user(user)
@@ -255,13 +305,16 @@ def get_status(user) -> dict:
             "ingest": None,
         }
     page_count, chunk_count = _counts(company.id)
+    running = _running_job_progress(company.id)
     return {
         "connected": True,
         "status": conn.status,
         "site_url": conn.site_url,
         "page_count": page_count,
         "chunk_count": chunk_count,
-        "ingest": _running_job_progress(company.id),
+        "ingest": running,
+        # Only surface a finished-job result when nothing is currently running.
+        "last_result": None if running else _last_result_progress(company.id),
     }
 
 # ── Confluence REST client ─────────────────────────────────────────────────────
@@ -307,7 +360,7 @@ def _refresh_access_token(conn: ConfluenceConnection) -> str:
     data = resp.json()
     new_access = data["access_token"]
     new_refresh = data.get("refresh_token") or decrypt_secret(conn.refresh_token)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(data.get("expires_in", 3600)))
+    expires_at = _utcnow() + timedelta(seconds=int(data.get("expires_in", 3600)))
     with Session(engine) as session:
         db = session.exec(
             select(ConfluenceConnection).where(ConfluenceConnection.company_id == conn.company_id)
@@ -355,6 +408,10 @@ def _fetch_spaces(cloud_id: str, token: str) -> list:
     results: list = []
     for _ in range(50):  # safety cap on pages
         resp = _read_get(url, headers)
+        if resp.status_code in (401, 403):
+            raise HTTPException(
+                status_code=401, detail="Confluence session expired; please reconnect."
+            )
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail="Failed to list Confluence spaces.")
         data = resp.json()
@@ -386,6 +443,12 @@ def _search_pages(cloud_id: str, token: str, space_key: str) -> list:
     results: list = []
     for _ in range(200):  # safety cap
         resp = _read_get(url, headers)
+        if resp.status_code in (401, 403):
+            # Auth failure is global (e.g. token expired mid-run) — surface it so the
+            # job fails loudly instead of silently skipping every space as "empty".
+            raise HTTPException(
+                status_code=401, detail="Confluence session expired; please reconnect."
+            )
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail="Failed to search Confluence pages.")
         data = resp.json()
@@ -450,7 +513,7 @@ def _upsert_page(company_id: int, page: dict):
         row.title = title
         row.content_text = text
         row.is_active = True
-        row.last_synced_at = datetime.now(timezone.utc)
+        row.last_synced_at = _utcnow()
         session.add(row)
         session.commit()
         session.refresh(row)
@@ -494,9 +557,9 @@ def _embed_page(company_id: int, page_db_id: int, text: str) -> int:
 
 # ── ingestion job ────────────────────────────────────────────────────────────
 
-def _create_job(company_id: int) -> int:
+def _create_job(company_id: int, kind: str = "ingest") -> int:
     with Session(engine) as session:
-        job = IngestionJob(company_id=company_id, status="running")
+        job = IngestionJob(company_id=company_id, status="running", kind=kind)
         session.add(job)
         session.commit()
         session.refresh(job)
@@ -539,7 +602,7 @@ def _update_job(
         if error is not None:
             job.error = error
         if completed:
-            job.completed_at = datetime.now(timezone.utc)
+            job.completed_at = _utcnow()
         session.add(job)
         session.commit()
 
@@ -552,6 +615,33 @@ def _running_job(company_id: int) -> Optional[IngestionJob]:
             .order_by(IngestionJob.id.desc())
         ).first()
 
+def reap_running_jobs() -> int:
+    """Mark any lingering 'running' jobs as failed. Called on app startup: these
+    jobs run as in-process background tasks, so a process restart leaves any
+    in-flight job orphaned as 'running' forever — which would block all future
+    ingests/reconciles. Returns how many were reaped."""
+    with Session(engine) as session:
+        stuck = session.exec(select(IngestionJob).where(IngestionJob.status == "running")).all()
+        for job in stuck:
+            job.status = "failed"
+            job.phase = "failed"
+            job.error = "Interrupted by a server restart. Please run it again."
+            job.completed_at = _utcnow()
+            session.add(job)
+        session.commit()
+        return len(stuck)
+
+def _latest_finished_job(company_id: int) -> Optional[IngestionJob]:
+    """Most recent completed/failed job — lets the UI show the result of a job
+    that finished while the user was away (not just running ones)."""
+    with Session(engine) as session:
+        return session.exec(
+            select(IngestionJob)
+            .where(IngestionJob.company_id == company_id)
+            .where(IngestionJob.status != "running")
+            .order_by(IngestionJob.id.desc())
+        ).first()
+
 def begin_ingest(user, background_tasks) -> dict:
     """Validate, create a job, and schedule a full ingest in the background.
     If an ingest is already running for the company, return it instead of
@@ -560,10 +650,12 @@ def begin_ingest(user, background_tasks) -> dict:
     _require_ready_connection(company.id)
     existing = _running_job(company.id)
     if existing is not None:
-        return {"job_id": existing.id, "status": "running"}
+        # A job (of either kind) is already running — return it with its true kind
+        # so the UI labels progress honestly instead of assuming an ingest.
+        return {"job_id": existing.id, "status": "running", "kind": existing.kind}
     job_id = _create_job(company.id)
     background_tasks.add_task(_run_ingest, company.id, job_id)
-    return {"job_id": job_id, "status": "running"}
+    return {"job_id": job_id, "status": "running", "kind": "ingest"}
 
 def _flush_embed_batch(company_id: int, buffer: list) -> int:
     """Embed a buffer of (page_db_id, chunks) in ONE batched call, then store each
@@ -605,6 +697,11 @@ def _run_ingest(company_id: int, job_id: int) -> None:
             if key:
                 try:
                     raw_pages.extend(_search_pages(conn.cloud_id, token, key))
+                except HTTPException as exc:
+                    if exc.status_code == 401:
+                        raise  # auth is global — fail the whole job, don't fake success
+                    logger.warning("Ingest %s: skipping space %s (%s)", job_id, key, exc.detail)
+                    skipped_spaces += 1
                 except Exception as exc:
                     logger.warning("Ingest %s: skipping space %s (%s)", job_id, key, exc)
                     skipped_spaces += 1
@@ -667,6 +764,8 @@ def _run_ingest(company_id: int, job_id: int) -> None:
     except Exception as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
         logger.exception("Ingestion job %s failed", job_id)
+        if isinstance(exc, HTTPException) and exc.status_code == 401:
+            _mark_status(company_id, "error")  # surface the Reconnect state in the UI
         _update_job(job_id, status="failed", phase="failed", error=str(detail), completed=True)
 
 def _flush_and_track(company_id, job_id, buffer, embedded, failed_chunks):
@@ -685,6 +784,7 @@ def _job_progress(job: IngestionJob) -> dict:
     return {
         "job_id": job.id,
         "status": job.status,
+        "kind": job.kind,
         "phase": job.phase,
         "total_spaces": job.total_spaces,
         "processed_spaces": job.processed_spaces,
@@ -778,6 +878,16 @@ def _handle_page_created(payload: dict) -> dict:
     return {"status": "ignored"}
 
 def handle_webhook(payload: dict) -> dict:
+    """Handle a Confluence webhook, never raising: a failure here (e.g. the embed
+    model can't load) must not 500 the endpoint, or Atlassian will retry-storm it.
+    Returns a status dict; the reconciler catches anything missed."""
+    try:
+        return _dispatch_webhook(payload)
+    except Exception:
+        logger.exception("Confluence webhook handling failed")
+        return {"status": "error"}
+
+def _dispatch_webhook(payload: dict) -> dict:
     """Dispatch a Confluence webhook. Create resolves the company by cloud id;
     update/remove scope to that company too (when a cloud id is present) so a
     webhook for one tenant can't touch another tenant's page that happens to
@@ -808,35 +918,78 @@ def handle_webhook(payload: dict) -> dict:
 
 # ── reconciliation ─────────────────────────────────────────────────────────────
 
-def reconcile_company(company_id: int) -> dict:
-    """Re-list every space and sync page activation: deactivate pages that
-    vanished upstream, reactivate ones that reappeared. Catches missed webhooks."""
-    conn = _get_connection(company_id)
-    if conn is None or conn.status != "ready" or not conn.access_token:
-        raise HTTPException(status_code=409, detail="Confluence is not connected for your company.")
-    token = _get_valid_token(conn)
+def begin_reconcile(user, background_tasks) -> dict:
+    """Schedule a background reconcile (re-scan every space to fix deletions /
+    restores). Returns the running job if one is already in flight."""
+    company = get_or_create_company_for_user(user)
+    _require_ready_connection(company.id)
+    existing = _running_job(company.id)
+    if existing is not None:
+        return {"job_id": existing.id, "status": "running", "kind": existing.kind}
+    job_id = _create_job(company.id, kind="reconcile")
+    background_tasks.add_task(_run_reconcile, company.id, job_id)
+    return {"job_id": job_id, "status": "running", "kind": "reconcile"}
 
-    live_ids: set = set()
-    for space in _fetch_spaces(conn.cloud_id, token):
-        key = space.get("key")
-        if key:
-            for page in _search_pages(conn.cloud_id, token, key):
-                live_ids.add(str(page.get("id")))
+def _run_reconcile(company_id: int, job_id: int) -> None:
+    """Background worker: re-list every space (with progress), then deactivate
+    pages that vanished upstream and reactivate ones that reappeared. A space that
+    fails after retries is skipped rather than failing the whole sync."""
+    try:
+        conn = _get_connection(company_id)
+        if conn is None or not conn.access_token:
+            raise HTTPException(status_code=409, detail="Confluence is not connected.")
+        token = _get_valid_token(conn)
 
-    deactivated = reactivated = 0
-    with Session(engine) as session:
-        pages = session.exec(
-            select(DocumentPage).where(DocumentPage.company_id == company_id)
-        ).all()
-        for page in pages:
-            present = page.confluence_page_id in live_ids
-            if not present and page.is_active:
-                page.is_active = False
-                session.add(page)
-                deactivated += 1
-            elif present and not page.is_active:
-                page.is_active = True
-                session.add(page)
-                reactivated += 1
-        session.commit()
-    return {"deactivated": deactivated, "reactivated": reactivated}
+        # Phase 1 — reading: gather the set of pages that still exist upstream.
+        spaces = _fetch_spaces(conn.cloud_id, token)
+        _update_job(job_id, phase="reading", total_spaces=len(spaces), processed_spaces=0)
+        live_ids: set = set()
+        skipped_spaces = 0
+        for i, space in enumerate(spaces, start=1):
+            key = space.get("key")
+            if key:
+                try:
+                    for page in _search_pages(conn.cloud_id, token, key):
+                        live_ids.add(str(page.get("id")))
+                except HTTPException as exc:
+                    if exc.status_code == 401:
+                        raise  # auth is global — fail loudly rather than deactivate everything
+                    logger.warning("Reconcile %s: skipping space %s (%s)", job_id, key, exc.detail)
+                    skipped_spaces += 1
+                except Exception as exc:
+                    logger.warning("Reconcile %s: skipping space %s (%s)", job_id, key, exc)
+                    skipped_spaces += 1
+            _update_job(job_id, processed_spaces=i)
+
+        # Phase 2 — reconciling: flip is_active based on presence upstream.
+        _update_job(job_id, phase="reconciling")
+        deactivated = reactivated = 0
+        with Session(engine) as session:
+            pages = session.exec(
+                select(DocumentPage).where(DocumentPage.company_id == company_id)
+            ).all()
+            for page in pages:
+                present = page.confluence_page_id in live_ids
+                if not present and page.is_active:
+                    page.is_active = False
+                    session.add(page)
+                    deactivated += 1
+                elif present and not page.is_active:
+                    page.is_active = True
+                    session.add(page)
+                    reactivated += 1
+            session.commit()
+
+        if deactivated == 0 and reactivated == 0 and not skipped_spaces:
+            note = "Already up to date — no changes."
+        else:
+            note = f"{deactivated} removed, {reactivated} restored"
+            if skipped_spaces:
+                note += f"; {skipped_spaces} space(s) skipped"
+        _update_job(job_id, status="done", phase="done", error=note, completed=True)
+    except Exception as exc:
+        detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        logger.exception("Reconcile job %s failed", job_id)
+        if isinstance(exc, HTTPException) and exc.status_code == 401:
+            _mark_status(company_id, "error")  # surface the Reconnect state in the UI
+        _update_job(job_id, status="failed", phase="failed", error=str(detail), completed=True)

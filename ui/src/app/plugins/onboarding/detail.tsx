@@ -196,7 +196,7 @@ function DayContentPanel({
                             <Sparkles className="h-10 w-10 text-muted-foreground mb-3" />
                             <h3 className="font-semibold">Content not generated yet</h3>
                             <p className="text-sm text-muted-foreground mt-1 mb-4">Generate the learning content for this day.</p>
-                            <Button onClick={handleGenerate} disabled={isGenerating}>
+                            <Button onClick={() => handleGenerate()} disabled={isGenerating}>
                                 {isGenerating
                                     ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Generating…</>
                                     : <><Sparkles className="h-4 w-4 mr-1.5" />Generate Content</>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { Plus, Send, Loader2, Trash2, Sparkles, ArrowLeft, PanelLeft } from "lucide-react"
+import { Plus, Send, Loader2, Trash2, Sparkles, ArrowLeft, PanelLeft, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -44,6 +44,9 @@ export default function KnowledgePage() {
     const [sending, setSending] = useState(false)
     const [navOpen, setNavOpen] = useState(false)
     const scrollRef = useRef<HTMLDivElement>(null)
+    // Which chat is currently in view — read synchronously in async handlers so a
+    // response that lands after the user switched chats doesn't touch the wrong thread.
+    const activeIdRef = useRef<number | null>(null)
 
     // Collapse the app chrome for a focused, full-screen chat surface.
     useEffect(() => {
@@ -72,15 +75,20 @@ export default function KnowledgePage() {
 
     async function openChat(id: number) {
         setActiveId(id)
+        activeIdRef.current = id
         setNavOpen(false)
+        setInput("")
         setMessages([])
         const { success, data } = await getRequest(`/py/knowledge/chats/${id}`)
-        if (success) setMessages(data.messages)
+        // Ignore a late response if the user has since switched to another chat.
+        if (success && activeIdRef.current === id) setMessages(data.messages)
     }
 
     function newChat() {
         setActiveId(null)
+        activeIdRef.current = null
         setMessages([])
+        setInput("")
         setNavOpen(false)
     }
 
@@ -100,6 +108,7 @@ export default function KnowledgePage() {
             if (!success) return
             chatId = data.id
             setActiveId(chatId)
+            activeIdRef.current = chatId
             setChats(prev => [data, ...prev])
         }
 
@@ -108,6 +117,9 @@ export default function KnowledgePage() {
         setSending(true)
         const { success, data } = await postRequest(`/py/knowledge/chats/${chatId}/messages`, { question: q })
         setSending(false)
+        // If the user switched to a different chat mid-send, don't mutate the now-visible
+        // thread; the sent chat will show the persisted turns when reopened.
+        if (activeIdRef.current !== chatId) { loadChats(); return }
         if (success) {
             setMessages(prev => [...prev.slice(0, -1), data.assistant])
             loadChats()  // refresh title + ordering

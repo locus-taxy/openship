@@ -36,5 +36,5 @@ def webhook(
     return confluence_controller.webhook(payload, secret)
 
 @router.post("/confluence/reconcile")
-def reconcile(request: Request):
-    return confluence_controller.reconcile(request.state.user)
+def reconcile(request: Request, background_tasks: BackgroundTasks):
+    return confluence_controller.reconcile(request.state.user, background_tasks)

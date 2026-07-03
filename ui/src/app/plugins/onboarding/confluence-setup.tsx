@@ -9,6 +9,7 @@ import { toast } from "@/hooks/use-toast"
 
 type JobProgress = {
     status: string
+    kind?: string
     phase: string | null
     total_spaces: number
     processed_spaces: number
@@ -16,14 +17,33 @@ type JobProgress = {
     processed_pages: number
     total_chunks: number
     embedded_chunks: number
+    error?: string | null
 }
+type JobResult = JobProgress & { job_id: number }
 type Status = {
     connected: boolean
     status: string | null
     site_url: string | null
     page_count: number
     chunk_count: number
-    ingest: (JobProgress & { job_id: number }) | null
+    ingest: JobResult | null
+    last_result?: JobResult | null
+}
+
+// A friendly toast for a finished ingest/reconcile job.
+function announceJob(job: JobResult): { title: string; description: string; variant?: "destructive" } {
+    const isReconcile = job.kind === "reconcile"
+    if (job.status === "failed") {
+        return {
+            title: isReconcile ? "Sync failed" : "Ingestion failed",
+            description: job.error || "Something went wrong.",
+            variant: "destructive",
+        }
+    }
+    return {
+        title: isReconcile ? "Synced with Confluence" : "Confluence indexed",
+        description: job.error || (isReconcile ? "Done." : "Your docs are up to date."),
+    }
 }
 
 // mm:ss (or h:mm:ss past an hour) for the live ingest timer.
@@ -40,7 +60,6 @@ export function ConfluenceSetup({ onStatus }: { onStatus?: (s: Status) => void }
     const [status, setStatus] = useState<Status | null>(null)
     const [loading, setLoading] = useState(true)
     const [connecting, setConnecting] = useState(false)
-    const [reconciling, setReconciling] = useState(false)
     const [jobId, setJobId] = useState<number | null>(null)
     const [progress, setProgress] = useState<JobProgress | null>(null)
     const [elapsed, setElapsed] = useState(0)
@@ -50,11 +69,18 @@ export function ConfluenceSetup({ onStatus }: { onStatus?: (s: Status) => void }
         if (success) {
             setStatus(data)
             onStatus?.(data)
-            // Resume the live progress view if an ingest is already running for the
-            // company (e.g. after a page refresh, or a teammate started it).
+            // Resume the live progress view if a job is already running (e.g. after a
+            // page refresh, or a teammate started it).
             if (data.ingest) {
                 setJobId(data.ingest.job_id)
                 setProgress(data.ingest)
+            } else if (data.last_result) {
+                // A job finished (possibly while away) — announce its result once.
+                const key = "last_job_ack"
+                if (window.localStorage.getItem(key) !== String(data.last_result.job_id)) {
+                    window.localStorage.setItem(key, String(data.last_result.job_id))
+                    toast(announceJob(data.last_result))
+                }
             }
         }
         setLoading(false)
@@ -96,7 +122,8 @@ export function ConfluenceSetup({ onStatus }: { onStatus?: (s: Status) => void }
             if (data.status === "done" || data.status === "failed") {
                 active = false
                 window.localStorage.removeItem(`ingest_started_${jobId}`)
-                if (data.status === "done") loadStatus()
+                // loadStatus surfaces the finished job's result toast (once, via ack).
+                loadStatus()
             }
         }
         tick()
@@ -117,43 +144,52 @@ export function ConfluenceSetup({ onStatus }: { onStatus?: (s: Status) => void }
     }, [jobId, progress?.status])
 
     async function handleReconcile() {
-        setReconciling(true)
         const { success, data } = await postRequest("/py/confluence/reconcile", {})
-        setReconciling(false)
-        if (success) {
-            toast({
-                title: "Synced with Confluence",
-                description: `${data.deactivated} removed, ${data.reactivated} restored.`,
+        if (success && data?.job_id != null) {
+            setJobId(data.job_id)
+            setProgress({
+                status: "running", kind: "reconcile", phase: "reading",
+                total_spaces: 0, processed_spaces: 0,
+                total_pages: 0, processed_pages: 0, total_chunks: 0, embedded_chunks: 0,
             })
+        } else {
             loadStatus()
         }
     }
 
     if (loading) return <Skeleton className="h-14 w-full rounded-xl" />
 
-    // Active ingestion — show staged progress (reading → indexing → embedding).
+    // Active job — show staged progress (ingest: reading → scanning → embedding;
+    // reconcile: reading → applying changes).
     if (jobId != null && progress && progress.status !== "done") {
         const failed = progress.status === "failed"
+        const isReconcile = progress.kind === "reconcile"
         const pct = (done: number, total: number) => (total > 0 ? Math.round((done / total) * 100) : 0)
-        const STAGES = [
-            { key: "reading", label: "Reading spaces", done: progress.processed_spaces, total: progress.total_spaces },
-            { key: "indexing", label: "Scanning pages", done: progress.processed_pages, total: progress.total_pages },
-            { key: "embedding", label: "Embedding chunks", done: progress.embedded_chunks, total: progress.total_chunks },
-        ]
-        const order = ["reading", "indexing", "embedding", "done"]
-        const currentIdx = order.indexOf(progress.phase || "reading")
+        const STAGES = isReconcile
+            ? [
+                { key: "reading", label: "Reading spaces", done: progress.processed_spaces, total: progress.total_spaces },
+                { key: "reconciling", label: "Applying changes", done: 0, total: 0 },
+            ]
+            : [
+                { key: "reading", label: "Reading spaces", done: progress.processed_spaces, total: progress.total_spaces },
+                { key: "indexing", label: "Scanning pages", done: progress.processed_pages, total: progress.total_pages },
+                { key: "embedding", label: "Embedding chunks", done: progress.embedded_chunks, total: progress.total_chunks },
+            ]
+        const order = isReconcile ? ["reading", "reconciling", "done"] : ["reading", "indexing", "embedding", "done"]
+        // Default to the first stage if the phase is unknown, so no stage renders "active".
+        const currentIdx = Math.max(0, order.indexOf(progress.phase || "reading"))
         return (
             <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
                 {failed ? (
                     <div className="flex items-center gap-2 text-sm text-destructive">
-                        <AlertTriangle className="h-4 w-4" /> Ingestion failed after {formatElapsed(elapsed)}.
+                        <AlertTriangle className="h-4 w-4" /> {isReconcile ? "Sync" : "Ingestion"} failed after {formatElapsed(elapsed)}.
                         <Button variant="outline" size="sm" className="ml-auto" onClick={() => { setJobId(null); setProgress(null) }}>Dismiss</Button>
                     </div>
                 ) : (
                     <>
                         <div className="flex items-center gap-2 text-sm font-medium">
                             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                            Indexing your Confluence…
+                            {isReconcile ? "Syncing with Confluence…" : "Indexing your Confluence…"}
                             <span className="ml-auto text-xs font-normal tabular-nums text-muted-foreground">{formatElapsed(elapsed)}</span>
                         </div>
                         {STAGES.map((stage, idx) => {
@@ -175,25 +211,6 @@ export function ConfluenceSetup({ onStatus }: { onStatus?: (s: Status) => void }
                         })}
                     </>
                 )}
-            </div>
-        )
-    }
-
-    // Reconcile is a full re-scan of every space — show a clear status while it runs.
-    if (reconciling) {
-        return (
-            <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                    Syncing with Confluence…
-                </div>
-                <p className="text-xs text-muted-foreground">
-                    Re-scanning every space to detect pages that changed or were removed. This can
-                    take a minute on large workspaces — you can keep working.
-                </p>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
-                </div>
             </div>
         )
     }
@@ -263,8 +280,8 @@ export function ConfluenceSetup({ onStatus }: { onStatus?: (s: Status) => void }
                 </div>
                 <div className="flex items-center gap-1.5">
                     {hasDocs && (
-                        <Button variant="ghost" size="sm" onClick={handleReconcile} disabled={reconciling} title="Sync with Confluence">
-                            <RefreshCw className={cn("h-4 w-4", reconciling && "animate-spin")} />
+                        <Button variant="ghost" size="sm" onClick={handleReconcile} title="Sync with Confluence">
+                            <RefreshCw className="h-4 w-4" />
                         </Button>
                     )}
                     <Button variant={hasDocs ? "outline" : "default"} size="sm" onClick={startIngest}>

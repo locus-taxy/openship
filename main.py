@@ -30,6 +30,16 @@ logger = logging.getLogger("openship")
 async def lifespan(_app: FastAPI):
     logger.info("openship: application startup — running migrations if enabled")
     run_startup_migrations()
+    # Background ingest/reconcile jobs run in-process; a restart orphans any that
+    # were mid-run as 'running' forever. Reap them so the feature isn't wedged.
+    try:
+        from onboarding.services.confluence import reap_running_jobs
+
+        reaped = reap_running_jobs()
+        if reaped:
+            logger.info("openship: reaped %d interrupted ingestion job(s)", reaped)
+    except Exception:
+        logger.exception("openship: failed to reap interrupted ingestion jobs")
     logger.info("openship: application startup — serving API")
     yield
 

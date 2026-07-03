@@ -18,8 +18,8 @@ from onboarding.services import retrieval as retrieval_service
 from onboarding.services import generation as llm_service
 
 _RETRIEVE_K = 8
-# How many prior turns to feed back to the model as follow-up context.
-_HISTORY_TURNS = 8
+# How many prior messages (user + assistant) to feed back as follow-up context.
+_HISTORY_MESSAGES = 12
 
 def _answer(company_id: int, question: str, provider, api_key, model, history=None) -> dict:
     """Retrieve relevant chunks and answer, with deduped citations. Shared by the
@@ -77,7 +77,9 @@ def _blocks_to_text(blocks: list) -> str:
             parts.append(" | ".join(str(h) for h in b.get("headers", [])))
             for row in b.get("rows", []):
                 parts.append(" | ".join(str(c) for c in row))
-    return "\n\n".join(parts).strip() or "(no answer)"
+    # Empty on purpose (e.g. a divider-only answer): return "" rather than a sentinel
+    # so it isn't fed back as poisoned history — the generator skips empty turns.
+    return "\n\n".join(parts).strip()
 
 def _answer_blocks(company_id, question, provider, api_key, model, history=None) -> dict:
     """Retrieve chunks and answer as structured content blocks, with citations."""
@@ -186,7 +188,7 @@ def post_message(
             .where(KnowledgeMessage.chat_id == chat_id)
             .order_by(KnowledgeMessage.id)
         ).all()
-        history = [{"role": m.role, "content": m.content} for m in prior][-_HISTORY_TURNS:]
+        history = [{"role": m.role, "content": m.content} for m in prior][-_HISTORY_MESSAGES:]
         is_first = len(prior) == 0
 
     result = _answer_blocks(company_id, question, provider, api_key, model, history=history)
