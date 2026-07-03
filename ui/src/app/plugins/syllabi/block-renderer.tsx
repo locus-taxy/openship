@@ -130,8 +130,9 @@ function sanitizeDiagram(code: string): string {
 
     const cleanLabel = (s: string) =>
         // – (en dash) confuses Mermaid's flowchart lexer; @ is rejected in pipe labels.
-        // () inside labels break the parser (Mermaid reads them as shape syntax); strip parens, keep text.
-        s.replace(/–/g, "-").replace(/@/g, "").replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "").replace(/[()]/g, "")
+        // () and {} inside labels break the parser (Mermaid reads them as shape syntax,
+        // e.g. tenant_{client_id} in a [..] label); strip those brackets, keep the text.
+        s.replace(/–/g, "-").replace(/@/g, "").replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "").replace(/[(){}]/g, "")
 
     // Pass 1 — smart multi-line label merge.
     // Loop until node brackets are balanced, merging continuation lines one at a time.

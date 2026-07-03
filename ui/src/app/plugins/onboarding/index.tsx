@@ -18,7 +18,6 @@ import api from "@/services"
 import useStore from "@/store"
 import { LlmBar } from "@/components/llm-bar"
 import { ConfluenceSetup } from "./confluence-setup"
-import { KnowledgeAsk } from "./knowledge-ask"
 
 const ROLE_SUGGESTIONS = ["Backend Engineer", "DevOps Engineer", "SDET", "Product Manager"]
 
@@ -129,7 +128,6 @@ export default function OnboardingPage() {
     const [generating, setGenerating] = useState(false)
     const [deleteId, setDeleteId] = useState<number | null>(null)
     const [deleting, setDeleting] = useState(false)
-    const [kbReady, setKbReady] = useState(false)
     const navigate = useNavigate()
     const { setPluginName } = useStore((state: any) => state)
 
@@ -183,10 +181,7 @@ export default function OnboardingPage() {
             </div>
 
             {/* Confluence connection + ingestion */}
-            <ConfluenceSetup onStatus={s => setKbReady(s.connected && s.chunk_count > 0)} />
-
-            {/* Ask anything over the ingested docs (only once something is indexed) */}
-            {kbReady && <KnowledgeAsk />}
+            <ConfluenceSetup />
 
             {/* LLM selector */}
             <LlmBar />

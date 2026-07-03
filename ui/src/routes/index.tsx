@@ -13,6 +13,7 @@ import AnalyticsPage from "@/app/plugins/analytics";
 import OnboardingPage from "@/app/plugins/onboarding"
 import OnboardingDetailPage from "@/app/plugins/onboarding/detail"
 import PublicOnboardingPage from "@/app/plugins/onboarding/public";
+import KnowledgePage from "@/app/plugins/knowledge";
 import LoginPage from "@/app/auth/login";
 import SignupPage from "@/app/auth/signup";
 
@@ -98,6 +99,10 @@ const router = createBrowserRouter([
             {
                 path: "onboarding/:planId",
                 element: <OnboardingDetailPage />,
+            },
+            {
+                path: "knowledge",
+                element: <KnowledgePage />,
             },
         ],
     },

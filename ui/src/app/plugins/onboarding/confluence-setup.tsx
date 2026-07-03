@@ -179,6 +179,25 @@ export function ConfluenceSetup({ onStatus }: { onStatus?: (s: Status) => void }
         )
     }
 
+    // Reconcile is a full re-scan of every space — show a clear status while it runs.
+    if (reconciling) {
+        return (
+            <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    Syncing with Confluence…
+                </div>
+                <p className="text-xs text-muted-foreground">
+                    Re-scanning every space to detect pages that changed or were removed. This can
+                    take a minute on large workspaces — you can keep working.
+                </p>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+                </div>
+            </div>
+        )
+    }
+
     if (!status?.connected) {
         // A connection row exists but isn't usable (token expired / refresh failed):
         // show a distinct "Reconnect" state rather than a generic first-time connect.

@@ -15,16 +15,33 @@ from onboarding.prompts import onboarding as onboarding_prompts
 
 logger = logging.getLogger(__name__)
 
-# How many chunks to retrieve as grounding for plan/quiz generation.
-_RETRIEVE_K = 24
+# Chunks to retrieve as grounding. Planning/quiz sweep broadly across the
+# company's docs; a single day pulls a tighter, more focused set for its topic.
+_PLAN_RETRIEVE_K = 30
+_DAY_RETRIEVE_K = 20
 
-def _load_docs(company_id: int, role: str = "", topic: str = "") -> str:
-    """Retrieve the most relevant knowledge-base chunks for this role/topic and
-    return them as a grounding context string."""
-    query = " ".join(
-        p for p in [role, topic, "onboarding architecture setup codebase platform process"] if p
-    )
-    context = retrieval_service.retrieve_context(company_id, query, k=_RETRIEVE_K)
+# Broad seed used when planning the whole onboarding (no single topic yet).
+_LANDSCAPE_SEED = "architecture setup codebase systems services workflows processes conventions"
+
+def _load_docs(
+    company_id: int,
+    role: str = "",
+    topic: str = "",
+    task: str = "",
+    k: Optional[int] = None,
+) -> str:
+    """Retrieve the most relevant knowledge-base chunks as grounding context.
+
+    With a `topic` (generating one day / a quiz over known topics) the query is
+    tight — role + topic + task — for precise grounding. Without one (planning
+    the 7 days) it sweeps the company's doc landscape for breadth."""
+    if topic:
+        query = " ".join(p for p in [role, topic, task] if p)
+        k = k or _DAY_RETRIEVE_K
+    else:
+        query = " ".join(p for p in [role, _LANDSCAPE_SEED] if p)
+        k = k or _PLAN_RETRIEVE_K
+    context = retrieval_service.retrieve_context(company_id, query, k=k)
     if not context.strip():
         raise HTTPException(
             status_code=404,
@@ -119,7 +136,7 @@ def get_day_content(
         if day.content_blocks and not force:
             return {"day": day.model_dump()}
 
-        docs_text = _load_docs(company_id, plan.role, topic=day.topic)
+        docs_text = _load_docs(company_id, plan.role, topic=day.topic, task=day.task)
 
         content = llm_service.generate_onboarding_day_content(
             role=plan.role,
@@ -238,7 +255,8 @@ def generate_quiz(
         ).all()
         topics = [d.topic for d in days]
 
-    docs_text = _load_docs(company_id, plan.role)
+    # Ground the quiz in the exact topics the plan covered (broad sweep).
+    docs_text = _load_docs(company_id, plan.role, topic=", ".join(topics), k=_PLAN_RETRIEVE_K)
     questions = llm_service.generate_onboarding_quiz(
         role=plan.role,
         company=plan.company,

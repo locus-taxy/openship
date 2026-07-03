@@ -9,6 +9,8 @@ from onboarding.models.ingestion_job import IngestionJob
 from onboarding.models.onboarding_plan import OnboardingPlan
 from onboarding.models.onboarding_day import OnboardingDay
 from onboarding.models.onboarding_quiz_attempt import OnboardingQuizAttempt
+from onboarding.models.knowledge_chat import KnowledgeChat
+from onboarding.models.knowledge_message import KnowledgeMessage
 
 __all__ = [
     "Company",
@@ -19,4 +21,6 @@ __all__ = [
     "OnboardingPlan",
     "OnboardingDay",
     "OnboardingQuizAttempt",
+    "KnowledgeChat",
+    "KnowledgeMessage",
 ]

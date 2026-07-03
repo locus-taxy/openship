@@ -227,6 +227,66 @@ def generate_onboarding_quiz(
         logger.exception("Onboarding quiz generation failed [provider=%s]", provider)
         return None
 
+class KnowledgeBlocks(StructuredOnboardingDayContent):
+    """A structured, block-based knowledge answer. Same block shape (and lenient
+    JSON parsing / empty-block filtering) as onboarding day content, so the shared
+    frontend BlockRenderer renders it identically. `used_docs` flags whether the
+    answer is grounded in the company docs (vs a greeting / general knowledge)."""
+
+    used_docs: bool = Field(
+        default=True,
+        description="True only if the answer is grounded in the provided company docs",
+    )
+
+def answer_blocks_from_context(
+    question: str,
+    context: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    history: Optional[List[dict]] = None,
+) -> Optional[dict]:
+    """Answer as structured content blocks — grounded in the docs when they cover
+    it, otherwise conversationally / from general knowledge. Returns
+    {"blocks": [...], "used_docs": bool} or None."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+    max_tokens = 16384 if provider in ("gemini", "openai") else 8192
+
+    messages = [{"role": "system", "content": knowledge_prompts.knowledge_blocks_system_prompt()}]
+    for turn in history or []:
+        if turn.get("role") in ("user", "assistant") and turn.get("content"):
+            messages.append({"role": turn["role"], "content": turn["content"]})
+    messages.append(
+        {
+            "role": "user",
+            "content": knowledge_prompts.knowledge_blocks_user_prompt(question, context),
+        }
+    )
+
+    try:
+        client = _build_client(provider, api_key)
+        response: KnowledgeBlocks = client.chat.completions.create(
+            model=model,
+            response_model=KnowledgeBlocks,
+            messages=messages,
+            **_token_kwargs(provider, max_tokens),
+            max_retries=1,
+        )
+        if not response.blocks:
+            logger.warning("Knowledge blocks answer returned 0 blocks [provider=%s]", provider)
+            return None
+        return {
+            "blocks": [b.model_dump() for b in response.blocks],
+            "used_docs": bool(response.used_docs),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.exception("Knowledge blocks answer failed [provider=%s]", provider)
+        return None
+
 class KnowledgeAnswer(BaseModel):
     answer: str = Field(description="The answer, grounded only in the provided documentation")
 
@@ -236,23 +296,28 @@ def answer_from_context(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    history: Optional[List[dict]] = None,
 ) -> Optional[str]:
-    """Answer a question grounded in retrieved documentation. Returns text or None."""
+    """Answer a question grounded in retrieved documentation, optionally with prior
+    conversation turns for follow-up context. `history` is a list of
+    {"role": "user"|"assistant", "content": str}. Returns text or None."""
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
+
+    messages = [{"role": "system", "content": knowledge_prompts.knowledge_system_prompt()}]
+    for turn in history or []:
+        if turn.get("role") in ("user", "assistant") and turn.get("content"):
+            messages.append({"role": turn["role"], "content": turn["content"]})
+    messages.append(
+        {"role": "user", "content": knowledge_prompts.knowledge_user_prompt(question, context)}
+    )
 
     try:
         client = _build_client(provider, api_key)
         response: KnowledgeAnswer = client.chat.completions.create(
             model=model,
             response_model=KnowledgeAnswer,
-            messages=[
-                {"role": "system", "content": knowledge_prompts.knowledge_system_prompt()},
-                {
-                    "role": "user",
-                    "content": knowledge_prompts.knowledge_user_prompt(question, context),
-                },
-            ],
+            messages=messages,
             **_token_kwargs(provider, 2048),
             max_retries=1,
         )
