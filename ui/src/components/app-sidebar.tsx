@@ -1,4 +1,4 @@
-import { BookOpen, UserPlus, Sparkles, BarChart2, GraduationCap, MessagesSquare } from "lucide-react";
+import { BookOpen, UserPlus, Sparkles, BarChart2, GraduationCap, MessagesSquare, Plug } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { NavUser } from "@/components/nav-user";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ const NAV_ITEMS = [
     { title: "Courses", icon: BookOpen, url: "/syllabi" },
     { title: "Onboarding", icon: GraduationCap, url: "/onboarding" },
     { title: "Knowledge", icon: MessagesSquare, url: "/knowledge" },
+    { title: "Connections", icon: Plug, url: "/connections" },
 ]
 
 export function AppSidebar() {

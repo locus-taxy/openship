@@ -114,41 +114,8 @@ class TestHelpers:
 # ── company resolution ───────────────────────────────────────────────────────
 
 class TestCompanyResolution:
-    def test_existing(self):
-        existing = Company(id=1, name="locus.sh", domain="locus.sh")
-        patcher, session = _patch_session()
-        try:
-            session.exec.return_value.first.return_value = existing
-            from onboarding.services.confluence import get_or_create_company_for_user
-
-            assert get_or_create_company_for_user(_user()) is existing
-            session.commit.assert_not_called()
-        finally:
-            patcher.stop()
-
-    def test_new(self):
-        patcher, session = _patch_session()
-        try:
-            session.exec.return_value.first.return_value = None
-            from onboarding.services.confluence import get_or_create_company_for_user
-
-            assert get_or_create_company_for_user(_user(email="x@acme.io")).domain == "acme.io"
-            session.commit.assert_called_once()
-        finally:
-            patcher.stop()
-
-    def test_race(self):
-        winner = Company(id=2, name="acme.io", domain="acme.io")
-        patcher, session = _patch_session()
-        try:
-            session.exec.return_value.first.side_effect = [None, winner]
-            session.commit.side_effect = IntegrityError("x", "y", "z")
-            from onboarding.services.confluence import get_or_create_company_for_user
-
-            assert get_or_create_company_for_user(_user(email="x@acme.io")) is winner
-        finally:
-            patcher.stop()
-
+    # Company resolution moved to services.company (see tests/test_company.py). These
+    # confluence-level tests only cover the connection lookup now.
     def test_get_connection(self):
         conn = _conn()
         patcher, session = _patch_session()
@@ -210,6 +177,30 @@ class TestOAuthHttp:
                 _fetch_accessible_resources("AT")
             assert exc.value.status_code == 502
 
+    def test_fetch_atlassian_email_lowercased(self):
+        from onboarding.services.confluence import _fetch_atlassian_email
+
+        with patch(
+            "onboarding.services.confluence.httpx.get",
+            return_value=_resp(200, {"email": "Dev@Locus.SH", "account_id": "a1"}),
+        ):
+            assert _fetch_atlassian_email("AT") == "dev@locus.sh"
+
+    def test_fetch_atlassian_email_none_on_failure(self):
+        from onboarding.services.confluence import _fetch_atlassian_email
+
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(403, {})):
+            assert _fetch_atlassian_email("AT") is None
+
+    def test_fetch_atlassian_email_none_when_absent(self):
+        from onboarding.services.confluence import _fetch_atlassian_email
+
+        with patch(
+            "onboarding.services.confluence.httpx.get",
+            return_value=_resp(200, {"account_id": "a1"}),
+        ):
+            assert _fetch_atlassian_email("AT") is None
+
     def test_upsert_connection_new(self):
         patcher, session = _patch_session()
         try:
@@ -256,13 +247,18 @@ class TestStartConnect:
             out = start_connect(_user())
         assert "client_id=cid" in out["authorize_url"]
 
-    def test_blocks_generic_email(self):
+    def test_allows_generic_email(self):
+        # Personal emails are no longer blocked — they get their own solo org.
         from onboarding.services.confluence import start_connect
 
-        with patch("config.is_confluence_oauth_configured", return_value=True):
-            with pytest.raises(HTTPException) as exc:
-                start_connect(_user(email="someone@gmail.com"))
-            assert exc.value.status_code == 403
+        with (
+            patch("config.is_confluence_oauth_configured", return_value=True),
+            patch("config.ATLASSIAN_CLIENT_ID", "cid"),
+            patch("config.ATLASSIAN_REDIRECT_URI", "https://app/cb"),
+            patch("config.ATLASSIAN_OAUTH_SCOPES", "scopeA"),
+        ):
+            out = start_connect(_user(email="someone@gmail.com"))
+        assert "authorize_url" in out
 
 class TestHandleCallback:
     def _state(self, uid=1):
@@ -284,6 +280,10 @@ class TestHandleCallback:
                 return_value={"access_token": "AT", "expires_in": 3600},
             ),
             patch(
+                "onboarding.services.confluence._fetch_atlassian_email",
+                return_value="dev@locus.sh",  # matches the Openship user
+            ),
+            patch(
                 "onboarding.services.confluence._fetch_accessible_resources",
                 return_value=[{"id": "c1", "url": "https://x"}],
             ),
@@ -293,6 +293,55 @@ class TestHandleCallback:
 
             assert handle_callback("code", self._state()) == config.CONFLUENCE_POST_CONNECT_REDIRECT
             up.assert_called_once()
+
+    def test_rejects_mismatched_atlassian_account(self):
+        # Signed into Atlassian as a personal account → 403, no connection made.
+        with (
+            patch("config.is_confluence_oauth_configured", return_value=True),
+            patch("onboarding.services.confluence.get_user_by_id", return_value=_user()),
+            patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=Company(id=5, name="locus.sh", domain="locus.sh"),
+            ),
+            patch(
+                "onboarding.services.confluence._exchange_code",
+                return_value={"access_token": "AT", "expires_in": 3600},
+            ),
+            patch(
+                "onboarding.services.confluence._fetch_atlassian_email",
+                return_value="someone@gmail.com",
+            ),
+            patch("onboarding.services.confluence._upsert_connection") as up,
+        ):
+            from onboarding.services.confluence import handle_callback
+
+            with pytest.raises(HTTPException) as exc:
+                handle_callback("code", self._state())
+            assert exc.value.status_code == 403
+            up.assert_not_called()
+
+    def test_rejects_when_email_unverifiable(self):
+        # /me didn't return an email → fail closed (don't connect).
+        with (
+            patch("config.is_confluence_oauth_configured", return_value=True),
+            patch("onboarding.services.confluence.get_user_by_id", return_value=_user()),
+            patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=Company(id=5, name="locus.sh", domain="locus.sh"),
+            ),
+            patch(
+                "onboarding.services.confluence._exchange_code",
+                return_value={"access_token": "AT", "expires_in": 3600},
+            ),
+            patch("onboarding.services.confluence._fetch_atlassian_email", return_value=None),
+            patch("onboarding.services.confluence._upsert_connection") as up,
+        ):
+            from onboarding.services.confluence import handle_callback
+
+            with pytest.raises(HTTPException) as exc:
+                handle_callback("code", self._state())
+            assert exc.value.status_code == 403
+            up.assert_not_called()
 
     def test_not_configured(self):
         from onboarding.services.confluence import handle_callback
@@ -339,6 +388,9 @@ class TestHandleCallback:
             ),
             patch(
                 "onboarding.services.confluence._exchange_code", return_value={"access_token": "AT"}
+            ),
+            patch(
+                "onboarding.services.confluence._fetch_atlassian_email", return_value="dev@locus.sh"
             ),
             patch("onboarding.services.confluence._fetch_accessible_resources", return_value=[]),
         ):
@@ -445,6 +497,66 @@ class TestGetStatus:
 
             s = get_status(_user())
             assert s["ingest"]["job_id"] == 9 and s["ingest"]["embedded_chunks"] == 50
+
+class TestGetSiteUrl:
+    def test_returns_site_url(self):
+        with patch(
+            "onboarding.services.confluence._get_connection",
+            return_value=_conn(site_url="https://acme.atlassian.net"),
+        ):
+            from onboarding.services.confluence import get_site_url
+
+            assert get_site_url(1) == "https://acme.atlassian.net"
+
+    def test_none_when_no_connection(self):
+        with patch("onboarding.services.confluence._get_connection", return_value=None):
+            from onboarding.services.confluence import get_site_url
+
+            assert get_site_url(1) is None
+
+class TestConnectionsStatus:
+    def _company(self):
+        return Company(id=1, name="locus.sh", domain="locus.sh")
+
+    def test_not_connected(self):
+        with (
+            patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=self._company(),
+            ),
+            patch("onboarding.services.confluence._get_connection", return_value=None),
+        ):
+            from onboarding.services.confluence import get_connections_status
+
+            s = get_connections_status(_user())
+            assert s["connected"] is False
+            assert s["sources"]["confluence"] == {"page_count": 0, "chunk_count": 0}
+            assert s["sources"]["jira"] == {"page_count": 0, "chunk_count": 0}
+            assert s["ingest"] is None and s["last_result"] is None
+
+    def test_connected_per_source_counts(self):
+        def counts(company_id, source=None):
+            return {"confluence": (10, 200), "jira": (5, 60)}[source]
+
+        with (
+            patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=self._company(),
+            ),
+            patch(
+                "onboarding.services.confluence._get_connection",
+                return_value=_conn(site_url="https://x"),
+            ),
+            patch("onboarding.services.confluence._counts", side_effect=counts),
+            patch("onboarding.services.confluence._running_job", return_value=None),
+            patch("onboarding.services.confluence._latest_finished_job", return_value=None),
+        ):
+            from onboarding.services.confluence import get_connections_status
+
+            s = get_connections_status(_user())
+            assert s["connected"] is True
+            assert s["sources"]["confluence"] == {"page_count": 10, "chunk_count": 200}
+            assert s["sources"]["jira"] == {"page_count": 5, "chunk_count": 60}
 
 # ── token freshness / refresh ────────────────────────────────────────────────────
 
@@ -710,6 +822,327 @@ class TestFetchSinglePage:
             assert _fetch_single_page("c1", "t", '1" or type=page') is None
             get.assert_not_called()
 
+# ── Jira client ───────────────────────────────────────────────────────────────
+
+def _issue(
+    key="ENG-1",
+    summary="Fix bug",
+    project="ENG",
+    description=None,
+    comments=None,
+    assignee=None,
+    reporter=None,
+    status=None,
+):
+    fields = {"summary": summary, "project": {"key": project}}
+    if description is not None:
+        fields["description"] = description
+    if comments is not None:
+        fields["comment"] = {"comments": comments}
+    if assignee is not None:
+        fields["assignee"] = {"displayName": assignee}
+    if reporter is not None:
+        fields["reporter"] = {"displayName": reporter}
+    if status is not None:
+        fields["status"] = {"name": status}
+    return {"key": key, "fields": fields}
+
+def _adf(text):
+    """Minimal ADF doc wrapping a single text node."""
+    return {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
+    }
+
+class TestValidateSource:
+    def test_ok(self):
+        from onboarding.services.confluence import _validate_source
+
+        assert _validate_source("jira") == "jira"
+
+    def test_rejects_unknown(self):
+        from onboarding.services.confluence import _validate_source
+
+        with pytest.raises(HTTPException) as exc:
+            _validate_source("slack")
+        assert exc.value.status_code == 400
+
+class TestSourceReaders:
+    def test_confluence(self):
+        from onboarding.services.confluence import (
+            _source_readers,
+            _fetch_spaces,
+            _search_pages,
+        )
+
+        assert _source_readers("confluence") == (_fetch_spaces, _search_pages)
+
+    def test_jira(self):
+        from onboarding.services.confluence import (
+            _source_readers,
+            _fetch_projects,
+            _search_issues,
+        )
+
+        assert _source_readers("jira") == (_fetch_projects, _search_issues)
+
+class TestFetchProjects:
+    def test_single(self):
+        from onboarding.services.confluence import _fetch_projects
+
+        with patch(
+            "onboarding.services.confluence.httpx.get",
+            return_value=_resp(200, {"values": [{"key": "ENG"}, {"id": "x"}], "isLast": True}),
+        ):
+            assert [p["key"] for p in _fetch_projects("c1", "t")] == ["ENG"]
+
+    def test_paginates(self):
+        from onboarding.services.confluence import _fetch_projects
+
+        p1 = _resp(200, {"values": [{"key": "A"}], "isLast": False})
+        p2 = _resp(200, {"values": [{"key": "B"}], "isLast": True})
+        with patch("onboarding.services.confluence.httpx.get", side_effect=[p1, p2]):
+            assert [p["key"] for p in _fetch_projects("c1", "t")] == ["A", "B"]
+
+    def test_stops_on_empty(self):
+        from onboarding.services.confluence import _fetch_projects
+
+        with patch(
+            "onboarding.services.confluence.httpx.get",
+            return_value=_resp(200, {"values": []}),
+        ):
+            assert _fetch_projects("c1", "t") == []
+
+    def test_auth_failure_raises_401(self):
+        from onboarding.services.confluence import _fetch_projects
+
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(403, {})):
+            with pytest.raises(HTTPException) as exc:
+                _fetch_projects("c1", "t")
+            assert exc.value.status_code == 401
+
+    def test_failure(self):
+        from onboarding.services.confluence import _fetch_projects
+
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(500, {})):
+            with pytest.raises(HTTPException) as exc:
+                _fetch_projects("c1", "t")
+            assert exc.value.status_code == 502
+
+class TestAdfToText:
+    def test_none(self):
+        from onboarding.services.confluence import _adf_to_text
+
+        assert _adf_to_text(None) == ""
+
+    def test_scalar(self):
+        from onboarding.services.confluence import _adf_to_text
+
+        assert _adf_to_text(5) == ""
+
+    def test_nested(self):
+        from onboarding.services.confluence import _adf_to_text
+
+        assert _adf_to_text(_adf("hello there")) == "hello there"
+
+class TestJiraIssueText:
+    def test_assembles_key_summary_description_comments(self):
+        from onboarding.services.confluence import _jira_issue_text
+
+        fields = {
+            "summary": "Login broken",
+            "description": _adf("cannot sign in"),
+            "comment": {
+                "comments": [{"body": _adf("still failing"), "author": {"displayName": "Ana"}}]
+            },
+        }
+        text = _jira_issue_text("ENG-1", fields)
+        assert "Issue ENG-1" in text
+        assert "Login broken" in text and "cannot sign in" in text
+        assert "Ana: still failing" in text  # comment author prefixed
+
+    def test_includes_people_status_and_labels(self):
+        from onboarding.services.confluence import _jira_issue_text
+
+        fields = {
+            "summary": "Ship feature",
+            "status": {"name": "In Progress"},
+            "issuetype": {"name": "Task"},
+            "priority": {"name": "High"},
+            "assignee": {"displayName": "Sunadh Kumar"},
+            "reporter": {"displayName": "Yogesh"},
+            "labels": ["backend", "urgent"],
+        }
+        text = _jira_issue_text("AR-2847", fields)
+        assert "Assignee: Sunadh Kumar" in text
+        assert "Reporter: Yogesh" in text
+        assert "Status: In Progress" in text and "Type: Task" in text and "Priority: High" in text
+        assert "Labels: backend, urgent" in text
+
+    def test_empty(self):
+        from onboarding.services.confluence import _jira_issue_text
+
+        assert _jira_issue_text(None, {}) == ""
+
+class TestNormalizeIssue:
+    def test_shape(self):
+        from onboarding.services.confluence import _normalize_issue
+
+        issue = _issue(
+            description=_adf("body text"),
+            assignee="Sunadh P",
+            reporter="Yogesh Kisslay",
+            status="In Progress",
+        )
+        # Enrich with fields that flow into meta.
+        issue["fields"].update(
+            {
+                "issuetype": {"name": "Bug"},
+                "priority": {"name": "High"},
+                "labels": ["backend"],
+                "created": "2026-01-01T00:00:00.000+0000",
+                "updated": "2026-02-01T00:00:00.000+0000",
+                "resolution": {"name": "Done"},
+                "status": {"name": "In Progress", "statusCategory": {"name": "In Progress"}},
+            }
+        )
+        out = _normalize_issue(issue)
+        assert out["id"] == "ENG-1"
+        assert out["version"] is None
+        assert out["space"]["key"] == "ENG"
+        assert out["title"] == "Fix bug"
+        assert "body text" in out["body"]["storage"]["value"]
+        # Structured fields persisted to DocumentPage.
+        assert out["assignee"] == "Sunadh P"
+        assert out["reporter"] == "Yogesh Kisslay"
+        assert out["status"] == "In Progress"
+        # meta carries the future-proof extras.
+        assert out["meta"]["issue_type"] == "Bug"
+        assert out["meta"]["priority"] == "High"
+        assert out["meta"]["labels"] == ["backend"]
+        assert out["meta"]["resolution"] == "Done"
+        assert out["meta"]["status_category"] == "In Progress"
+        assert out["meta"]["created"].startswith("2026-01-01")
+
+    def test_structured_fields_default_none(self):
+        from onboarding.services.confluence import _normalize_issue
+
+        out = _normalize_issue(_issue())
+        assert out["assignee"] is None and out["reporter"] is None and out["status"] is None
+
+    def test_falls_back_to_key_when_no_summary(self):
+        from onboarding.services.confluence import _normalize_issue
+
+        out = _normalize_issue({"key": "ENG-9", "fields": {"summary": None}})
+        assert out["title"] == "ENG-9"
+
+class TestConfluenceMeta:
+    def test_extracts_author_breadcrumb_labels(self):
+        from onboarding.services.confluence import _confluence_meta
+
+        page = {
+            "type": "page",
+            "version": {"number": 3, "when": "2026-03-01T00:00:00Z", "by": {"displayName": "Ana"}},
+            "history": {"createdBy": {"displayName": "Prajwal H N"}},
+            "ancestors": [{"title": "PLUG"}, {"title": "Documentation"}],
+            "metadata": {"labels": {"results": [{"name": "deploy"}, {"name": "infra"}]}},
+        }
+        meta = _confluence_meta(page)
+        assert meta["type"] == "page"
+        assert meta["author"] == "Prajwal H N"
+        assert meta["last_editor"] == "Ana"
+        assert meta["breadcrumb"] == ["PLUG", "Documentation"]
+        assert meta["labels"] == ["deploy", "infra"]
+        assert meta["updated"] == "2026-03-01T00:00:00Z"
+
+    def test_blogpost_type_and_sparse(self):
+        from onboarding.services.confluence import _confluence_meta
+
+        assert _confluence_meta({"type": "blogpost"}) == {"type": "blogpost"}
+
+    def test_empty_page_defaults_to_page_type(self):
+        from onboarding.services.confluence import _confluence_meta
+
+        assert _confluence_meta({}) == {"type": "page"}
+
+class TestConfluenceTextPrefix:
+    def test_all_fields(self):
+        from onboarding.services.confluence import _confluence_text_prefix
+
+        p = _confluence_text_prefix(
+            {
+                "author": "Yogesh Kisslay",
+                "last_editor": "Ana",
+                "breadcrumb": ["PLUG", "Docs"],
+                "labels": ["infra"],
+            }
+        )
+        assert "Author: Yogesh Kisslay" in p
+        assert "Last edited by: Ana" in p
+        assert "Path: PLUG > Docs" in p
+        assert "Labels: infra" in p
+
+    def test_editor_same_as_author_is_skipped(self):
+        from onboarding.services.confluence import _confluence_text_prefix
+
+        p = _confluence_text_prefix({"author": "A", "last_editor": "A"})
+        assert "Author: A" in p and "Last edited by" not in p
+
+    def test_empty(self):
+        from onboarding.services.confluence import _confluence_text_prefix
+
+        assert _confluence_text_prefix(None) == "" and _confluence_text_prefix({}) == ""
+
+class TestSearchIssues:
+    def test_single(self):
+        from onboarding.services.confluence import _search_issues
+
+        payload = {"issues": [_issue()], "isLast": True}
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(200, payload)):
+            out = _search_issues("c1", "t", "ENG")
+        assert out[0]["id"] == "ENG-1" and out[0]["space"]["key"] == "ENG"
+
+    def test_paginates_by_token(self):
+        from onboarding.services.confluence import _search_issues
+
+        p1 = _resp(200, {"issues": [_issue("ENG-1")], "nextPageToken": "tok2", "isLast": False})
+        p2 = _resp(200, {"issues": [_issue("ENG-2")], "isLast": True})
+        with patch("onboarding.services.confluence.httpx.get", side_effect=[p1, p2]) as get:
+            assert [i["id"] for i in _search_issues("c1", "t", "ENG")] == ["ENG-1", "ENG-2"]
+        # Second call must carry the pagination token from the first page.
+        assert "nextPageToken=tok2" in get.call_args_list[1].args[0]
+
+    def test_stops_when_no_token(self):
+        from onboarding.services.confluence import _search_issues
+
+        # No isLast flag and no nextPageToken → single page, then stop.
+        payload = {"issues": [_issue("ENG-1")]}
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(200, payload)):
+            assert [i["id"] for i in _search_issues("c1", "t", "ENG")] == ["ENG-1"]
+
+    def test_skips_keyless(self):
+        from onboarding.services.confluence import _search_issues
+
+        payload = {"issues": [{"fields": {}}], "isLast": True}
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(200, payload)):
+            assert _search_issues("c1", "t", "ENG") == []
+
+    def test_auth_failure_raises_401(self):
+        from onboarding.services.confluence import _search_issues
+
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(401, {})):
+            with pytest.raises(HTTPException) as exc:
+                _search_issues("c1", "t", "ENG")
+            assert exc.value.status_code == 401
+
+    def test_failure(self):
+        from onboarding.services.confluence import _search_issues
+
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(500, {})):
+            with pytest.raises(HTTPException) as exc:
+                _search_issues("c1", "t", "ENG")
+            assert exc.value.status_code == 502
+
 # ── knowledge base persistence ──────────────────────────────────────────────────
 
 class TestPersistence:
@@ -736,9 +1169,32 @@ class TestPersistence:
         finally:
             patcher.stop()
 
+    def test_upsert_page_confluence_embeds_author(self):
+        # A Confluence page with an author gets "Author: ..." prepended to its text,
+        # so authorship becomes searchable like Jira's "Assignee:".
+        page = _page(pid="p9", body="<p>hello</p>")
+        page["history"] = {"createdBy": {"displayName": "Yogesh Kisslay"}}
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.first.return_value = None
+            session.refresh.side_effect = lambda row: setattr(row, "id", 9)
+            from onboarding.services.confluence import _upsert_page
+
+            _, _, text = _upsert_page(1, page, source="confluence")
+            assert text.startswith("Author: Yogesh Kisslay")
+            assert "hello" in text
+        finally:
+            patcher.stop()
+
     def test_upsert_page_unchanged(self):
         existing = DocumentPage(
-            id=5, company_id=1, confluence_page_id="p1", title="Arch", version=1, is_active=True
+            id=5,
+            company_id=1,
+            confluence_page_id="p1",
+            title="Arch",
+            version=1,
+            is_active=True,
+            content_text="hello world",  # matches _page()'s stripped body → no re-embed
         )
         patcher, session = _patch_session()
         try:
@@ -762,6 +1218,32 @@ class TestPersistence:
             from onboarding.services.confluence import _upsert_page
 
             _, changed, _t = _upsert_page(1, _page(version=2))
+            assert changed is True
+        finally:
+            patcher.stop()
+
+    def test_upsert_page_changed_content_same_version(self):
+        # Same version but different text (the Jira edit case: version is None on
+        # both sides, so content comparison is what flags a re-embed).
+        existing = DocumentPage(
+            id=5,
+            company_id=1,
+            source="jira",
+            confluence_page_id="ENG-1",
+            title="Old",
+            version=None,
+            is_active=True,
+            content_text="old text",
+        )
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.first.return_value = existing
+            session.refresh.side_effect = lambda row: None
+            from onboarding.services.confluence import _upsert_page
+
+            _, changed, _t = _upsert_page(
+                1, _page(version=None, body="<p>new text</p>"), source="jira"
+            )
             assert changed is True
         finally:
             patcher.stop()
@@ -821,6 +1303,16 @@ class TestPersistence:
             from onboarding.services.confluence import _counts
 
             assert _counts(1) == (12, 340)
+        finally:
+            patcher.stop()
+
+    def test_counts_scoped_to_source(self):
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.one.side_effect = [3, 40]
+            from onboarding.services.confluence import _counts
+
+            assert _counts(1, source="jira") == (3, 40)
         finally:
             patcher.stop()
 
@@ -917,8 +1409,13 @@ class TestBeginIngest:
         ):
             from onboarding.services.confluence import begin_ingest, _run_ingest
 
-            assert begin_ingest(_user(), bg) == {"job_id": 7, "status": "running", "kind": "ingest"}
-            bg.add_task.assert_called_once_with(_run_ingest, 1, 7)
+            assert begin_ingest(_user(), bg) == {
+                "job_id": 7,
+                "status": "running",
+                "kind": "ingest",
+                "source": "confluence",
+            }
+            bg.add_task.assert_called_once_with(_run_ingest, 1, 7, "confluence")
 
     def test_returns_existing_running_job(self):
         bg = MagicMock()
@@ -930,7 +1427,9 @@ class TestBeginIngest:
             patch("onboarding.services.confluence._require_ready_connection", return_value=_conn()),
             patch(
                 "onboarding.services.confluence._running_job",
-                return_value=IngestionJob(id=42, company_id=1, status="running"),
+                return_value=IngestionJob(
+                    id=42, company_id=1, status="running", kind="ingest", source="confluence"
+                ),
             ),
             patch("onboarding.services.confluence._create_job") as create,
         ):
@@ -940,6 +1439,7 @@ class TestBeginIngest:
                 "job_id": 42,
                 "status": "running",
                 "kind": "ingest",
+                "source": "confluence",
             }
             create.assert_not_called()
             bg.add_task.assert_not_called()
@@ -1062,6 +1562,53 @@ class TestRunIngest:
 
             _run_ingest(1, 7)
             ups.assert_called_once()  # only the page that has an id is upserted
+
+    def test_jira_ingest_refreshes_name_cache(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._fetch_projects", return_value=[{"key": "AR"}]),
+            patch(
+                "onboarding.services.confluence._search_issues",
+                return_value=[{"id": "AR-1", "assignee": "Sunadh P"}],
+            ),
+            patch("onboarding.services.confluence._upsert_page", return_value=(1, True, "text")),
+            patch("onboarding.services.confluence._page_chunk_count", return_value=0),
+            patch("onboarding.services.confluence.chunk_text", return_value=["c1"]),
+            patch(
+                "onboarding.services.confluence.embedding_service.embed_texts", return_value=[[0.1]]
+            ),
+            patch("onboarding.services.confluence._delete_chunks"),
+            patch("onboarding.services.confluence._store_chunks"),
+            patch("onboarding.services.confluence._update_job"),
+            patch("onboarding.services.confluence.retrieval_service.refresh_names") as refresh,
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7, source="jira")
+            refresh.assert_called_once_with(1)
+
+    def test_confluence_ingest_does_not_refresh_names(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
+            patch("onboarding.services.confluence._search_pages", return_value=[_page("100")]),
+            patch("onboarding.services.confluence._upsert_page", return_value=(1, True, "text")),
+            patch("onboarding.services.confluence._page_chunk_count", return_value=0),
+            patch("onboarding.services.confluence.chunk_text", return_value=["c1"]),
+            patch(
+                "onboarding.services.confluence.embedding_service.embed_texts", return_value=[[0.1]]
+            ),
+            patch("onboarding.services.confluence._delete_chunks"),
+            patch("onboarding.services.confluence._store_chunks"),
+            patch("onboarding.services.confluence._update_job"),
+            patch("onboarding.services.confluence.retrieval_service.refresh_names") as refresh,
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7, source="confluence")
+            refresh.assert_not_called()  # names come from Jira only
 
     def test_embed_failure_marks_failed(self):
         with (
@@ -1379,6 +1926,20 @@ class TestWebhookHelpers:
         finally:
             patcher.stop()
 
+    def test_deactivate_pages_scoped_to_source(self):
+        page = DocumentPage(
+            id=1, company_id=42, source="jira", confluence_page_id="AR-1", title="t", is_active=True
+        )
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.all.return_value = [page]
+            from onboarding.services.confluence import _deactivate_pages
+
+            assert _deactivate_pages("AR-1", 42, source="jira") == 1
+            assert page.is_active is False
+        finally:
+            patcher.stop()
+
     def test_reindex_page_found(self):
         with (
             patch("onboarding.services.confluence._fetch_single_page", return_value=_page()),
@@ -1497,6 +2058,203 @@ class TestHandleWebhook:
             out = handle_webhook({"event": "page_updated", "page": {"id": "p1"}, "cloudId": "nope"})
             assert out["status"] == "ignored"
 
+class TestJiraWebhookSecret:
+    def test_not_configured(self):
+        from onboarding.services.confluence import verify_jira_webhook_secret
+
+        with patch("config.JIRA_WEBHOOK_SECRET", None):
+            with pytest.raises(HTTPException) as exc:
+                verify_jira_webhook_secret("x")
+            assert exc.value.status_code == 503
+
+    def test_mismatch(self):
+        from onboarding.services.confluence import verify_jira_webhook_secret
+
+        with patch("config.JIRA_WEBHOOK_SECRET", "right"):
+            with pytest.raises(HTTPException) as exc:
+                verify_jira_webhook_secret("wrong")
+            assert exc.value.status_code == 401
+
+    def test_ok(self):
+        from onboarding.services.confluence import verify_jira_webhook_secret
+
+        with patch("config.JIRA_WEBHOOK_SECRET", "right"):
+            verify_jira_webhook_secret("right")
+
+class TestFetchSingleIssue:
+    def test_valid_key_returns_normalized(self):
+        from onboarding.services.confluence import _fetch_single_issue
+
+        with patch(
+            "onboarding.services.confluence.httpx.get",
+            return_value=_resp(200, {"issues": [_issue("AR-9", assignee="Sunadh P")]}),
+        ):
+            out = _fetch_single_issue("c1", "t", "AR-9")
+        assert out["id"] == "AR-9" and out["assignee"] == "Sunadh P"
+
+    def test_invalid_key_rejected(self):
+        # An injection-y key must not reach the API.
+        from onboarding.services.confluence import _fetch_single_issue
+
+        with patch("onboarding.services.confluence.httpx.get") as get:
+            assert _fetch_single_issue("c1", "t", 'AR-1" OR key="X') is None
+            get.assert_not_called()
+
+    def test_no_results(self):
+        from onboarding.services.confluence import _fetch_single_issue
+
+        with patch(
+            "onboarding.services.confluence.httpx.get", return_value=_resp(200, {"issues": []})
+        ):
+            assert _fetch_single_issue("c1", "t", "AR-9") is None
+
+    def test_failure(self):
+        from onboarding.services.confluence import _fetch_single_issue
+
+        with patch("onboarding.services.confluence.httpx.get", return_value=_resp(500, {})):
+            assert _fetch_single_issue("c1", "t", "AR-9") is None
+
+class TestResolveJiraConnection:
+    def test_by_cloud_id(self):
+        from onboarding.services.confluence import _resolve_jira_connection
+
+        with patch(
+            "onboarding.services.confluence._connection_by_cloud_id", return_value=_conn()
+        ) as by_cloud:
+            _resolve_jira_connection({"cloudId": "c1", "issue": {"key": "AR-1"}})
+            by_cloud.assert_called_once_with("c1")
+
+    def test_by_site_url_from_self(self):
+        from onboarding.services.confluence import _resolve_jira_connection
+
+        with patch(
+            "onboarding.services.confluence._connection_by_site_url", return_value=_conn()
+        ) as by_site:
+            _resolve_jira_connection(
+                {"issue": {"key": "AR-1", "self": "https://acme.atlassian.net/rest/api/2/issue/1"}}
+            )
+            by_site.assert_called_once_with("https://acme.atlassian.net")
+
+    def test_none_when_unresolvable(self):
+        from onboarding.services.confluence import _resolve_jira_connection
+
+        assert _resolve_jira_connection({"issue": {"key": "AR-1"}}) is None
+
+class TestReindexIssue:
+    def test_found(self):
+        with (
+            patch(
+                "onboarding.services.confluence._fetch_single_issue",
+                return_value={"id": "AR-1"},
+            ),
+            patch("onboarding.services.confluence._upsert_page", return_value=(1, True, "text")),
+            patch("onboarding.services.confluence._embed_page") as emb,
+        ):
+            from onboarding.services.confluence import _reindex_issue
+
+            assert _reindex_issue(1, "c1", "t", "AR-1") is True
+            emb.assert_called_once()
+
+    def test_unreadable(self):
+        with patch("onboarding.services.confluence._fetch_single_issue", return_value=None):
+            from onboarding.services.confluence import _reindex_issue
+
+            assert _reindex_issue(1, "c1", "t", "AR-1") is False
+
+class TestJiraWebhookDispatch:
+    def test_created_reindexes(self):
+        with (
+            patch("onboarding.services.confluence._resolve_jira_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._reindex_issue", return_value=True) as re_ix,
+        ):
+            from onboarding.services.confluence import handle_jira_webhook
+
+            out = handle_jira_webhook(
+                {"webhookEvent": "jira:issue_created", "issue": {"key": "AR-1"}}
+            )
+            assert out["status"] == "updated"
+            re_ix.assert_called_once_with(1, "c1", "t", "AR-1")
+
+    def test_deleted_deactivates(self):
+        with (
+            patch(
+                "onboarding.services.confluence._resolve_jira_connection",
+                return_value=_conn(company_id=42),
+            ),
+            patch("onboarding.services.confluence._deactivate_pages", return_value=1) as deact,
+        ):
+            from onboarding.services.confluence import handle_jira_webhook
+
+            out = handle_jira_webhook(
+                {"webhookEvent": "jira:issue_deleted", "issue": {"key": "AR-1"}}
+            )
+            assert out["status"] == "removed"
+            deact.assert_called_once_with("AR-1", 42, source="jira")
+
+    def test_reindex_unreadable_ignored(self):
+        with (
+            patch("onboarding.services.confluence._resolve_jira_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._reindex_issue", return_value=False),
+        ):
+            from onboarding.services.confluence import handle_jira_webhook
+
+            out = handle_jira_webhook(
+                {"webhookEvent": "jira:issue_created", "issue": {"key": "AR-1"}}
+            )
+            assert out["status"] == "ignored"
+
+    def test_no_key_ignored(self):
+        from onboarding.services.confluence import handle_jira_webhook
+
+        assert handle_jira_webhook({"webhookEvent": "jira:issue_updated"})["status"] == "ignored"
+
+    def test_unknown_connection_ignored(self):
+        with patch("onboarding.services.confluence._resolve_jira_connection", return_value=None):
+            from onboarding.services.confluence import handle_jira_webhook
+
+            out = handle_jira_webhook(
+                {"webhookEvent": "jira:issue_updated", "issue": {"key": "AR-1"}}
+            )
+            assert out["status"] == "ignored"
+
+    def test_unhandled_event_ignored(self):
+        with patch("onboarding.services.confluence._resolve_jira_connection", return_value=_conn()):
+            from onboarding.services.confluence import handle_jira_webhook
+
+            out = handle_jira_webhook({"webhookEvent": "worklog_updated", "issue": {"key": "AR-1"}})
+            assert out["status"] == "ignored"
+
+    def test_never_raises(self):
+        # A failure inside dispatch is swallowed (won't 500 → Atlassian won't retry-storm).
+        with patch(
+            "onboarding.services.confluence._resolve_jira_connection",
+            side_effect=RuntimeError("boom"),
+        ):
+            from onboarding.services.confluence import handle_jira_webhook
+
+            out = handle_jira_webhook(
+                {"webhookEvent": "jira:issue_updated", "issue": {"key": "AR-1"}}
+            )
+            assert out["status"] == "error"
+
+class TestConnectionBySiteUrl:
+    def test_strips_trailing_slash(self):
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.first.return_value = _conn()
+            from onboarding.services.confluence import _connection_by_site_url
+
+            assert _connection_by_site_url("https://acme.atlassian.net/") is not None
+        finally:
+            patcher.stop()
+
+    def test_empty_returns_none(self):
+        from onboarding.services.confluence import _connection_by_site_url
+
+        assert _connection_by_site_url("") is None
+
 class TestHandlePageUpdated:
     def test_no_pages(self):
         with patch("onboarding.services.confluence._pages_by_page_id", return_value=[]):
@@ -1597,8 +2355,9 @@ class TestReconcile:
                 "job_id": 9,
                 "status": "running",
                 "kind": "reconcile",
+                "source": "confluence",
             }
-            bg.add_task.assert_called_once_with(_run_reconcile, 1, 9)
+            bg.add_task.assert_called_once_with(_run_reconcile, 1, 9, "confluence")
 
     def test_begin_reconcile_returns_existing(self):
         bg = MagicMock()
@@ -1610,7 +2369,9 @@ class TestReconcile:
             patch("onboarding.services.confluence._require_ready_connection", return_value=_conn()),
             patch(
                 "onboarding.services.confluence._running_job",
-                return_value=IngestionJob(id=42, company_id=1, status="running"),
+                return_value=IngestionJob(
+                    id=42, company_id=1, status="running", kind="ingest", source="confluence"
+                ),
             ),
             patch("onboarding.services.confluence._create_job") as create,
         ):
@@ -1620,6 +2381,7 @@ class TestReconcile:
                 "job_id": 42,
                 "status": "running",
                 "kind": "ingest",
+                "source": "confluence",
             }
             create.assert_not_called()
             bg.add_task.assert_not_called()
@@ -1784,6 +2546,22 @@ class TestRoutes:
         ):
             assert auth_client.post("/confluence/ingest").json()["status"] == "running"
 
+    def test_ingest_jira_source(self, auth_client):
+        with patch(
+            "onboarding.controllers.confluence.confluence_service.begin_ingest",
+            return_value={"job_id": 1, "status": "running", "source": "jira"},
+        ) as begin:
+            r = auth_client.post("/confluence/ingest?source=jira")
+        assert r.json()["source"] == "jira"
+        assert begin.call_args.kwargs["source"] == "jira"
+
+    def test_connections_status(self, auth_client):
+        with patch(
+            "onboarding.controllers.confluence.confluence_service.get_connections_status",
+            return_value={"connected": True, "sources": {}},
+        ):
+            assert auth_client.get("/connections/status").json()["connected"] is True
+
     def test_ingest_status(self, auth_client):
         with patch(
             "onboarding.controllers.confluence.confluence_service.get_ingest_status",
@@ -1798,6 +2576,15 @@ class TestRoutes:
         ):
             assert auth_client.post("/confluence/reconcile").json()["job_id"] == 9
 
+    def test_reconcile_jira_source(self, auth_client):
+        with patch(
+            "onboarding.controllers.confluence.confluence_service.begin_reconcile",
+            return_value={"job_id": 9, "status": "running", "source": "jira"},
+        ) as begin:
+            r = auth_client.post("/confluence/reconcile?source=jira")
+        assert r.json()["source"] == "jira"
+        assert begin.call_args.kwargs["source"] == "jira"
+
     def test_webhook_missing_secret(self, anon_client):
         with patch("config.CONFLUENCE_WEBHOOK_SECRET", "right"):
             assert (
@@ -1811,14 +2598,16 @@ class TestRoutes:
             patch(
                 "onboarding.controllers.confluence.confluence_service.handle_webhook",
                 return_value={"status": "ok"},
-            ),
+            ) as handle,
         ):
             r = anon_client.post(
                 "/webhooks/confluence",
                 json={"event": "page_updated", "page": {"id": "p1"}},
                 headers={"X-Webhook-Secret": "right"},
             )
-        assert r.status_code == 200
+        # Acknowledged instantly; processing runs as a background task.
+        assert r.status_code == 200 and r.json()["status"] == "accepted"
+        handle.assert_called_once()
 
     def test_webhook_query_secret(self, anon_client):
         with (
@@ -1833,3 +2622,24 @@ class TestRoutes:
                 json={"event": "page_removed", "page": {"id": "p1"}},
             )
         assert r.status_code == 200
+
+    def test_jira_webhook_missing_secret(self, anon_client):
+        with patch("config.JIRA_WEBHOOK_SECRET", "right"):
+            r = anon_client.post("/webhooks/jira", json={"webhookEvent": "jira:issue_updated"})
+            assert r.status_code == 401
+
+    def test_jira_webhook_ok(self, anon_client):
+        with (
+            patch("config.JIRA_WEBHOOK_SECRET", "right"),
+            patch(
+                "onboarding.controllers.confluence.confluence_service.handle_jira_webhook",
+                return_value={"status": "updated"},
+            ) as handle,
+        ):
+            r = anon_client.post(
+                "/webhooks/jira?secret=right",
+                json={"webhookEvent": "jira:issue_updated", "issue": {"key": "AR-1"}},
+            )
+        # Acknowledged instantly; the reindex runs as a background task.
+        assert r.status_code == 200 and r.json()["status"] == "accepted"
+        handle.assert_called_once()

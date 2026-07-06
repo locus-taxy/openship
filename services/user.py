@@ -6,6 +6,7 @@ from models.user_api_key import UserApiKey
 from models.llm_provider import LlmProvider
 from services.password import hash_password
 from services.encryption import encrypt_api_key, decrypt_api_key
+from services.company import get_or_create_company
 
 def get_user_by_id(user_id: int) -> Optional[User]:
     with Session(engine) as session:
@@ -194,11 +195,14 @@ def compute_generation_cost_usd(
     return (input_tokens * input_price_per_m + output_tokens * output_price_per_m) / 1_000_000
 
 def create_user(email: str, name: str, password: str) -> User:
+    # Resolve the user's company from their email at signup and link it (read-only).
+    company = get_or_create_company(email)
     with Session(engine) as session:
         user = User(
             email=email,
             name=name,
             hashed_password=hash_password(password),
+            company_id=company.id,
         )
         session.add(user)
         session.commit()

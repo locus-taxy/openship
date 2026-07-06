@@ -287,6 +287,73 @@ def answer_blocks_from_context(
         logger.exception("Knowledge blocks answer failed [provider=%s]", provider)
         return None
 
+class PeopleQuery(BaseModel):
+    """Planner output: is this question about specific people's work/involvement, and
+    if so, which people and in what mode (count/compare vs list/summarize)?"""
+
+    intent: str = Field(
+        default="other",
+        description=(
+            "'count' if comparing/counting specific named people (who did more, X or "
+            "Y); 'list' if summarizing a person's work (what is X working on, all work "
+            "of X, tell me about X); 'leaderboard' if an OPEN-ENDED ranking across "
+            "everyone (who reported the most, top contributors, who has the most "
+            "issues); 'other' for anything else."
+        ),
+    )
+    people: List[str] = Field(
+        default_factory=list,
+        description="Person names asked about, exactly as written. Empty if none "
+        "(leaderboard questions usually have no specific people).",
+    )
+    metric: str = Field(
+        default="involved",
+        description=(
+            "For a 'leaderboard' only: rank by 'reported' (who filed/reported the "
+            "most), 'assigned' (most assigned), 'authored' (most Confluence docs), or "
+            "'involved' (overall / top contributors — the default)."
+        ),
+    )
+
+def extract_people_query(
+    question: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    history: Optional[List[dict]] = None,
+) -> Optional[dict]:
+    """Classify a question about people: intent ('count' | 'list' | 'other') and the
+    people named. `history` (prior turns) lets it resolve pronouns ('his work' →
+    the person discussed earlier). Returns {"intent", "people"} or None on failure."""
+    provider, api_key = _require_settings(provider, api_key)
+    model = model or DEFAULT_MODELS[provider]
+    messages = [{"role": "system", "content": knowledge_prompts.people_query_system_prompt()}]
+    for turn in history or []:
+        if turn.get("role") in ("user", "assistant") and turn.get("content"):
+            messages.append({"role": turn["role"], "content": turn["content"]})
+    messages.append({"role": "user", "content": question})
+    try:
+        client = _build_client(provider, api_key)
+        response: PeopleQuery = client.chat.completions.create(
+            model=model,
+            response_model=PeopleQuery,
+            messages=messages,
+            **_token_kwargs(provider, 512),
+            max_retries=1,
+        )
+        valid_intents = ("count", "list", "leaderboard", "other")
+        intent = response.intent if response.intent in valid_intents else "other"
+        people = [p.strip() for p in (response.people or []) if p and p.strip()]
+        valid_metrics = ("assigned", "reported", "authored", "involved")
+        metric = response.metric if response.metric in valid_metrics else "involved"
+        return {"intent": intent, "people": people[:5], "metric": metric}
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_if_provider_error(provider, e)
+        logger.exception("People-query extraction failed [provider=%s]", provider)
+        return None
+
 class KnowledgeAnswer(BaseModel):
     answer: str = Field(description="The answer, grounded only in the provided documentation")
 

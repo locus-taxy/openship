@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { Plus, Send, Loader2, Trash2, Sparkles, ArrowLeft, PanelLeft, BookOpen } from "lucide-react"
+import { Plus, Send, Loader2, Trash2, Sparkles, ArrowLeft, PanelLeft, BookOpen, FileText, ListChecks, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -11,7 +11,7 @@ import { useSidebar } from "@/components/ui/sidebar"
 import { BlockRenderer, type ContentBlock } from "@/app/plugins/syllabi/block-renderer"
 import { LlmBar } from "@/components/llm-bar"
 
-type Citation = { title: string; page_id: string }
+type Citation = { title: string; page_id: string; source?: "confluence" | "jira"; url?: string | null }
 type Msg = {
     id?: number
     role: "user" | "assistant"
@@ -146,11 +146,11 @@ export default function KnowledgePage() {
                 <div>
                     <h3 className="font-semibold text-lg">Your knowledge base isn't ready yet</h3>
                     <p className="text-muted-foreground text-sm mt-1 max-w-sm">
-                        Connect Confluence and ingest your docs from Onboarding, then come back to chat with them.
+                        Connect Atlassian and ingest your Confluence &amp; Jira content from Connections, then come back to chat with it.
                     </p>
                 </div>
-                <Button onClick={() => navigate("/onboarding")}>
-                    <BookOpen className="h-4 w-4 mr-2" />Go to Onboarding
+                <Button onClick={() => navigate("/connections")}>
+                    <BookOpen className="h-4 w-4 mr-2" />Go to Connections
                 </Button>
             </div>
         )
@@ -285,9 +285,7 @@ export default function KnowledgePage() {
                                                     {m.citations && m.citations.length > 0 && (
                                                         <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2.5">
                                                             <span className="text-[11px] text-muted-foreground">Sources:</span>
-                                                            {m.citations.map(c => (
-                                                                <Badge key={c.page_id} variant="outline" className="text-[11px]">{c.title}</Badge>
-                                                            ))}
+                                                            {m.citations.map(c => <CitationChip key={`${c.source}:${c.page_id}`} c={c} />)}
                                                         </div>
                                                     )}
                                                 </div>
@@ -318,10 +316,39 @@ export default function KnowledgePage() {
                         </Button>
                     </div>
                     <p className="mx-auto mt-2 max-w-3xl px-1 text-[11px] text-muted-foreground">
-                        Answers are grounded in your indexed Confluence. Press Enter to send, Shift+Enter for a new line.
+                        Answers are grounded in your indexed Confluence &amp; Jira. Press Enter to send, Shift+Enter for a new line.
                     </p>
                 </form>
             </div>
         </div>
+    )
+}
+
+// A source chip for one citation — Jira issue or Confluence page, deep-linked when
+// the backend supplied a URL.
+function CitationChip({ c }: { c: Citation }) {
+    const isJira = c.source === "jira"
+    const Icon = isJira ? ListChecks : FileText
+    const label = isJira ? `${c.page_id} · ${c.title}` : c.title
+    const inner = (
+        <Badge
+            variant="outline"
+            className={cn(
+                "max-w-[16rem] gap-1 truncate text-[11px]",
+                isJira ? "border-indigo-200 text-indigo-700" : "border-sky-200 text-sky-700",
+                c.url && "hover:bg-muted",
+            )}
+            title={label}
+        >
+            <Icon className="h-3 w-3 shrink-0" />
+            <span className="truncate">{label}</span>
+            {c.url && <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />}
+        </Badge>
+    )
+    if (!c.url) return inner
+    return (
+        <a href={c.url} target="_blank" rel="noreferrer" className="min-w-0">
+            {inner}
+        </a>
     )
 }

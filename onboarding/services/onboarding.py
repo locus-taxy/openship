@@ -41,7 +41,12 @@ def _load_docs(
     else:
         query = " ".join(p for p in [role, _LANDSCAPE_SEED] if p)
         k = k or _PLAN_RETRIEVE_K
-    context = retrieval_service.retrieve_context(company_id, query, k=k)
+    # Onboarding grounds only in Confluence docs (Jira issues are noise for a plan),
+    # and stays purely semantic — a plan wants broad topical coverage, not literal
+    # keyword hits, so the lexical boost (great for chat lookups) is off here.
+    context = retrieval_service.retrieve_context(
+        company_id, query, k=k, sources=["confluence"], hybrid=False
+    )
     if not context.strip():
         raise HTTPException(
             status_code=404,

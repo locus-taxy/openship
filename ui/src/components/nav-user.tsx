@@ -4,7 +4,7 @@ import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
 import { Button } from "./ui/button";
 import {
     LogOutIcon, UserCircle, Settings, Eye, EyeOff,
-    KeyRound, CheckCircle2, Loader2, X, ChevronDown, Pencil, Trash2, RotateCcw,
+    KeyRound, CheckCircle2, Loader2, X, ChevronDown, Pencil, Trash2, RotateCcw, Building2,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -738,6 +738,20 @@ export function NavUser() {
                                             <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                                         </div>
                                     </div>
+
+                                    {/* Company (read-only — derived from your email; not editable) */}
+                                    {user.company && (
+                                        <div className="flex items-center justify-between rounded-xl border border-border bg-background px-3 sm:px-5 py-3 sm:py-3.5">
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-medium">Company</p>
+                                                    <p className="text-xs text-muted-foreground truncate">{user.company}</p>
+                                                </div>
+                                            </div>
+                                            <span className="text-[11px] text-muted-foreground">from your email</span>
+                                        </div>
+                                    )}
 
                                     {/* Appearance */}
                                     <div className="flex items-center justify-between rounded-xl border border-border bg-background px-3 sm:px-5 py-3 sm:py-3.5">

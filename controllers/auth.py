@@ -4,6 +4,7 @@ from fastapi import HTTPException, Response
 from config import JWT_ACCESS_TOKEN_EXPIRE_MINUTES, JWT_REFRESH_TOKEN_EXPIRE_HOURS
 from models.user import User
 from schemas.auth import SignupRequest, LoginRequest
+from services.company import company_display_name
 from services.llm import (
     PROVIDER_LABELS,
     PROVIDER_MODELS,
@@ -53,7 +54,14 @@ def _resolve_provider(name: Optional[str]):
     return provider
 
 def _user_dict(user: User) -> dict:
-    return {"id": user.id, "email": user.email, "name": user.name, "is_active": user.is_active}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "is_active": user.is_active,
+        # Read-only: the user's org (from email). Shown in Settings; not editable.
+        "company": company_display_name(user),
+    }
 
 def _set_tokens(response: Response, user_id: int):
     access_token = create_access_token(user_id)

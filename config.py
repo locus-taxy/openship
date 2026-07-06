@@ -108,13 +108,18 @@ ATLASSIAN_CLIENT_ID = _strip_opt("ATLASSIAN_CLIENT_ID")
 ATLASSIAN_CLIENT_SECRET = _strip_opt("ATLASSIAN_CLIENT_SECRET")
 ATLASSIAN_REDIRECT_URI = _strip_opt("ATLASSIAN_REDIRECT_URI")
 
-# Read-only Confluence scopes plus offline_access (needed for a refresh token).
+# Read-only Confluence + Jira scopes plus offline_access (needed for a refresh
+# token). One Atlassian OAuth app grants both products; the same connection is
+# reused to ingest Confluence pages and Jira issues.
 _DEFAULT_ATLASSIAN_SCOPES = (
     "offline_access "
     "read:confluence-space.summary "
     "read:confluence-content.summary "
     "read:confluence-content.all "
-    "search:confluence"
+    "search:confluence "
+    "read:jira-work "
+    "read:jira-user "
+    "read:me"  # identity API — verify the connector == the Openship user
 )
 ATLASSIAN_OAUTH_SCOPES = _strip_opt("ATLASSIAN_OAUTH_SCOPES") or _DEFAULT_ATLASSIAN_SCOPES
 
@@ -123,8 +128,10 @@ CONFLUENCE_POST_CONNECT_REDIRECT = (
     _strip_opt("CONFLUENCE_POST_CONNECT_REDIRECT") or "/onboarding?connected=1"
 )
 
-# Shared secret for authenticating incoming Confluence webhooks.
+# Shared secrets for authenticating incoming webhooks (freshness). Set each to enable
+# that source's webhook endpoint; leave unset and rely on re-ingest / reconcile.
 CONFLUENCE_WEBHOOK_SECRET = _strip_opt("CONFLUENCE_WEBHOOK_SECRET")
+JIRA_WEBHOOK_SECRET = _strip_opt("JIRA_WEBHOOK_SECRET")
 
 # ── Embeddings ───────────────────────────────────────────────────────────────
 # Embeddings run locally via fastembed (a small ONNX sentence-transformer) — no

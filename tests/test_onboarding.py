@@ -384,8 +384,10 @@ class TestLoadDocs:
     def test_query_includes_role_and_topic(self):
         captured = {}
 
-        def fake(company_id, query, k):
+        def fake(company_id, query, k, sources=None, hybrid=True):
             captured["query"] = query
+            captured["sources"] = sources
+            captured["hybrid"] = hybrid
             return "ctx"
 
         with patch(
@@ -395,6 +397,10 @@ class TestLoadDocs:
 
             _load_docs(1, "DevOps Engineer", topic="Pulsar")
         assert "DevOps Engineer" in captured["query"] and "Pulsar" in captured["query"]
+        # Onboarding must ground only in Confluence, never Jira issues, and stay
+        # purely semantic (no lexical keyword boost).
+        assert captured["sources"] == ["confluence"]
+        assert captured["hybrid"] is False
 
 class TestOnboardingService:
     def test_generate_plan_success(self):

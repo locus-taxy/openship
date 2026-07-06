@@ -20,9 +20,15 @@ def callback(code: str = Query(...), state: str = Query(...)):
 def status(request: Request):
     return confluence_controller.status(request.state.user)
 
+@router.get("/connections/status")
+def connections_status(request: Request):
+    return confluence_controller.connections_status(request.state.user)
+
 @router.post("/confluence/ingest")
-def ingest(request: Request, background_tasks: BackgroundTasks):
-    return confluence_controller.ingest(request.state.user, background_tasks)
+def ingest(
+    request: Request, background_tasks: BackgroundTasks, source: str = Query(default="confluence")
+):
+    return confluence_controller.ingest(request.state.user, background_tasks, source)
 
 @router.get("/confluence/ingest/{job_id}")
 def ingest_status(job_id: int, request: Request):
@@ -30,11 +36,26 @@ def ingest_status(job_id: int, request: Request):
 
 @router.post("/webhooks/confluence")
 def webhook(
-    payload: dict, request: Request, x_webhook_secret: Optional[str] = Header(default=None)
+    payload: dict,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_webhook_secret: Optional[str] = Header(default=None),
 ):
     secret = x_webhook_secret or request.query_params.get("secret")
-    return confluence_controller.webhook(payload, secret)
+    return confluence_controller.webhook(payload, secret, background_tasks)
+
+@router.post("/webhooks/jira")
+def jira_webhook(
+    payload: dict,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_webhook_secret: Optional[str] = Header(default=None),
+):
+    secret = x_webhook_secret or request.query_params.get("secret")
+    return confluence_controller.jira_webhook(payload, secret, background_tasks)
 
 @router.post("/confluence/reconcile")
-def reconcile(request: Request, background_tasks: BackgroundTasks):
-    return confluence_controller.reconcile(request.state.user, background_tasks)
+def reconcile(
+    request: Request, background_tasks: BackgroundTasks, source: str = Query(default="confluence")
+):
+    return confluence_controller.reconcile(request.state.user, background_tasks, source)

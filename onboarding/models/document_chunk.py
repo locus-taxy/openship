@@ -17,6 +17,7 @@ class DocumentChunk(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     company_id: int = Field(foreign_key="companies.id", index=True)
     page_id: int = Field(foreign_key="document_pages.id", index=True)
+    source: str = Field(default="confluence", max_length=32, index=True)  # confluence | jira
     chunk_index: int = Field(default=0)
     content: str
     embedding: Optional[Any] = Field(default=None, sa_column=Column(Vector(EMBEDDING_DIM)))

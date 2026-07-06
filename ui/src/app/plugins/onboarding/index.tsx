@@ -17,7 +17,7 @@ import { getRequest, postRequest } from "@/services"
 import api from "@/services"
 import useStore from "@/store"
 import { LlmBar } from "@/components/llm-bar"
-import { ConfluenceSetup } from "./confluence-setup"
+import { KnowledgeBaseBanner } from "@/app/plugins/connections/banner"
 
 const ROLE_SUGGESTIONS = ["Backend Engineer", "DevOps Engineer", "SDET", "Product Manager"]
 
@@ -180,8 +180,8 @@ export default function OnboardingPage() {
                 </Button>
             </div>
 
-            {/* Confluence connection + ingestion */}
-            <ConfluenceSetup />
+            {/* Knowledge base readiness (onboarding grounds in Confluence docs) */}
+            <KnowledgeBaseBanner source="confluence" />
 
             {/* LLM selector */}
             <LlmBar />

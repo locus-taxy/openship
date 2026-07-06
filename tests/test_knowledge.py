@@ -49,9 +49,14 @@ class TestKnowledgeService:
 
     def test_success_with_dedup_citations(self):
         chunks = [
-            {"content": "c1", "title": "Arch", "page_id": "p1"},
-            {"content": "c2", "title": "Arch", "page_id": "p1"},  # same page
-            {"content": "c3", "title": "Setup", "page_id": "p2"},
+            {"content": "c1", "title": "Arch", "page_id": "p1", "source": "confluence"},
+            {
+                "content": "c2",
+                "title": "Arch",
+                "page_id": "p1",
+                "source": "confluence",
+            },  # same page
+            {"content": "c3", "title": "Setup", "page_id": "p2", "source": "jira"},
         ]
         with (
             patch("onboarding.services.knowledge.retrieval_service.retrieve", return_value=chunks),
@@ -59,15 +64,570 @@ class TestKnowledgeService:
                 "onboarding.services.knowledge.llm_service.answer_from_context",
                 return_value="Because Pulsar.",
             ),
+            patch(
+                "onboarding.services.knowledge.confluence_service.get_site_url",
+                return_value="https://acme.atlassian.net",
+            ),
         ):
             from onboarding.services.knowledge import query
 
             out = query(1, "why pulsar?", "openai", "k", None)
         assert out["answer"] == "Because Pulsar."
+        # Deduped per (source, page_id); each carries a deep link to its source.
         assert out["citations"] == [
-            {"title": "Arch", "page_id": "p1"},
-            {"title": "Setup", "page_id": "p2"},
+            {
+                "title": "Arch",
+                "page_id": "p1",
+                "source": "confluence",
+                "url": "https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=p1",
+            },
+            {
+                "title": "Setup",
+                "page_id": "p2",
+                "source": "jira",
+                "url": "https://acme.atlassian.net/browse/p2",
+            },
         ]
+
+class TestLinkScrub:
+    def test_strips_hallucinated_markdown_link_keeps_label(self):
+        from onboarding.services.knowledge import _scrub_text_links
+
+        out = _scrub_text_links("See [AR-2847](https://jira.example.com/browse/AR-2847).", "ctx")
+        assert out == "See AR-2847."
+
+    def test_keeps_link_present_in_context(self):
+        from onboarding.services.knowledge import _scrub_text_links
+
+        ctx = "docs at https://real.internal/wiki/x are here"
+        out = _scrub_text_links("[here](https://real.internal/wiki/x)", ctx)
+        assert out == "[here](https://real.internal/wiki/x)"
+
+    def test_removes_bare_fabricated_url(self):
+        from onboarding.services.knowledge import _scrub_text_links
+
+        out = _scrub_text_links("visit https://jira.example.com/browse/AR-1 now", "ctx")
+        assert "example.com" not in out and "visit" in out and "now" in out
+
+    def test_scrubs_blocks_content_items_and_tables(self):
+        from onboarding.services.knowledge import _scrub_block_links
+
+        blocks = [
+            {"type": "paragraph", "content": "[X](https://fake.example.com/x)"},
+            {"type": "bullet_list", "items": ["[Y](https://fake.example.com/y)", "plain"]},
+            {"type": "table", "headers": ["H"], "rows": [["[Z](https://fake.example.com/z)"]]},
+        ]
+        out = _scrub_block_links(blocks, "no urls here")
+        assert out[0]["content"] == "X"
+        assert out[1]["items"] == ["Y", "plain"]
+        assert out[2]["rows"] == [["Z"]]
+
+class TestCitationFilter:
+    def test_keeps_only_referenced_ids(self):
+        from onboarding.services.knowledge import _filter_cited
+
+        citations = [
+            {"title": "T1", "page_id": "AR-2847", "source": "jira", "url": None},
+            {"title": "T2", "page_id": "DSCO-4759", "source": "jira", "url": None},  # filler
+        ]
+        answer = "Sunadh requested write access on groundcover (AR-2847)."
+        out = _filter_cited(citations, answer)
+        assert [c["page_id"] for c in out] == ["AR-2847"]  # DSCO filler dropped
+
+    def test_falls_back_to_all_when_none_referenced(self):
+        from onboarding.services.knowledge import _filter_cited
+
+        citations = [
+            {"title": "Arch", "page_id": "12345", "source": "confluence", "url": None},
+        ]
+        # A paraphrased Confluence answer names no id → keep everything (never zero).
+        out = _filter_cited(citations, "We deploy via the pipeline.")
+        assert out == citations
+
+class TestFormatAndSources:
+    def test_format_context_tags_each_source(self):
+        from onboarding.services.knowledge import _format_context
+
+        out = _format_context(
+            [
+                {"content": "body1", "title": "Arch", "page_id": "p1", "source": "confluence"},
+                {"content": "body2", "title": "Login bug", "page_id": "ENG-1", "source": "jira"},
+            ]
+        )
+        assert "=== [Confluence] Arch ===" in out
+        assert "=== [Jira issue ENG-1] Login bug ===" in out
+
+    def test_chat_retrieves_both_sources(self):
+        captured = {}
+
+        def retrieve(company_id, question, k, sources=None):
+            captured["sources"] = sources
+            return [{"content": "c", "title": "A", "page_id": "p1", "source": "confluence"}]
+
+        with (
+            patch("onboarding.services.knowledge.retrieval_service.retrieve", side_effect=retrieve),
+            patch(
+                "onboarding.services.knowledge.llm_service.answer_from_context",
+                return_value="ans",
+            ),
+            patch(
+                "onboarding.services.knowledge.confluence_service.get_site_url", return_value=None
+            ),
+        ):
+            from onboarding.services.knowledge import query
+
+            query(1, "q", "openai", "k", None)
+        assert captured["sources"] == ["confluence", "jira"]
+
+class TestExtractPeopleQuery:
+    def test_success(self):
+        from onboarding.services.generation import extract_people_query
+
+        resp = MagicMock()
+        resp.intent = "count"
+        resp.people = ["Sunadh", " Yogesh Kisslay ", ""]
+        resp.metric = "involved"
+        with (
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
+        ):
+            build.return_value.chat.completions.create.return_value = resp
+            out = extract_people_query("who has more, Sunadh or Yogesh Kisslay?", "openai", "k")
+        assert out == {
+            "intent": "count",
+            "people": ["Sunadh", "Yogesh Kisslay"],
+            "metric": "involved",
+        }
+
+    def test_passes_history_for_pronoun_resolution(self):
+        from onboarding.services.generation import extract_people_query
+
+        resp = MagicMock()
+        resp.intent = "list"
+        resp.people = ["Yogesh Kisslay"]
+        captured = {}
+
+        def create(**kwargs):
+            captured["messages"] = kwargs["messages"]
+            return resp
+
+        with (
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
+        ):
+            build.return_value.chat.completions.create.side_effect = create
+            history = [{"role": "user", "content": "tell me about Yogesh Kisslay"}]
+            out = extract_people_query("about his work", "openai", "k", history=history)
+        assert out["people"] == ["Yogesh Kisslay"]
+        # Prior turn is included so the planner can resolve "his".
+        assert ("user", "tell me about Yogesh Kisslay") in [
+            (m["role"], m["content"]) for m in captured["messages"]
+        ]
+
+    def test_unknown_intent_and_metric_normalized(self):
+        from onboarding.services.generation import extract_people_query
+
+        resp = MagicMock()
+        resp.intent = "banana"
+        resp.people = ["X"]
+        resp.metric = "bogus"
+        with (
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
+        ):
+            build.return_value.chat.completions.create.return_value = resp
+            out = extract_people_query("q", "openai", "k")
+        assert out["intent"] == "other" and out["metric"] == "involved"
+
+    def test_leaderboard_intent_with_metric(self):
+        from onboarding.services.generation import extract_people_query
+
+        resp = MagicMock()
+        resp.intent = "leaderboard"
+        resp.people = []
+        resp.metric = "reported"
+        with (
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client") as build,
+            patch("onboarding.services.generation._token_kwargs", return_value={}),
+        ):
+            build.return_value.chat.completions.create.return_value = resp
+            out = extract_people_query("who reported the most", "openai", "k")
+        assert out == {"intent": "leaderboard", "people": [], "metric": "reported"}
+
+    def test_none_on_exception(self):
+        from onboarding.services.generation import extract_people_query
+
+        with (
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch("onboarding.services.generation._build_client", side_effect=Exception("boom")),
+            patch("onboarding.services.generation._raise_if_provider_error"),
+        ):
+            assert extract_people_query("q", "openai", "k") is None
+
+    def test_reraises_http(self):
+        from onboarding.services.generation import extract_people_query
+
+        with (
+            patch("onboarding.services.generation._require_settings", return_value=("openai", "k")),
+            patch(
+                "onboarding.services.generation._build_client",
+                side_effect=HTTPException(status_code=401),
+            ),
+        ):
+            with pytest.raises(HTTPException):
+                extract_people_query("q", "openai", "k")
+
+class TestLooksLikePersonQuestion:
+    def _names(self, full, words):
+        return patch(
+            "onboarding.services.knowledge.retrieval_service._known_names",
+            return_value=(frozenset(full), frozenset(words)),
+        )
+
+    def test_count_cue(self):
+        from onboarding.services.knowledge import _looks_like_person_question
+
+        with self._names([], []):
+            assert _looks_like_person_question(1, "who has more issues") is True
+
+    def test_known_full_name(self):
+        from onboarding.services.knowledge import _looks_like_person_question
+
+        with self._names(["yogesh kisslay"], ["yogesh", "kisslay"]):
+            assert _looks_like_person_question(1, "tell me about yogesh kisslay") is True
+
+    def test_known_name_word(self):
+        from onboarding.services.knowledge import _looks_like_person_question
+
+        with self._names([], ["sunadh"]):
+            assert _looks_like_person_question(1, "what is sunadh doing") is True
+
+    def test_no_person_no_cue(self):
+        from onboarding.services.knowledge import _looks_like_person_question
+
+        with self._names(["yogesh kisslay"], ["yogesh", "kisslay"]):
+            assert _looks_like_person_question(1, "how does deployment work") is False
+
+    def test_pronoun_followup_with_person_in_history(self):
+        from onboarding.services.knowledge import _looks_like_person_question
+
+        history = [{"role": "user", "content": "tell me about Yogesh Kisslay"}]
+        with self._names(["yogesh kisslay"], ["yogesh", "kisslay"]):
+            assert _looks_like_person_question(1, "about his work", history) is True
+
+    def test_pronoun_without_person_in_history(self):
+        from onboarding.services.knowledge import _looks_like_person_question
+
+        history = [{"role": "user", "content": "how does deployment work"}]
+        with self._names(["yogesh kisslay"], ["yogesh", "kisslay"]):
+            assert _looks_like_person_question(1, "how do they scale it", history) is False
+
+class TestPersonAnswer:
+    def _counts(self, m):
+        def counts(company_id, name):
+            inv = m.get(name, 0)
+            return {"name": name, "assigned": 0, "reported": inv, "authored": 0, "involved": inv}
+
+        return counts
+
+    def test_gate_skips_non_person(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=False),
+            patch("onboarding.services.knowledge.llm_service.extract_people_query") as ex,
+        ):
+            assert _maybe_person_answer(1, "how does auth work", "openai", "k", None) is None
+            ex.assert_not_called()  # gate blocked the planner call
+
+    def test_intent_other_falls_through(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "other", "people": ["X"]},
+            ),
+        ):
+            assert _maybe_person_answer(1, "what did X decide", "openai", "k", None) is None
+
+    def test_planner_none_falls_through(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query", return_value=None
+            ),
+        ):
+            assert _maybe_person_answer(1, "who did the most", "openai", "k", None) is None
+
+    def test_count_route(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "count", "people": ["Sunadh", "Yogesh Kisslay"]},
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.count_involvement",
+                side_effect=self._counts({"Sunadh": 15, "Yogesh Kisslay": 2}),
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.top_issues",
+                return_value=[{"page_id": "AR-1", "title": "T", "source": "jira"}],
+            ),
+            patch(
+                "onboarding.services.knowledge.confluence_service.get_site_url",
+                return_value="https://acme.atlassian.net",
+            ),
+        ):
+            out = _maybe_person_answer(1, "who did more, Sunadh or Yogesh Kisslay", "o", "k", None)
+        assert "Sunadh is involved in the most" in out["blocks"][0]["content"]
+        table = next(b for b in out["blocks"] if b["type"] == "table")
+        assert table["rows"][0][0] == "Sunadh"
+
+    def test_leaderboard_route_single_metric(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "leaderboard", "people": [], "metric": "reported"},
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.leaderboard",
+                return_value=[
+                    {"name": "Suraj Nayak", "reported": 1715},
+                    {"name": "Pulkeet Yadav", "reported": 1148},
+                ],
+            ),
+        ):
+            out = _maybe_person_answer(1, "who reported the most access requests", "o", "k", None)
+        assert "Suraj Nayak leads" in out["blocks"][0]["content"]
+        table = next(b for b in out["blocks"] if b["type"] == "table")
+        assert table["rows"][0] == ["1", "Suraj Nayak", "1715"]
+
+    def test_leaderboard_route_involved(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        board = [
+            {
+                "name": "Suraj Nayak",
+                "assigned": 187,
+                "reported": 1715,
+                "authored": 0,
+                "involved": 1902,
+            }
+        ]
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "leaderboard", "people": [], "metric": "involved"},
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.leaderboard", return_value=board
+            ),
+        ):
+            out = _maybe_person_answer(1, "top contributors", "o", "k", None)
+        table = next(b for b in out["blocks"] if b["type"] == "table")
+        assert table["headers"] == ["#", "Person", "Total", "Assigned", "Reported", "Authored"]
+        assert table["rows"][0] == ["1", "Suraj Nayak", "1902", "187", "1715", "0"]
+
+    def test_leaderboard_empty_falls_through(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "leaderboard", "people": [], "metric": "reported"},
+            ),
+            patch("onboarding.services.knowledge.retrieval_service.leaderboard", return_value=[]),
+        ):
+            assert _maybe_person_answer(1, "top contributors", "o", "k", None) is None
+
+    def test_count_single_person(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "count", "people": ["Sunadh"]},
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.count_involvement",
+                side_effect=self._counts({"Sunadh": 15}),
+            ),
+            patch("onboarding.services.knowledge.retrieval_service.top_issues", return_value=[]),
+            patch(
+                "onboarding.services.knowledge.confluence_service.get_site_url", return_value=None
+            ),
+        ):
+            out = _maybe_person_answer(1, "how many issues is Sunadh involved in", "o", "k", None)
+        assert "Sunadh is involved in 15" in out["blocks"][0]["content"]
+
+    def _list_data(self, jira, confluence):
+        return {
+            "jira": jira,
+            "confluence": confluence,
+            "jira_total": len(jira),
+            "confluence_total": len(confluence),
+        }
+
+    def test_list_route_single_person_complete(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        data = self._list_data(
+            jira=[
+                {
+                    "key": "AR-1",
+                    "title": "Access",
+                    "status": "Open",
+                    "roles": ["reporter"],
+                    "type": "Access Request",
+                    "priority": "Low",
+                },
+            ],
+            confluence=[
+                {"page_id": "5910134900", "title": "#79 Content Validation", "roles": ["author"]},
+                {"page_id": "5836177409", "title": "#62 Structured Blocks", "roles": ["author"]},
+            ],
+        )
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "list", "people": ["Yogesh Kisslay"]},
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.list_involvement",
+                return_value=data,
+            ),
+            patch(
+                "onboarding.services.knowledge.confluence_service.get_site_url",
+                return_value="https://acme.atlassian.net",
+            ),
+        ):
+            out = _maybe_person_answer(1, "give me all work of Yogesh Kisslay", "o", "k", None)
+        # Both Confluence docs listed (including the one that was missing before).
+        bullets = next(b for b in out["blocks"] if b["type"] == "bullet_list")["items"]
+        joined = " ".join(bullets)
+        assert "#79 Content Validation" in joined and "#62 Structured Blocks" in joined
+        # Clickable Confluence link built.
+        assert "atlassian.net/wiki/pages/viewpage.action?pageId=5836177409" in joined
+        # Jira table present, and every item is a source.
+        assert any(b["type"] == "table" for b in out["blocks"])
+        cited = {(c["source"], c["page_id"]) for c in out["citations"]}
+        assert ("confluence", "5836177409") in cited and ("jira", "AR-1") in cited
+
+    def test_list_route_multi_person(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        def li(company_id, name, limit=40):
+            if name == "Sunadh":
+                return self._list_data(
+                    [
+                        {
+                            "key": "AR-9",
+                            "title": "S",
+                            "status": "Open",
+                            "roles": ["reporter"],
+                            "type": "AR",
+                            "priority": "Low",
+                        }
+                    ],
+                    [],
+                )
+            return self._list_data([], [{"page_id": "99", "title": "Doc", "roles": ["author"]}])
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "list", "people": ["Sunadh", "Yogesh Kisslay"]},
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.list_involvement", side_effect=li
+            ),
+            patch(
+                "onboarding.services.knowledge.confluence_service.get_site_url", return_value=None
+            ),
+        ):
+            out = _maybe_person_answer(1, "tell me about Sunadh and Yogesh Kisslay", "o", "k", None)
+        headings = [
+            b["content"]
+            for b in out["blocks"]
+            if b.get("type") == "heading" and b.get("level") == 2
+        ]
+        assert headings == ["Sunadh — Work & Involvement", "Yogesh Kisslay — Work & Involvement"]
+        assert any(b["type"] == "divider" for b in out["blocks"])  # separated
+
+    def test_list_nobody_found_falls_through(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "list", "people": ["Ghost"]},
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.list_involvement",
+                return_value=self._list_data([], []),
+            ),
+            patch(
+                "onboarding.services.knowledge.confluence_service.get_site_url", return_value=None
+            ),
+        ):
+            assert _maybe_person_answer(1, "all work of Ghost", "o", "k", None) is None
+
+    def test_count_nobody_found_falls_through(self):
+        from onboarding.services.knowledge import _maybe_person_answer
+
+        with (
+            patch("onboarding.services.knowledge._looks_like_person_question", return_value=True),
+            patch(
+                "onboarding.services.knowledge.llm_service.extract_people_query",
+                return_value={"intent": "count", "people": ["Ghost"]},
+            ),
+            patch(
+                "onboarding.services.knowledge.retrieval_service.count_involvement",
+                side_effect=self._counts({}),
+            ),
+        ):
+            assert (
+                _maybe_person_answer(1, "how many issues does Ghost have", "o", "k", None) is None
+            )
+
+    def test_tie(self):
+        from onboarding.services.knowledge import _count_blocks
+
+        blocks = _count_blocks(
+            [
+                {"name": "A", "assigned": 1, "reported": 1, "authored": 1, "involved": 3},
+                {"name": "B", "assigned": 0, "reported": 3, "authored": 0, "involved": 3},
+            ]
+        )
+        assert "tie" in blocks[0]["content"].lower()
+
+    def test_answer_blocks_short_circuits_to_person(self):
+        from onboarding.services.knowledge import _answer_blocks
+
+        person = {"blocks": [{"type": "paragraph", "content": "X leads"}], "citations": []}
+        with patch("onboarding.services.knowledge._maybe_person_answer", return_value=person):
+            out = _answer_blocks(1, "who has more issues, X or Y", "openai", "k", None)
+        assert out is person
 
 class TestAnswerFromContext:
     def test_success(self):
@@ -319,7 +879,7 @@ class TestKnowledgeChats:
         session = MagicMock()
         session.get.return_value = self._chat()
         session.exec.return_value.all.return_value = []  # no prior → first message
-        chunks = [{"content": "c", "title": "Arch", "page_id": "p1"}]
+        chunks = [{"content": "c", "title": "Arch", "page_id": "p1", "source": "confluence"}]
         blocks = [{"type": "paragraph", "content": "Because Pulsar."}]
         patcher = _patch_chat_session(session)
         try:
@@ -332,6 +892,10 @@ class TestKnowledgeChats:
                     "onboarding.services.knowledge.llm_service.answer_blocks_from_context",
                     return_value={"blocks": blocks, "used_docs": True},
                 ),
+                patch(
+                    "onboarding.services.knowledge.confluence_service.get_site_url",
+                    return_value="https://acme.atlassian.net",
+                ),
             ):
                 from onboarding.services.knowledge import post_message
 
@@ -339,7 +903,14 @@ class TestKnowledgeChats:
             assert out["user"]["content"] == "why pulsar?"
             assert out["assistant"]["blocks"] == blocks
             assert out["assistant"]["content"] == "Because Pulsar."  # flattened for history
-            assert out["assistant"]["citations"] == [{"title": "Arch", "page_id": "p1"}]
+            assert out["assistant"]["citations"] == [
+                {
+                    "title": "Arch",
+                    "page_id": "p1",
+                    "source": "confluence",
+                    "url": "https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=p1",
+                }
+            ]
             assert out["title"] == "why pulsar?"
         finally:
             patcher.stop()
@@ -397,11 +968,19 @@ class TestKnowledgeChats:
                     "onboarding.services.knowledge.llm_service.answer_blocks_from_context",
                     side_effect=answer,
                 ),
+                patch(
+                    "onboarding.services.knowledge.confluence_service.get_site_url",
+                    return_value=None,
+                ),
             ):
                 from onboarding.services.knowledge import post_message
 
                 out = post_message(1, 1, "1", "what about that?", "openai", "k", None)
             assert out["title"] == "Existing"  # not first → title unchanged
+            # No site_url → citation still present, just without a deep link.
+            assert out["assistant"]["citations"] == [
+                {"title": "A", "page_id": "p1", "source": "confluence", "url": None}
+            ]
             assert captured["history"] == [
                 {"role": "user", "content": "earlier"},
                 {"role": "assistant", "content": "answer"},

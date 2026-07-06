@@ -14,6 +14,7 @@ import OnboardingPage from "@/app/plugins/onboarding"
 import OnboardingDetailPage from "@/app/plugins/onboarding/detail"
 import PublicOnboardingPage from "@/app/plugins/onboarding/public";
 import KnowledgePage from "@/app/plugins/knowledge";
+import ConnectionsPage from "@/app/plugins/connections";
 import LoginPage from "@/app/auth/login";
 import SignupPage from "@/app/auth/signup";
 
@@ -103,6 +104,10 @@ const router = createBrowserRouter([
             {
                 path: "knowledge",
                 element: <KnowledgePage />,
+            },
+            {
+                path: "connections",
+                element: <ConnectionsPage />,
             },
         ],
     },
