@@ -8,7 +8,8 @@ class OnboardingPlan(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: str
     role: str
-    company: str = Field(default="Locus")
+    # Always set server-side from the resolved tenant; the default is just a safety net.
+    company: str = Field(default="")
     status: str = Field(default="generated")  # generated | completed
     share_enabled: bool = Field(default=False)
     quiz_questions: Optional[str] = Field(default=None)  # JSON TEXT cache

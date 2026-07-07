@@ -46,12 +46,13 @@ def _domain_from_email(email: str) -> str:
 
 def _company_key_and_name(email: str) -> Tuple[str, str]:
     """(isolation_key, display_name) for an email. Corporate domain → shared org keyed
-    by domain. Personal/generic → private org keyed by the FULL email (the local part
-    alone collides — john@gmail vs john@yahoo), with the local part as display name."""
+    by domain, shown by domain. Personal/generic → private org keyed by the FULL email
+    (the local part alone collides — john@gmail vs john@yahoo), and shown by the full
+    email too so the label is unambiguous (not just "john")."""
     domain = _domain_from_email(email)
     if domain in _GENERIC_EMAIL_DOMAINS:
         key = email.strip().lower()
-        return key, key.split("@", 1)[0]
+        return key, key
     return domain, domain
 
 def get_or_create_company(email: str) -> Company:

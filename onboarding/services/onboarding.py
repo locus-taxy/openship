@@ -141,6 +141,9 @@ def get_day_content(
     logger.info(
         "Onboarding: day-content request [plan=%d day=%d force=%s]", plan_id, day_number, force
     )
+    # Short session: validate + return cached content, then close BEFORE the slow
+    # LLM call so a pooled DB connection isn't held open for the whole generation
+    # (mirrors generate_plan / generate_quiz).
     with Session(engine) as session:
         plan = session.get(OnboardingPlan, plan_id)
         if not plan or plan.user_id != user_id:
@@ -158,29 +161,38 @@ def get_day_content(
         if day.content_blocks and not force:
             return {"day": day.model_dump()}
 
-        logger.info(
-            "Onboarding: generating day %d content [plan=%d topic=%r force=%s]",
-            day_number,
-            plan_id,
-            day.topic,
-            force,
-        )
-        docs_text = _load_docs(company_id, plan.role, topic=day.topic, task=day.task)
+        day_id = day.id
+        role, company = plan.role, plan.company
+        day_num, topic, task = day.day, day.topic, day.task
 
-        content = llm_service.generate_onboarding_day_content(
-            role=plan.role,
-            company=plan.company,
-            day=day.day,
-            topic=day.topic,
-            task=day.task,
-            docs_text=docs_text,
-            provider=provider,
-            api_key=api_key,
-            model=model,
-        )
-        if not content:
-            raise HTTPException(status_code=500, detail="Failed to generate day content.")
+    logger.info(
+        "Onboarding: generating day %d content [plan=%d topic=%r force=%s]",
+        day_number,
+        plan_id,
+        topic,
+        force,
+    )
+    docs_text = _load_docs(company_id, role, topic=topic, task=task)
 
+    content = llm_service.generate_onboarding_day_content(
+        role=role,
+        company=company,
+        day=day_num,
+        topic=topic,
+        task=task,
+        docs_text=docs_text,
+        provider=provider,
+        api_key=api_key,
+        model=model,
+    )
+    if not content:
+        raise HTTPException(status_code=500, detail="Failed to generate day content.")
+
+    # Fresh short session to persist the generated content.
+    with Session(engine) as session:
+        day = session.get(OnboardingDay, day_id)
+        if not day:
+            raise HTTPException(status_code=404, detail=f"Day {day_number} not found.")
         day.content_blocks = json.dumps([b.model_dump() for b in content.blocks])
         session.add(day)
         session.commit()
@@ -262,8 +274,14 @@ def get_quiz(plan_id: int, user_id: str) -> dict:
             .where(OnboardingQuizAttempt.user_id == user_id)
             .order_by(OnboardingQuizAttempt.created_at.desc())
         ).all()
+        # Never send correct_answer to the client — grading happens server-side in
+        # save_quiz_attempt. Options + explanation are safe to expose.
+        questions = [
+            {k: v for k, v in q.items() if k != "correct_answer"}
+            for q in json.loads(plan.quiz_questions)
+        ]
         return {
-            "questions": json.loads(plan.quiz_questions),
+            "questions": questions,
             "attempts": [a.model_dump() for a in attempts],
         }
 
@@ -318,10 +336,23 @@ def save_quiz_attempt(plan_id: int, user_id: str, answers: dict) -> dict:
 
         questions = json.loads(plan.quiz_questions)
         correct = 0
+        results = []
         for i, q in enumerate(questions):
             correct_key = q.get("correct_answer", "a")
-            if answers.get(str(i)) == correct_key:
+            selected = answers.get(str(i)) or ""
+            is_correct = selected == correct_key
+            if is_correct:
                 correct += 1
+            # Per-question grading is returned so the client can show right/wrong
+            # WITHOUT ever having the answer key up front (it grades server-side here).
+            results.append(
+                {
+                    "index": i,
+                    "selected": selected,
+                    "correct": correct_key,
+                    "is_correct": is_correct,
+                }
+            )
 
         total = len(questions)
         score = round((correct / total) * 100) if total else 0
@@ -337,7 +368,13 @@ def save_quiz_attempt(plan_id: int, user_id: str, answers: dict) -> dict:
         session.add(attempt)
         session.commit()
         session.refresh(attempt)
-        return {"attempt": attempt.model_dump(), "score": score, "correct": correct, "total": total}
+        return {
+            "attempt": attempt.model_dump(),
+            "score": score,
+            "correct": correct,
+            "total": total,
+            "results": results,
+        }
 
 def delete_plan(plan_id: int, user_id: str) -> dict:
     with Session(engine) as session:

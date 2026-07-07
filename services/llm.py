@@ -260,7 +260,12 @@ class ContentBlock(BaseModel):
         t = values.get("type")
         if isinstance(t, str):
             key = t.strip().lower()
-            if key not in _VALID_BLOCK_TYPES:
+            if key in _VALID_BLOCK_TYPES:
+                # Normalize a VALID but mixed-case / whitespace-padded value
+                # ("Heading", " paragraph ") so enum validation accepts it instead
+                # of failing the whole block.
+                values["type"] = key
+            else:
                 mapped = _BLOCK_TYPE_ALIASES.get(key, "paragraph")
                 values["type"] = mapped
                 # A stray `list_item` usually carries its text in `content` rather

@@ -17,8 +17,8 @@ INLINE FORMATTING inside content/items/cells:
   → Never silently drop URLs — surface every relevant link you find in the documents.
 """
 
-def plan_system_prompt(role: str) -> str:
-    return f"""You are an expert engineering onboarding designer. Your job is to read {role} at a technology company and produce a strict 7-day onboarding plan.
+def plan_system_prompt(role: str, company: str) -> str:
+    return f"""You are an expert engineering onboarding designer. Your job is to design a strict 7-day onboarding plan for a new {role} at {company}, grounded entirely in {company}'s own documentation.
 
 OUTPUT FORMAT — return a JSON object with EXACTLY this structure, no extra keys:
 {{"days": [{{"day": 1, "topic": "Short topic title", "task": "What to read, explore, or do"}}, ... 7 items]}}
@@ -26,20 +26,20 @@ OUTPUT FORMAT — return a JSON object with EXACTLY this structure, no extra key
 HARD RULES:
 - Output EXACTLY 7 days, numbered 1 through 7. No more, no less.
 - Each day must have:
-    topic: a short, specific title (5-10 words max) referencing real company concepts from the docs
+    topic: a short, specific title (5-10 words max) referencing real concepts from {company}'s docs
     task:  1-3 concrete sentences describing what to read, explore, or do — mention specific repos, services, or tools by name where relevant
 
-DAY STRUCTURE GUIDELINES for a {role}:
-  Day 1 — Company & product orientation: what Locus does, what products exist (Taxy vs Encore), the domain (logistics/supply chain), key customers
-  Day 2 — Platform architecture: multi-tenancy model, schema-driven design, event-driven patterns, layer architecture, the WHY behind each decision
-  Day 3 — Core platform internals: workflow engine (Zeebe/Camunda BPMN), authorization (OPA), database design (per-tenant schemas, JSONB), message broker (Pulsar)
+DAY STRUCTURE GUIDELINES for a {role} (adapt each day to what {company}'s docs actually contain):
+  Day 1 — Company & product orientation: what {company} does, its products, the domain it operates in, key customers
+  Day 2 — Platform architecture: the core architectural model and the WHY behind each decision
+  Day 3 — Core platform internals: the key engines/subsystems (e.g. workflow, authorization, data model, messaging) as described in the docs
   Day 4 — Key repositories: clone and explore the main repos, understand module structure, how to run locally, key entry points
-  Day 5 — Role-specific deep dive: the services, APIs, and subsystems most relevant to {role}
+  Day 5 — Role-specific deep dive: the services, APIs, and subsystems most relevant to a {role}
   Day 6 — Integrations and operations: external integrations, monitoring, infrastructure, dev workflows
   Day 7 — Consolidation and self-assessment: review all concepts, draw the architecture yourself, prepare questions for your team
 
 QUALITY CHECKS before responding:
-- Topics must reference real Locus concepts (Encore, Taxy, Zeebe, OPA, Pulsar, etc.) — not generic phrases like "Learn the codebase"
+- Topics must reference real concepts, products, repos, and tools named in {company}'s docs — not generic phrases like "Learn the codebase", and NEVER invent names that do not appear in the docs
 - Tasks must name specific artifacts: repo names, service names, document sections
 - Day 7 must be a consolidation/review day, not new content"""
 
@@ -78,17 +78,17 @@ def day_content_system_prompt(role: str, company: str) -> str:
         "1. heading  — REQUIRED: 'content' (non-empty string), 'level' (1=main title, 2=section, 3=sub-section)\n"
         '   Example: {"type": "heading", "content": "Multi-Tenant Architecture", "level": 2}\n\n'
         "2. paragraph — REQUIRED: 'content' (non-empty prose; use [label](url) for inline links)\n"
-        '   Example: {"type": "paragraph", "content": "Locus serves hundreds of enterprise customers..."}\n\n'
+        '   Example: {"type": "paragraph", "content": "The platform serves hundreds of enterprise customers..."}\n\n'
         "3. code — REQUIRED: 'content' (raw code/command, no markdown fences), 'language' (e.g. 'bash', 'java', 'yaml', 'json', 'shell')\n"
-        '   Example: {"type": "code", "language": "bash", "content": "gh repo clone locus-taxy/encore"}\n\n'
+        '   Example: {"type": "code", "language": "bash", "content": "gh repo clone your-org/your-service"}\n\n'
         "4. bullet_list — REQUIRED: 'items' (non-empty array of strings; use [label](url) for links inside items)\n"
-        '   Example: {"type": "bullet_list", "items": ["[encore](https://github.com/locus-taxy/encore) — Core Platform API"]}\n\n'
+        '   Example: {"type": "bullet_list", "items": ["[example-service](https://github.com/your-org/example-service) — Core Platform API"]}\n\n'
         "5. numbered_list — REQUIRED: 'items' (non-empty array of strings in order)\n"
         '   Example: {"type": "numbered_list", "items": ["Step one: clone the repo", "Step two: run setup"]}\n\n'
         "6. table — REQUIRED: 'headers' (non-empty array of column names), 'rows' (non-empty 2D array, each row same length as headers; use [label](url) inside cells)\n"
-        '   Example: {"type": "table", "headers": ["Repo", "Purpose", "Link"], "rows": [["encore", "Core Platform", "[github](https://github.com/locus-taxy/encore)"]]}\n\n'
+        '   Example: {"type": "table", "headers": ["Repo", "Purpose", "Link"], "rows": [["example-service", "Core Platform", "[github](https://github.com/your-org/example-service)"]]}\n\n'
         "7. note — REQUIRED: 'content' (non-empty string with tip, warning, or important callout)\n"
-        '   Example: {"type": "note", "content": "encore-commons must be published locally before other services pick up changes."}\n\n'
+        '   Example: {"type": "note", "content": "shared-commons must be published locally before other services pick up changes."}\n\n'
         "8. quote — REQUIRED: 'content' (non-empty memorable statement from the docs)\n"
         '   Example: {"type": "quote", "content": "Without multi-tenancy, each customer would need separate infrastructure."}\n\n'
         "9. divider — No additional fields needed.\n"
@@ -96,7 +96,7 @@ def day_content_system_prompt(role: str, company: str) -> str:
         "10. diagram — REQUIRED: 'content' (valid Mermaid syntax), 'format' must be 'mermaid'. Use for architecture flows and request flows — NEVER a code block.\n"
         "    Only use these Mermaid types: graph, sequenceDiagram, classDiagram, stateDiagram, gantt, pie, erDiagram.\n"
         "    In mermaid: node labels inside [] must be plain words — no colons, slashes, or special chars; edge labels go BEFORE destination: A -->|label| B[Node]\n"
-        '    Example: {"type": "diagram", "format": "mermaid", "content": "graph TD\\n  A[Client] --> B[APISIX Gateway] --> C[encore API]"}\n\n'
+        '    Example: {"type": "diagram", "format": "mermaid", "content": "graph TD\\n  A[Client] --> B[API Gateway] --> C[Service API]"}\n\n'
         "Additional rules:\n"
         "- NEVER put code inside a paragraph — always use a code block\n"
         "- NEVER omit 'content' for heading/paragraph/code/note/quote/diagram blocks\n"
@@ -137,9 +137,9 @@ OUTPUT FORMAT — return a JSON object with EXACTLY this structure, no extra key
 QUESTION QUALITY RULES:
   - Every question must test understanding of {company}-specific knowledge, not generic tech knowledge
   - Questions must be answerable from the onboarding documents — no trivia or speculation
-  - At least 3 questions on architecture decisions and WHY (e.g., "Why does Locus use Pulsar over Kafka?")
-  - At least 2 questions on specific repos or services
-  - At least 2 questions on the platform's core design patterns (multi-tenancy, schema-driven, BPMN)
+  - At least 3 questions on architecture decisions and WHY (e.g., "why was a particular technology or pattern chosen?", using the actual rationale from {company}'s docs)
+  - At least 2 questions on specific repos or services named in the docs
+  - At least 2 questions on the platform's core design patterns as described in the docs
   - Distractors (wrong options) must be plausible — not obviously silly
   - Each question must have exactly 4 options (a, b, c, d) and exactly one correct answer
   - Include a 1-2 sentence explanation for why the correct answer is right (referencing the actual design rationale)"""

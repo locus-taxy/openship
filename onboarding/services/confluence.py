@@ -23,6 +23,7 @@ import httpx
 import jwt as pyjwt
 from fastapi import HTTPException
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 import config
@@ -976,7 +977,20 @@ def begin_ingest(user, background_tasks, source: str = "confluence") -> dict:
             "kind": existing.kind,
             "source": existing.source,
         }
-    job_id = _create_job(company.id, source=source)
+    try:
+        job_id = _create_job(company.id, source=source)
+    except IntegrityError:
+        # Lost a check-then-create race — the partial unique index rejected this
+        # second running job. Return the one that won instead of starting a duplicate.
+        existing = _running_job(company.id)
+        if existing is not None:
+            return {
+                "job_id": existing.id,
+                "status": "running",
+                "kind": existing.kind,
+                "source": existing.source,
+            }
+        raise
     background_tasks.add_task(_run_ingest, company.id, job_id, source)
     return {"job_id": job_id, "status": "running", "kind": "ingest", "source": source}
 
@@ -1371,7 +1385,19 @@ def begin_reconcile(user, background_tasks, source: str = "confluence") -> dict:
             "kind": existing.kind,
             "source": existing.source,
         }
-    job_id = _create_job(company.id, kind="reconcile", source=source)
+    try:
+        job_id = _create_job(company.id, kind="reconcile", source=source)
+    except IntegrityError:
+        # Lost a check-then-create race — return the running job that won.
+        existing = _running_job(company.id)
+        if existing is not None:
+            return {
+                "job_id": existing.id,
+                "status": "running",
+                "kind": existing.kind,
+                "source": existing.source,
+            }
+        raise
     background_tasks.add_task(_run_reconcile, company.id, job_id, source)
     return {"job_id": job_id, "status": "running", "kind": "reconcile", "source": source}
 

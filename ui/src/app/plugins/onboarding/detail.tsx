@@ -233,7 +233,7 @@ interface QuizQuestion {
     option_b: string
     option_c: string
     option_d: string
-    correct_answer: string
+    // correct_answer is intentionally NOT sent to the client — grading is server-side.
     explanation: string
 }
 
@@ -315,24 +315,23 @@ function OnboardingQuizPanel({ planId }: { planId: number }) {
     }
 
     async function handleSubmit() {
-        let correct = 0
-        const results: QuestionResult[] = []
+        // Grading is done server-side (the client no longer has the answer key). We
+        // send the selected answers and use the attempt response for score + results.
         const submittedAnswers: Record<string, string> = {}
-        questions.forEach((q, i) => {
-            const sel = selected[i] ?? ""
-            const isCorrect = sel === (q.correct_answer ?? "a")
-            if (isCorrect) correct++
-            results.push({ index: i, selected: sel, correct: q.correct_answer ?? "a", is_correct: isCorrect })
-            submittedAnswers[String(i)] = sel
-        })
-        const score = Math.round((correct / questions.length) * 100)
-        setResult({ score, passed: score >= PASS_SCORE, results })
+        questions.forEach((_q, i) => { submittedAnswers[String(i)] = selected[i] ?? "" })
         setSubmitting(true)
-        setView("submitted")
         try {
             const { success, data } = await postRequest(`/py/onboarding/${planId}/quiz/attempt`, { answers: submittedAnswers })
-            if (success) setAttempts(prev => [data.attempt, ...prev])
-        } catch { /* non-critical */ }
+            if (success && data?.results) {
+                setAttempts(prev => [data.attempt, ...prev])
+                setResult({ score: data.score, passed: data.score >= PASS_SCORE, results: data.results })
+                setView("submitted")
+            } else {
+                toast({ variant: "destructive", title: "Error", description: "Could not submit quiz. Please try again." })
+            }
+        } catch {
+            toast({ variant: "destructive", title: "Error", description: "Could not submit quiz. Please try again." })
+        }
         setSubmitting(false)
     }
 
@@ -364,7 +363,7 @@ function OnboardingQuizPanel({ planId }: { planId: number }) {
                         <GraduationCap className="h-5 w-5 text-primary" />
                         <h2 className="text-xl font-bold tracking-tight">Final Quiz</h2>
                     </div>
-                    <p className="text-sm text-muted-foreground">A 10-question quiz grounded in Locus docs, covering all 7 days of your onboarding plan.</p>
+                    <p className="text-sm text-muted-foreground">A 10-question quiz grounded in your company's docs, covering all 7 days of your onboarding plan.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">

@@ -246,13 +246,14 @@ def retrieve(
         # the GLOBAL nearest chunks and only THEN applies the source filter — so a
         # source that's sparse near the query (e.g. Confluence for a Jira-heavy topic
         # like RBAC/audit) can be filtered down to ZERO even though relevant docs
-        # exist. Disabling the index makes Postgres rank by distance within the
-        # filtered rows, always returning that source's true nearest. The filtered
-        # subset is small, so the exact scan is fast. Unfiltered chat keeps the index.
+        # exist. Turning off index SCANS makes Postgres rank by distance within the
+        # filtered rows, always returning that source's true nearest. We deliberately
+        # leave bitmapscan ON so the btree filter on (company_id, source) is still
+        # used to select the small candidate set — only the ANN ordering index is
+        # bypassed, not the filter indexes. Unfiltered chat keeps the ANN index.
         if sources:
             conn = session.connection()
             conn.exec_driver_sql("SET LOCAL enable_indexscan = OFF")
-            conn.exec_driver_sql("SET LOCAL enable_bitmapscan = OFF")
         base = _base_select(company_id, sources)
         vector_rows = session.exec(base.order_by(distance).limit(k)).all()
 

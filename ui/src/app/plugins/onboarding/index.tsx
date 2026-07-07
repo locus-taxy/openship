@@ -144,7 +144,8 @@ export default function OnboardingPage() {
         e.preventDefault()
         if (!role.trim()) return
         setGenerating(true)
-        const { success, data } = await postRequest("/py/onboarding/generate", { role: role.trim(), company: "Locus" })
+        // company is resolved server-side from the tenant — not sent by the client.
+        const { success, data } = await postRequest("/py/onboarding/generate", { role: role.trim() })
         setGenerating(false)
         if (success) {
             navigate(`/onboarding/${data.plan.id}`)
@@ -173,7 +174,7 @@ export default function OnboardingPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">Onboarding</h1>
-                    <p className="text-muted-foreground text-sm mt-0.5">Role-based onboarding plans from Locus docs</p>
+                    <p className="text-muted-foreground text-sm mt-0.5">Role-based onboarding plans from your company's docs</p>
                 </div>
                 <Button onClick={() => setShowForm(v => !v)}>
                     <Plus className="h-4 w-4 mr-2" />New Plan
@@ -246,7 +247,7 @@ export default function OnboardingPage() {
                         <GraduationCap className="h-7 w-7 text-muted-foreground" />
                     </div>
                     <h3 className="font-semibold text-lg">No onboarding plans yet</h3>
-                    <p className="text-muted-foreground text-sm mt-1 mb-5 max-w-xs">Generate a personalised plan based on your role and Locus docs.</p>
+                    <p className="text-muted-foreground text-sm mt-1 mb-5 max-w-xs">Generate a personalised plan based on your role and your company's docs.</p>
                     <Button onClick={() => setShowForm(true)}><Plus className="h-4 w-4 mr-2" />New Plan</Button>
                 </Card>
             ) : (

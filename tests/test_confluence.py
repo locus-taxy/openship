@@ -1506,6 +1506,37 @@ class TestBeginIngest:
             create.assert_not_called()
             bg.add_task.assert_not_called()
 
+    def test_create_race_returns_winning_job(self):
+        # Two concurrent requests both pass the _running_job check; the DB partial
+        # unique index rejects the second _create_job with IntegrityError, and we
+        # return the job that won instead of starting a duplicate.
+        bg = MagicMock()
+        winner = IngestionJob(
+            id=99, company_id=1, status="running", kind="ingest", source="confluence"
+        )
+        with (
+            patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=Company(id=1, name="a", domain="a"),
+            ),
+            patch("onboarding.services.confluence._require_ready_connection", return_value=_conn()),
+            # first call (pre-check) sees nothing; second (in except) sees the winner
+            patch("onboarding.services.confluence._running_job", side_effect=[None, winner]),
+            patch(
+                "onboarding.services.confluence._create_job",
+                side_effect=IntegrityError("insert", {}, Exception()),
+            ),
+        ):
+            from onboarding.services.confluence import begin_ingest
+
+            assert begin_ingest(_user(), bg) == {
+                "job_id": 99,
+                "status": "running",
+                "kind": "ingest",
+                "source": "confluence",
+            }
+            bg.add_task.assert_not_called()
+
     def test_running_job_query(self):
         job = IngestionJob(id=5, company_id=1, status="running")
         patcher, session = _patch_session()

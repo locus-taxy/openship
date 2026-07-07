@@ -6,6 +6,7 @@ the app's core services.llm.
 """
 
 import logging
+import re
 from typing import List, Optional
 
 from fastapi import HTTPException
@@ -99,7 +100,7 @@ def generate_onboarding_plan(
             model=model,
             response_model=GeneratedOnboardingPlan,
             messages=[
-                {"role": "system", "content": onboarding_prompts.plan_system_prompt(role)},
+                {"role": "system", "content": onboarding_prompts.plan_system_prompt(role, company)},
                 {
                     "role": "user",
                     "content": onboarding_prompts.plan_user_prompt(role, company, docs_text),
@@ -218,7 +219,15 @@ class OnboardingQuestion(BaseModel):
     @field_validator("correct_answer")
     @classmethod
     def normalize_correct_answer(cls, v: str) -> str:
-        return v.strip().lower()[0] if v.strip() else "a"
+        # Extract the intended option letter robustly. A bare "b"/"B" is used as-is;
+        # a phrase like "The correct answer is B" or "b) ..." yields the standalone
+        # a/b/c/d token (word-boundary match, so the 'c' inside "correct" is ignored).
+        # Falls back to "a" only when no valid option letter is present at all.
+        s = (v or "").strip().lower()
+        if s in ("a", "b", "c", "d"):
+            return s
+        m = re.search(r"\b([abcd])\b", s)
+        return m.group(1) if m else "a"
 
 class GeneratedOnboardingQuiz(BaseModel):
     questions: List[OnboardingQuestion] = Field(description="Exactly 10 quiz questions")
@@ -261,6 +270,14 @@ def generate_onboarding_quiz(
             logger.warning(
                 "Onboarding quiz generation returned 0 questions [provider=%s]", provider
             )
+        return None
+    if len(response.questions) != num_questions:
+        logger.warning(
+            "Onboarding quiz returned %d questions, expected %d [provider=%s]",
+            len(response.questions),
+            num_questions,
+            provider,
+        )
         return None
     return [q.model_dump() for q in response.questions]
 
@@ -366,27 +383,26 @@ def extract_people_query(
         if turn.get("role") in ("user", "assistant") and turn.get("content"):
             messages.append({"role": turn["role"], "content": turn["content"]})
     messages.append({"role": "user", "content": question})
-    try:
+
+    def _call() -> PeopleQuery:
         client = _build_client(provider, api_key)
-        response: PeopleQuery = client.chat.completions.create(
+        return client.chat.completions.create(
             model=model,
             response_model=PeopleQuery,
             messages=messages,
             **_token_kwargs(provider, 512),
             max_retries=1,
         )
-        valid_intents = ("count", "list", "leaderboard", "other")
-        intent = response.intent if response.intent in valid_intents else "other"
-        people = [p.strip() for p in (response.people or []) if p and p.strip()]
-        valid_metrics = ("assigned", "reported", "authored", "involved")
-        metric = response.metric if response.metric in valid_metrics else "involved"
-        return {"intent": intent, "people": people[:5], "metric": metric}
-    except HTTPException:
-        raise
-    except Exception as e:
-        _raise_if_provider_error(provider, e)
-        logger.exception("People-query extraction failed [provider=%s]", provider)
+
+    response = _generate_with_retry(provider, _call, what="people-query extraction")
+    if response is None:
         return None
+    valid_intents = ("count", "list", "leaderboard", "other")
+    intent = response.intent if response.intent in valid_intents else "other"
+    people = [p.strip() for p in (response.people or []) if p and p.strip()]
+    valid_metrics = ("assigned", "reported", "authored", "involved")
+    metric = response.metric if response.metric in valid_metrics else "involved"
+    return {"intent": intent, "people": people[:5], "metric": metric}
 
 class KnowledgeAnswer(BaseModel):
     answer: str = Field(description="The answer, grounded only in the provided documentation")
@@ -413,19 +429,15 @@ def answer_from_context(
         {"role": "user", "content": knowledge_prompts.knowledge_user_prompt(question, context)}
     )
 
-    try:
+    def _call() -> KnowledgeAnswer:
         client = _build_client(provider, api_key)
-        response: KnowledgeAnswer = client.chat.completions.create(
+        return client.chat.completions.create(
             model=model,
             response_model=KnowledgeAnswer,
             messages=messages,
             **_token_kwargs(provider, 2048),
             max_retries=1,
         )
-        return response.answer
-    except HTTPException:
-        raise
-    except Exception as e:
-        _raise_if_provider_error(provider, e)
-        logger.exception("Knowledge answer generation failed [provider=%s]", provider)
-        return None
+
+    response = _generate_with_retry(provider, _call, what="answer")
+    return response.answer if response is not None else None

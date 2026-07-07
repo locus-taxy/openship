@@ -19,14 +19,17 @@ def generate_plan(payload: GenerateOnboardingRequest, user):
     provider = get_user_provider_name(user)
     api_key = get_user_api_key(user)
     model = get_user_model(user)
+    # Resolve the tenant server-side so the plan is always branded with the correct
+    # company name (never a client-supplied value).
+    company = confluence_service.get_or_create_company_for_user(user)
     return onboarding_service.generate_plan(
         user_id=str(user.id),
         role=payload.role,
-        company=payload.company,
+        company=company.name,
         provider=provider,
         api_key=api_key,
         model=model,
-        company_id=_company_id(user),
+        company_id=company.id,
     )
 
 def get_plan(plan_id: int, user):

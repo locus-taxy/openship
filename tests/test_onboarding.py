@@ -65,8 +65,9 @@ def _patch_session(target="onboarding.services.onboarding.Session"):
 
 class TestOnboardingPrompts:
     def test_plan_system_prompt_contains_role(self):
-        result = onboarding_prompts.plan_system_prompt("Backend Engineer")
+        result = onboarding_prompts.plan_system_prompt("Backend Engineer", "Acme")
         assert "Backend Engineer" in result
+        assert "Acme" in result
 
     def test_plan_user_prompt_contains_company_and_docs(self):
         result = onboarding_prompts.plan_user_prompt("SWE", "Locus", "some docs")
@@ -169,6 +170,26 @@ class TestOnboardingQuestion:
             explanation="Because",
         )
         assert q.correct_answer == "c"
+
+    def _q(self, correct_answer):
+        return OnboardingQuestion(
+            question="Q",
+            option_a="A",
+            option_b="B",
+            option_c="C",
+            option_d="D",
+            correct_answer=correct_answer,
+            explanation="Because",
+        )
+
+    def test_normalize_correct_answer_extracts_letter_from_prose(self):
+        # A phrase must yield the standalone option letter, not the 'c' inside "correct".
+        assert self._q("The correct answer is B").correct_answer == "b"
+        assert self._q("b) it uses a broker").correct_answer == "b"
+
+    def test_normalize_correct_answer_falls_back_when_no_letter(self):
+        assert self._q("none of these").correct_answer == "a"
+        assert self._q("").correct_answer == "a"
 
 class TestGenerateOnboardingPlan:
     def _mock_days(self):
@@ -523,7 +544,9 @@ class TestOnboardingService:
         content_mock.blocks = [block]
         patcher, session = _patch_session()
         try:
-            session.get.return_value = plan
+            # get_day_content now uses two short sessions (validate, then persist); the
+            # second re-fetches the OnboardingDay by id, so return the right row per model.
+            session.get.side_effect = lambda model, _id: plan if model is OnboardingPlan else day
             session.exec.return_value.first.return_value = day
             with (
                 patch("onboarding.services.onboarding._load_docs", return_value="docs"),
@@ -718,6 +741,11 @@ class TestOnboardingService:
             result = save_quiz_attempt(1, "1", answers)
             assert result["score"] == 100
             assert result["correct"] == 10
+            # Per-question grading is returned so the client can render right/wrong
+            # without ever holding the answer key.
+            assert len(result["results"]) == 10
+            assert all(r["is_correct"] for r in result["results"])
+            assert result["results"][0]["correct"] == "a"
         finally:
             patcher.stop()
 
@@ -784,6 +812,8 @@ class TestOnboardingService:
             result = get_quiz(1, "1")
             assert len(result["questions"]) == 10
             assert len(result["attempts"]) == 1
+            # correct_answer must never be sent to the client (grading is server-side).
+            assert all("correct_answer" not in q for q in result["questions"])
         finally:
             patcher.stop()
 
@@ -893,12 +923,17 @@ class TestOnboardingRoutes:
         plan = _make_plan()
         days = [_make_day(i) for i in range(1, 8)]
         result = {"plan": plan.model_dump(), "days": [d.model_dump() for d in days]}
+        company = MagicMock(id=1)
+        company.name = "Acme"
         with (
             patch(
                 "onboarding.controllers.onboarding.onboarding_service.generate_plan",
                 return_value=result,
             ),
-            patch("onboarding.controllers.onboarding._company_id", return_value=1),
+            patch(
+                "onboarding.controllers.onboarding.confluence_service.get_or_create_company_for_user",
+                return_value=company,
+            ),
         ):
             response = auth_client.post("/onboarding/generate", json={"role": "SWE"})
         assert response.status_code == 200

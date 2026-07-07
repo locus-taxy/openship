@@ -22,8 +22,8 @@ class TestCompanyKey:
     def test_generic_email_is_solo_org_by_full_email(self):
         from services.company import _company_key_and_name
 
-        # Full email is the key (unique); local part is just the display name.
-        assert _company_key_and_name("Alice@Gmail.com") == ("alice@gmail.com", "alice")
+        # Full email is both the key (unique) and the display label (unambiguous).
+        assert _company_key_and_name("Alice@Gmail.com") == ("alice@gmail.com", "alice@gmail.com")
 
     def test_same_localpart_different_provider_do_not_collide(self):
         from services.company import _company_key_and_name
@@ -96,7 +96,7 @@ class TestCompanyDisplayName:
         user = MagicMock(company_id=None, email="alice@gmail.com")
         from services.company import company_display_name
 
-        assert company_display_name(user) == "alice"  # derived local part
+        assert company_display_name(user) == "alice@gmail.com"  # full email for generic
 
     def test_falls_back_when_fk_missing_row(self):
         user = MagicMock(company_id=99, email="dev@acme.io")
