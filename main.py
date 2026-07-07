@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 # pytest's caplog (which hooks into root) still captures records in tests.
 _app_handler = logging.StreamHandler()
 _app_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
-for _logger_name in ("openship", "services", "controllers"):
+for _logger_name in ("openship", "services", "controllers", "onboarding"):
     _lg = logging.getLogger(_logger_name)
     _lg.setLevel(logging.INFO)
     if not _lg.handlers:
