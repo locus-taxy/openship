@@ -16,6 +16,7 @@ from services.llm import (
     ContentBlock,
     DEFAULT_MODELS,
     _build_client,
+    _full_exc_msg,
     _raise_if_provider_error,
     _require_settings,
     _sanitize_json_escapes,
@@ -25,6 +26,52 @@ from onboarding.prompts import onboarding as onboarding_prompts
 from onboarding.prompts import knowledge as knowledge_prompts
 
 logger = logging.getLogger(__name__)
+
+def _raise_if_truncated(exc: Exception, what: str) -> None:
+    """Raise a specific 422 when the LLM response was cut off at its output-token
+    limit (so the user gets an actionable "try again" rather than a generic 500) —
+    mirrors the course-content generator."""
+    msg = _full_exc_msg(exc)
+    flat = msg.replace(" ", "").lower()
+    low = msg.lower()
+    if (
+        "incompleteoutput" in flat
+        or "due to a max_tokens length limit" in low
+        or "finish_reason.max_tokens" in low
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"The {what} was too long and the response was cut off. "
+            "Try again — it usually works on the next attempt.",
+        )
+
+def _generate_with_retry(provider: str, call, what: str, attempts: int = 2):
+    """Run an instructor LLM call with one app-level retry and rich error mapping.
+
+    `call` is a zero-arg function that makes the request and returns the parsed
+    response. Provider errors (bad key / quota / overloaded / model access) and a
+    truncated response raise a specific HTTPException; a transient error is retried
+    once; anything still failing returns None (the caller maps that to its own
+    message). Brings knowledge/onboarding to parity with course generation."""
+    for attempt in range(attempts):
+        try:
+            return call()
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            _raise_if_provider_error(provider, e)  # 400 / 429 / 503 / model-access
+            _raise_if_truncated(e, what)  # 422 cut-off
+            if attempt < attempts - 1:
+                logger.info(
+                    "Retrying %s after a transient error [provider=%s]: %s",
+                    what,
+                    provider,
+                    type(e).__name__,
+                )
+                continue
+            logger.exception("%s failed [provider=%s]", what, provider)
+            return None
+    return None
 
 class OnboardingDayPlan(BaseModel):
     day: int = Field(description="Day number, 1 through 7")
@@ -46,9 +93,9 @@ def generate_onboarding_plan(
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
-    try:
+    def _call():
         client = _build_client(provider, api_key)
-        response: GeneratedOnboardingPlan = client.chat.completions.create(
+        return client.chat.completions.create(
             model=model,
             response_model=GeneratedOnboardingPlan,
             messages=[
@@ -61,20 +108,18 @@ def generate_onboarding_plan(
             **_token_kwargs(provider, 4096),
             max_retries=1,
         )
-        if not response.days or len(response.days) != 7:
-            logger.warning(
-                "Onboarding plan generation returned %d days, expected 7 [provider=%s]",
-                len(response.days) if response.days else 0,
-                provider,
-            )
-            return None
-        return [d.model_dump() for d in response.days]
-    except HTTPException:
-        raise
-    except Exception as e:
-        _raise_if_provider_error(provider, e)
-        logger.exception("Onboarding plan generation failed [provider=%s]", provider)
+
+    response = _generate_with_retry(provider, _call, what="onboarding plan")
+    if response is None:
         return None
+    if not response.days or len(response.days) != 7:
+        logger.warning(
+            "Onboarding plan generation returned %d days, expected 7 [provider=%s]",
+            len(response.days) if response.days else 0,
+            provider,
+        )
+        return None
+    return [d.model_dump() for d in response.days]
 
 class StructuredOnboardingDayContent(BaseModel):
     blocks: List[ContentBlock]
@@ -129,9 +174,9 @@ def generate_onboarding_day_content(
 
     max_tokens = 32768 if provider == "gemini" else 16384 if provider == "openai" else 8192
 
-    try:
+    def _call():
         client = _build_client(provider, api_key)
-        response: StructuredOnboardingDayContent = client.chat.completions.create(
+        return client.chat.completions.create(
             model=model,
             response_model=StructuredOnboardingDayContent,
             messages=[
@@ -149,20 +194,15 @@ def generate_onboarding_day_content(
             **_token_kwargs(provider, max_tokens),
             max_retries=1,
         )
-        if not response.blocks:
+
+    response = _generate_with_retry(provider, _call, what="day content")
+    if response is None or not response.blocks:
+        if response is not None:
             logger.warning(
                 "Onboarding day content returned 0 blocks [provider=%s day=%d]", provider, day
             )
-            return None
-        return response
-    except HTTPException:
-        raise
-    except Exception as e:
-        _raise_if_provider_error(provider, e)
-        logger.exception(
-            "Onboarding day content generation failed [provider=%s day=%d]", provider, day
-        )
         return None
+    return response
 
 class OnboardingQuestion(BaseModel):
     question: str = Field(description="The question text")
@@ -197,9 +237,9 @@ def generate_onboarding_quiz(
     provider, api_key = _require_settings(provider, api_key)
     model = model or DEFAULT_MODELS[provider]
 
-    try:
+    def _call():
         client = _build_client(provider, api_key)
-        response: GeneratedOnboardingQuiz = client.chat.completions.create(
+        return client.chat.completions.create(
             model=model,
             response_model=GeneratedOnboardingQuiz,
             messages=[
@@ -214,18 +254,15 @@ def generate_onboarding_quiz(
             **_token_kwargs(provider, 8192),
             max_retries=1,
         )
-        if not response.questions:
+
+    response = _generate_with_retry(provider, _call, what="quiz")
+    if response is None or not response.questions:
+        if response is not None:
             logger.warning(
                 "Onboarding quiz generation returned 0 questions [provider=%s]", provider
             )
-            return None
-        return [q.model_dump() for q in response.questions]
-    except HTTPException:
-        raise
-    except Exception as e:
-        _raise_if_provider_error(provider, e)
-        logger.exception("Onboarding quiz generation failed [provider=%s]", provider)
         return None
+    return [q.model_dump() for q in response.questions]
 
 class KnowledgeBlocks(StructuredOnboardingDayContent):
     """A structured, block-based knowledge answer. Same block shape (and lenient
@@ -264,28 +301,25 @@ def answer_blocks_from_context(
         }
     )
 
-    try:
+    def _call():
         client = _build_client(provider, api_key)
-        response: KnowledgeBlocks = client.chat.completions.create(
+        return client.chat.completions.create(
             model=model,
             response_model=KnowledgeBlocks,
             messages=messages,
             **_token_kwargs(provider, max_tokens),
             max_retries=1,
         )
-        if not response.blocks:
+
+    response = _generate_with_retry(provider, _call, what="answer")
+    if response is None or not response.blocks:
+        if response is not None:
             logger.warning("Knowledge blocks answer returned 0 blocks [provider=%s]", provider)
-            return None
-        return {
-            "blocks": [b.model_dump() for b in response.blocks],
-            "used_docs": bool(response.used_docs),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        _raise_if_provider_error(provider, e)
-        logger.exception("Knowledge blocks answer failed [provider=%s]", provider)
         return None
+    return {
+        "blocks": [b.model_dump() for b in response.blocks],
+        "used_docs": bool(response.used_docs),
+    }
 
 class PeopleQuery(BaseModel):
     """Planner output: is this question about specific people's work/involvement, and

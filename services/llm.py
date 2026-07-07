@@ -203,6 +203,42 @@ class BlockType(str, Enum):
     DIVIDER = "divider"
     DIAGRAM = "diagram"
 
+_VALID_BLOCK_TYPES = frozenset(t.value for t in BlockType)
+
+# LLMs occasionally emit a block `type` outside our vocabulary (e.g. Gemini returns
+# `list_item` for each bullet). Without handling, a single stray type fails the whole
+# structured response (chapter, onboarding day, or knowledge answer). We map common
+# drifts to a valid type; anything unrecognised falls back to a plain paragraph.
+# This ONLY affects blocks whose type is already invalid — valid types are untouched.
+_BLOCK_TYPE_ALIASES = {
+    "list_item": "bullet_list",
+    "listitem": "bullet_list",
+    "list": "bullet_list",
+    "bullet": "bullet_list",
+    "bullets": "bullet_list",
+    "unordered_list": "bullet_list",
+    "ul": "bullet_list",
+    "ordered_list": "numbered_list",
+    "orderedlist": "numbered_list",
+    "numbered": "numbered_list",
+    "ol": "numbered_list",
+    "text": "paragraph",
+    "para": "paragraph",
+    "p": "paragraph",
+    "header": "heading",
+    "title": "heading",
+    "code_block": "code",
+    "codeblock": "code",
+    "hr": "divider",
+    "separator": "divider",
+    "rule": "divider",
+    "mermaid": "diagram",
+    "callout": "note",
+    "info": "note",
+    "warning": "note",
+    "blockquote": "quote",
+}
+
 class ContentBlock(BaseModel):
     type: BlockType
     content: Optional[str] = None
@@ -216,8 +252,26 @@ class ContentBlock(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def strip_key_whitespace(cls, values):
-        if isinstance(values, dict):
-            return {k.strip(): v for k, v in values.items()}
+        if not isinstance(values, dict):
+            return values
+        values = {k.strip(): v for k, v in values.items()}
+        # Coerce an out-of-vocabulary block type to a valid one instead of failing
+        # the whole response. Valid types are left exactly as-is (guarded below).
+        t = values.get("type")
+        if isinstance(t, str):
+            key = t.strip().lower()
+            if key not in _VALID_BLOCK_TYPES:
+                mapped = _BLOCK_TYPE_ALIASES.get(key, "paragraph")
+                values["type"] = mapped
+                # A stray `list_item` usually carries its text in `content` rather
+                # than `items`; move it so the bullet actually renders.
+                if (
+                    mapped in ("bullet_list", "numbered_list")
+                    and not values.get("items")
+                    and values.get("content")
+                ):
+                    values["items"] = [values["content"]]
+                    values["content"] = None
         return values
 
     @field_validator("rows", mode="before")
