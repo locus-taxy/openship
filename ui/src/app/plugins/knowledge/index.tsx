@@ -215,7 +215,7 @@ export default function KnowledgePage() {
             {/* Chat panel */}
             <div className="flex flex-1 flex-col min-w-0">
                 <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-                    <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => navigate("/onboarding")}>
+                    <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => navigate(-1)}>
                         <ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Back</span>
                     </Button>
                     <Button variant="ghost" size="icon" className="h-9 w-9 sm:hidden" onClick={() => setNavOpen(true)}>

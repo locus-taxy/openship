@@ -9,6 +9,10 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Never copy a host model cache or logs over the image's baked-in cache
+.cache/
+logs/
+
 # The UI ships as a separate static deploy — not needed in the backend image
 ui/
 
