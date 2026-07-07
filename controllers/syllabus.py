@@ -24,7 +24,13 @@ from services.llm import (
     classify_skill_domain,
 )
 from services.daily_task import store_syllabus_tasks, clear_syllabus_tasks
-from services.quiz import get_topics_for_week, create_quiz, clear_all_quizzes, WEEKLY_QUIZ_QUESTIONS
+from services.quiz import (
+    get_topics_for_week,
+    create_quiz,
+    clear_all_quizzes,
+    build_topic_map,
+)
+from services.week_remediation import clear_remediation_topics
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +115,7 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     # a successful LLM call) and the user can simply regenerate to recover.
     clear_syllabus_tasks(skill_id)
     clear_all_quizzes(skill_id)
+    clear_remediation_topics(skill_id)
 
     if not store_syllabus_tasks(
         str(current_user.id),
@@ -146,21 +153,19 @@ def generate_syllabus(payload: GenerateSyllabusRequest, current_user: User):
     try:
         week1_topics = get_topics_for_week(skill_id, 1)
         if week1_topics:
+            num_unique = len(week1_topics)
             generated = generate_weekly_quiz(
                 skill=payload.skill,
                 week=1,
                 topics=week1_topics,
-                num_questions=WEEKLY_QUIZ_QUESTIONS,
+                num_questions=num_unique,
                 provider=provider,
                 api_key=api_key,
                 model=model,
                 pool_size=pool_size,
             )
             if generated:
-                topic_map = {
-                    i: week1_topics[(i - 1) % len(week1_topics)]
-                    for i in range(1, len(generated.questions) + 1)
-                }
+                topic_map = build_topic_map(week1_topics, num_unique)
                 create_quiz(
                     skill_id, generated.questions, week=1, topic_map=topic_map, pool_size=pool_size
                 )

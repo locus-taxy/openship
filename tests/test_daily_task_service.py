@@ -10,6 +10,8 @@ from services.daily_task import (
     get_tasks_for_generating_newsletter,
     get_total_cost_for_user,
     get_cost_summary_for_skill,
+    get_max_day_for_week,
+    get_canonical_topic_names,
 )
 from models.daily_task import DailyTask
 
@@ -166,6 +168,20 @@ class TestAddBlocksToDb:
         finally:
             patcher.stop()
 
+    def test_stores_pricing_id_when_provided(self):
+        task = DailyTask(id=1, user_id="u", skill="Python", skill_id=1)
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            block = MagicMock()
+            block.model_dump.return_value = {"type": "paragraph", "content": "hi"}
+            result = add_blocks_to_db([block], task_id=1, pricing_id=5)
+            assert result is True
+            assert task.pricing_id == 5
+        finally:
+            patcher.stop()
+
 class TestMarkTaskCompleted:
     def test_returns_false_when_task_not_found(self):
         session = MagicMock()
@@ -277,6 +293,18 @@ class TestAddContentToDb:
         finally:
             patcher.stop()
 
+    def test_stores_pricing_id_when_provided(self):
+        task = DailyTask(id=1, user_id="u", skill="Python", skill_id=1)
+        session = MagicMock()
+        session.get.return_value = task
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = add_content_to_db("<p>html</p>", task_id=1, pricing_id=7)
+            assert result is True
+            assert task.pricing_id == 7
+        finally:
+            patcher.stop()
+
 class TestGetTotalCostForUser:
     def _make_task(self, input_tokens, output_tokens, cost_usd):
         t = DailyTask(id=1, user_id="u1", skill="Python", skill_id=1)
@@ -361,5 +389,58 @@ class TestGetCostSummaryForSkill:
         try:
             result = get_cost_summary_for_skill(999)
             assert result["total_cost_usd"] == 0.0
+        finally:
+            patcher.stop()
+
+class TestGetMaxDayForWeek:
+    def test_returns_max_day_when_tasks_exist(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.first.return_value = 14
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_max_day_for_week(skill_id=1, week=2)
+            assert result == 14
+        finally:
+            patcher.stop()
+
+    def test_returns_zero_when_no_tasks(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.first.return_value = None
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_max_day_for_week(skill_id=1, week=99)
+            assert result == 0
+        finally:
+            patcher.stop()
+
+class TestGetCanonicalTopicNames:
+    def test_returns_ordered_deduplicated_topics(self):
+        t1 = DailyTask(id=1, user_id="u", skill="Python", skill_id=1, topic="Arrays")
+        t2 = DailyTask(id=2, user_id="u", skill="Python", skill_id=1, topic="Loops")
+        t3 = DailyTask(id=3, user_id="u", skill="Python", skill_id=1, topic="Arrays")
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = [t1, t2, t3]
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_canonical_topic_names(skill_id=1)
+            assert result == ["Arrays", "Loops"]
+        finally:
+            patcher.stop()
+
+    def test_returns_empty_when_no_tasks(self):
+        session = MagicMock()
+        exec_mock = MagicMock()
+        exec_mock.all.return_value = []
+        session.exec.return_value = exec_mock
+        patcher = _patch_session("services.daily_task.Session", session)
+        try:
+            result = get_canonical_topic_names(skill_id=99)
+            assert result == []
         finally:
             patcher.stop()
