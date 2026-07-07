@@ -1,384 +1,312 @@
-# Openship Knowledge Platform — Design
+# Openship Knowledge Platform - Design
 
-**Status:** Implemented · **Component:** Openship · `onboarding/` package · **Owner:** Yogesh K
-
-One platform, three surfaces:
-
-1. **Connections** — connect a company's **Atlassian** workspace (one OAuth) and ingest
-   **Confluence** pages and **Jira** issues into a single searchable knowledge base.
-2. **Onboarding** — generate role-based 7-day onboarding plans, per-day content, and a
-   quiz, grounded in the company's **Confluence** docs.
-3. **Knowledge** — a ChatGPT-style chat that answers from the company's **Confluence +
-   Jira**, with people-analytics (who works on what, counts, leaderboards).
-
-The engine is **RAG** (Retrieval-Augmented Generation): ingest everything once → chunk →
-embed → store vectors in Postgres (pgvector) → on a question, embed it, retrieve the
-nearest chunks, and feed only those to the LLM. We never send the whole corpus to the
-model; retrieval narrows tens of thousands of items down to the handful that matter.
-
-> **Why one doc:** all three surfaces share the same connection, ingestion, tables, and
-> retrieval. Onboarding and Knowledge are just different *consumers* of the shared base
-> (a source filter + a prompt). Documenting the foundation once avoids drift.
+**Status:** Shipped  ·  **Component:** Openship (`onboarding/` package)  ·  **Owner:** Yogesh Kisslay
 
 ---
 
-## Contents
+## 1. Overview
 
-- [Architecture](#architecture)
-- [Part A — Connections & Ingestion (shared)](#part-a--connections--ingestion-shared)
-- [Part B — Data model](#part-b--data-model)
-- [Part C — Embeddings](#part-c--embeddings)
-- [Part D — Retrieval (hybrid + name-aware)](#part-d--retrieval-hybrid--name-aware)
-- [Part E — Knowledge chat](#part-e--knowledge-chat)
-- [Part F — People questions (count / list / leaderboard)](#part-f--people-questions-count--list--leaderboard)
-- [Part G — Onboarding](#part-g--onboarding)
-- [Security & multi-tenancy](#security--multi-tenancy)
-- [API surface](#api-surface)
-- [Configuration](#configuration)
+The Knowledge Platform turns a company's **Atlassian workspace** into a private, AI-searchable
+knowledge base. A company connects once, and Openship reads **all of its Confluence pages and
+Jira issues** into one indexed store. That single store then powers three product surfaces:
 
----
+| Surface | What it does | Source |
+|---|---|---|
+| **Connections** | Connect Atlassian and index Confluence + Jira into the knowledge base | Confluence + Jira |
+| **Onboarding** | Generate a role-based 7-day onboarding plan, day-by-day content, and a quiz | Confluence only |
+| **Knowledge** | A chat assistant that answers questions from the company's own docs, with citations and people-analytics | Confluence + Jira |
 
-## Architecture
+Onboarding and Knowledge are simply **two different readers of the same indexed base** - they
+differ only in which sources they read and how they prompt the model. Everything else - the
+connection, the ingestion pipeline, the database tables - is shared.
+
+### The engine: Retrieval-Augmented Generation (RAG)
+
+We never send an entire company's documentation to the AI model. Instead:
 
 ```
-                         ┌──────────────────────── Atlassian (one OAuth 2.0 app) ───────────────────────┐
-                         │   Confluence (pages + blog posts + live docs)   ·   Jira (projects + issues)  │
-                         └───────────────────────────────┬──────────────────────────────────────────────┘
-                                                          │  read APIs (company-level encrypted tokens)
-                        Ingest job (background, resumable, per source)
-                                   read → chunk → embed → store
-                                                          ▼
-                    ┌─────────────────────────── Postgres ───────────────────────────┐
-                    │  document_pages (1 row / page|issue, + structured meta)         │
-                    │  document_chunks (vector(384), pgvector HNSW cosine index)      │
-                    └───────────────────────────────┬─────────────────────────────────┘
-                                                     │
-             ┌───────────────────────────────────────┼───────────────────────────────────────┐
-             ▼                                                                                 ▼
-   ONBOARDING (Confluence only)                                              KNOWLEDGE chat (Confluence + Jira)
-   role → retrieve → LLM → 7-day plan,                                       question → route:
-   per-day content, quiz                                                       • RAG (concept/general) → LLM answer
-                                                                               • people path → exact DB (list/count/leaderboard)
+   Ingest each page/issue  →  split into small chunks  →  turn each chunk into a vector
+                                                                        │
+   Ask a question  →  turn the question into a vector  →  find the nearest chunks
+                                                                        │
+                              feed only those few chunks to the LLM  →  grounded answer
 ```
 
-Freshness: Confluence **webhooks** re-embed changed pages; a **reconcile** job re-scans a
-source to catch deletions/restores. Both run as the same kind of background job as ingest.
+Retrieval narrows tens of thousands of documents down to the handful that actually matter for a
+given question. This keeps answers grounded in real company content, keeps cost low, and scales
+to very large workspaces.
 
 ---
 
-## Part A — Connections & Ingestion (shared)
+## 2. How we connect (Atlassian)
 
-### A.1 One Atlassian connection, two products
+### One OAuth connection, both products
 
-A single Atlassian OAuth 2.0 (3LO) app grants access to **both** Confluence and Jira. We
-store **company-level** encrypted tokens once; Confluence and Jira reads reuse the same
-`cloud_id` and access token, differing only in the API base:
+A single **Atlassian OAuth 2.0 (3-legged) app** grants read access to **both** Confluence and
+Jira. We store the resulting tokens **once per company** (encrypted), and both products are read
+using the same credentials - they differ only in the API base URL:
 
 - Confluence: `https://api.atlassian.com/ex/confluence/{cloud_id}`
 - Jira: `https://api.atlassian.com/ex/jira/{cloud_id}`
 
-Scopes (`config.ATLASSIAN_OAUTH_SCOPES`): read-only Confluence + Jira plus
-`offline_access` (for a refresh token). Tokens auto-refresh (rotating refresh tokens);
-timestamps are stored as **naive UTC** to avoid a DB-session-timezone bug that made valid
-tokens look expired.
+Tokens are **encrypted at rest** and **auto-refresh** (Atlassian access tokens live ~1 hour; a
+long-lived refresh token is used to mint new ones). All timestamps are stored in UTC.
 
-**Company resolution** (`services/company.py`): a user's company is keyed by their email
-— the **domain** for corporate addresses (teammates share one org) or the **full email**
-for personal/generic addresses (a private one-person org; the local part alone would
-collide — `john@gmail` vs `john@yahoo`). Resolved at **signup** and stored on
-`users.company_id` (read-only, shown in Settings → Account; "want a real company → sign up
-with its domain"). The connection and all ingested docs are keyed by `company_id`, so
-every employee of a company shares one indexed knowledge base — and a **new teammate rides
-the existing connection** with no reconnect needed.
+### Which company a user belongs to
 
-### A.2 What we ingest
+Every user is mapped to exactly one company, decided from their email at sign-up:
 
-| Source | Container | Item | Notes |
-|---|---|---|---|
-| **Confluence** | space (non-personal) | page **and blog post** | Live Docs are `type=page` → captured. Personal (`~`) spaces skipped. |
-| **Jira** | project | issue | via the enhanced JQL search (`/rest/api/3/search/jql`, `nextPageToken` paging) |
+- **Corporate email** (e.g. `dev@acme.com`) → the company is keyed by the **domain** (`acme.com`),
+  so all teammates share one knowledge base.
+- **Personal / generic email** (e.g. `@gmail.com`) → the user becomes a **private one-person
+  organisation**, keyed by the **full email address** (so two unrelated personal users never
+  pool into the same base).
 
-Reads go through the **search APIs** (work with classic OAuth scopes; the retired v1
-GET-by-id and the removed legacy Jira `/search` are avoided). Each item is fetched with
-enough expansion to get full text **and metadata** in one call.
+The company is stored on the user record and shown (read-only) in **Settings → Account**. Because
+docs are indexed per company, a **new teammate automatically shares the existing connection** -
+no reconnection needed.
 
-### A.3 The ingest job (3 phases, resumable)
+### Connecting safely (identity check)
 
-`_run_ingest(company_id, job_id, source)` is a background task driven by an
-`ingestion_jobs` row (drives the live progress UI):
-
-1. **reading** — list every container, fetch every item. A container that keeps failing
-   (after retries) is *skipped and counted*, not fatal.
-2. **indexing** — upsert each item into `document_pages`; decide which need (re)embedding
-   (new, changed text, or missing chunks). **Resumable**: a page already embedded and
-   unchanged is skipped.
-3. **embedding** — chunk each to-embed page, embed in **cross-page batches** (~256
-   chunks/call — far faster than per-page), store `document_chunks`.
-
-Robustness: only whole-run problems fail the job (no connection, expired session, nothing
-embedding at all). Auth 401 mid-run fails loudly (so reconcile can't silently deactivate
-the whole base). Orphaned "running" jobs from a process restart are reaped on startup
-(`reap_running_jobs`).
-
-**Change detection** (`_upsert_page`): re-embed when the version bumped, the row was
-inactive, **or the extracted text differs**. The text check is what catches Jira edits
-(their normalized "version" is `None`), so incremental re-ingests are cheap.
-
-### A.4 Freshness
-
-Two independent mechanisms; **reconcile is the reliable baseline, webhooks are an
-optimization** on top.
-
-**Reconcile** (`begin_reconcile`, background job, **per source**) re-lists a source and
-flips `is_active` for pages that vanished/reappeared upstream. Source-scoped so a
-Confluence reconcile never touches Jira docs. Always available — no external setup.
-
-**Webhooks** — the *receiving* side is implemented for **both** sources
-(secret-authenticated, tenant-scoped). The endpoint **verifies the secret synchronously**
-(bad secret → 401), then **acknowledges instantly** (`200 {"status":"accepted"}`) and does
-the fetch+embed in a **`BackgroundTasks`** job — so a burst of webhooks (bulk edit/move)
-can't block web workers. The handler never raises. No queue infra: single-item processing
-is sub-second (local embeddings), and **reconcile is the durability backstop** for any
-dropped event. Add a real durable queue only if you hit high sustained volume or need
-at-least-once delivery guarantees.
-
-| | Endpoint | Secret (config) | Events → action |
-|---|---|---|---|
-| Confluence | `POST /py/webhooks/confluence` | `CONFLUENCE_WEBHOOK_SECRET` | created/updated → re-embed page · removed → deactivate |
-| Jira | `POST /py/webhooks/jira` | `JIRA_WEBHOOK_SECRET` | `issue_created`/`issue_updated` → re-embed issue (`_reindex_issue`) · `issue_deleted` → deactivate |
-
-Tenant resolution: Confluence by `cloudId` in the payload; Jira by `cloudId` **or** the
-site URL parsed from `issue.self` (matched to the connection's `site_url`). Set the secret
-env var to enable an endpoint; unset → the endpoint returns 503 and you rely on reconcile.
-
-> **What "just add config" covers.** Setting the secret makes our endpoint *ready to
-> receive*. Atlassian still has to be told to *send* events to it — a one-time
-> registration we can't do from config alone (OAuth 3LO apps have no auto-registration):
-> - **Jira Cloud:** Settings → System → **WebHooks** → add
->   `https://your-host/py/webhooks/jira?secret=<JIRA_WEBHOOK_SECRET>`, events *Issue
->   created/updated/deleted*.
-> - **Confluence Cloud:** no simple admin webhook UI — use an **Automation** rule
->   ("page created/updated → Send web request" to
->   `https://your-host/py/webhooks/confluence?secret=<…>`) or a Connect/Forge app.
->
-> The secret may be passed as `?secret=` or the `X-Webhook-Secret` header.
+When a user connects, we verify - via Atlassian's identity API - that the **Atlassian account
+they authorised with matches their Openship login email**. This prevents a user who happens to be
+signed into a *personal* Atlassian account in their browser from accidentally binding their
+personal workspace as the whole company's knowledge base. A mismatch is rejected.
 
 ---
 
-## Part B — Data model
+## 3. Ingestion - how data comes in
 
-All tables are `company_id`-scoped. Packaged under `onboarding/models/`.
+Ingestion runs as a **background job** with a live, staged progress bar
+(**Reading → Scanning → Embedding**).
 
-### `companies`
-One row per company (resolved by email domain).
+### What we read
 
-### `confluence_connections`
-The shared Atlassian connection: `cloud_id`, `site_url`, encrypted `access_token` /
-`refresh_token`, `token_expires_at` (naive UTC), `status` (`ready` | `error`). Named
-"confluence" for history; it powers Jira too.
-
-### `document_pages` — one row per ingested item (Confluence page/blog OR Jira issue)
-| Column | Purpose |
-|---|---|
-| `source` | `confluence` \| `jira` (indexed) — scopes retrieval per feature |
-| `confluence_page_id` | source id: Confluence page id **or** Jira issue key |
-| `space_key` | Confluence space **or** Jira project key |
-| `title`, `content_text` | title + cleaned full text (what gets chunked/embedded) |
-| `version` | change-detection (Confluence version number; `None` for Jira) |
-| `assignee`, `reporter`, `status` | **structured Jira fields** (indexed) — exact person lookups/counts |
-| `meta` (JSONB) | source-specific extras, **no migration needed for new keys**: Jira → `issue_type, priority, labels, created, updated, resolution, status_category, project`; Confluence → `author, last_editor, breadcrumb, labels, updated, type` |
-| `is_active` | false when archived/removed upstream |
-| unique | `(company_id, source, confluence_page_id)` |
-
-For **Confluence**, `content_text` is prefixed with `Author: … | Last edited by: … | Path:
-breadcrumb | Labels: …` so authorship is searchable the same way Jira `Assignee:` is.
-For **Jira**, `content_text` embeds `Issue KEY · summary · Status/Type/Priority/Assignee/
-Reporter/Labels · description · comments (author-prefixed)`.
-
-### `document_chunks` — one row per ~800-token slice
-`content`, `embedding vector(384)` (pgvector, **HNSW cosine** index), `token_count`,
-`chunk_index`, `source`. `EMBEDDING_DIM = 384` must match the model + config.
-
-### `ingestion_jobs` — drives the progress UI
-`kind` (`ingest` | `reconcile`), `source`, `phase`, `total/processed_spaces`,
-`total/processed_pages`, `total/embedded_chunks`, `status`, `error`.
-
-### `knowledge_chats` / `knowledge_messages` — persistent chat
-Per-user chats; assistant messages store structured `blocks` (JSON) + `citations` (JSON) +
-a flattened `content` (for history / follow-ups).
-
-### `onboarding_plans` / `onboarding_days` / `onboarding_quiz_attempts`
-The generated 7-day plan, per-day block content, and quiz attempts.
-
----
-
-## Part C — Embeddings
-
-- **Local** via `fastembed` — model **`BAAI/bge-small-en-v1.5`**, **384-dim**. No API key,
-  no quota, no per-token cost. Model is a lazy singleton, cached on disk; a
-  `scripts/warm_embeddings.py` pre-download is wired into `setup.sh`.
-- `embed_texts(list)` (ingest, batched) and `embed_query(str)` (retrieval).
-- **Key split:** embeddings are a company-wide, system-funded **local** job; the
-  **answer LLM stays per-user** (their saved provider key).
-
-*Why a 384-dim small model:* fast, scalable to hundreds of thousands of chunks, and
-retrieval quality is dominated by the hybrid layer below, not by embedding size.
-
----
-
-## Part D — Retrieval (hybrid + name-aware)
-
-`onboarding/services/retrieval.py`. Pure semantic search is great at *meaning* but bad at
-*literal tokens* (names, issue keys). So retrieval is **hybrid**:
-
-```
-query ─┬─ semantic:  ORDER BY embedding <=> query_vec      (pgvector cosine)
-       └─ lexical:   word/phrase match on chunk content    (ranked by weighted hits)
-                     → merge (dedup by PAGE) → top-k
-```
-
-**Query classification** (`_query_terms`) splits a query into weighted terms and labels it:
-
-- **Issue keys** (`AR-2847`) and **multi-word full names** (`Yogesh Kisslay`) → **phrase
-  weight** (2×), so a full-name match outranks a coincidental first-name hit. When a full
-  name is present, the lexical filter **requires the whole phrase** — a different "Yogesh"
-  is excluded entirely. Capitalized adjacency detects names even with trailing lowercase
-  words ("Yogesh Kisslay create").
-- **Known-name awareness:** a cached per-company set of real people (from Jira
-  `assignee/reporter` + Confluence `author/editor`) lets **lowercase** names ("what is
-  sunadh working on") be recognized as entities too. Cache is TTL-refreshed and
-  **cleared instantly after a Jira ingest** (`refresh_names`).
-- **Adaptive semantic ratio:** an *entity* query (name/key) is keyword-heavy (k−3 / 3); a
-  *concept* query ("how do we deploy") is balanced (k/2 each) so synonyms/paraphrases get
-  in.
-- **Scope:** `sources=["confluence"]` for onboarding; `None` (both) for chat.
-- **Dedup by page**, not chunk, so k slots cover k distinct documents.
-
----
-
-## Part E — Knowledge chat
-
-`onboarding/services/knowledge.py`. Multi-turn, persistent, structured.
-
-**Answer path (`_answer_blocks`):**
-1. **People-question path first** (Part F) — if the question is about specific people /
-   counts / leaderboards, answer from exact DB lookups (retrieval can only *sample*).
-2. Otherwise **RAG**: retrieve across both sources → format context tagged by source
-   (`[Confluence]` / `[Jira issue KEY]`) → LLM answers as **typed content blocks** (same
-   `BlockRenderer` as onboarding: headings, code, tables, mermaid).
-
-**Grounding & honesty (prompt-enforced):**
-- Answer only from the excerpts; if not covered, say so (strict). General/technical
-  questions get a clearly-labeled general answer; company-specific "who/what/status"
-  questions never guess.
-- **Jira role discipline:** `Assignee` = doing the work, `Reporter` = filed it, comment
-  author = commented — never conflated; the right verb is used per role.
-
-**Link & citation safety:**
-- **Hallucinated-URL scrub** (`_scrub_block_links`): any URL the model emits that is **not
-  present in the retrieved excerpts** is stripped (markdown keeps its label). Kills
-  `jira.example.com`-style fabrications.
-- **Citations** carry `source` + a **deep link** (`/browse/KEY` for Jira,
-  `/wiki/pages/viewpage.action?pageId=…` for Confluence), gated by `used_docs`, deduped,
-  and filtered to what the answer actually references (by id **or title**, so numeric
-  Confluence ids aren't dropped).
-
----
-
-## Part F — People questions (count / list / leaderboard)
-
-Retrieval returns a **top-k sample** — it cannot enumerate or count. So questions about
-people are routed to **exact DB lookups**.
-
-**Cheap gate → planner → route:**
-- **Gate** (`_looks_like_person_question`, no LLM): fires on a count/rank cue, a known
-  person named in the question, or a **pronoun follow-up** ("about *his* work") when a
-  person was named earlier in the chat.
-- **Planner** (one small LLM call, `extract_people_query`, **history-aware** so it resolves
-  "he/his" → the person discussed): returns `intent` + `people` (+ `metric`).
-
-| Intent | Trigger | Answer (deterministic — numbers/lists straight from DB) |
+| Source | Container | Item read |
 |---|---|---|
-| **list** | "what is X working on", "all work of X", "tell me about X and Y", "what do you think of X" | Complete per-person work: Confluence docs + Jira issues, each with **role**, as clickable links. One section per person. |
-| **count** | "who did more, X or Y", "how many issues did X report" | Exact per-role counts (assigned/reported/authored/involved) + comparison table. |
-| **leaderboard** | "who reported the most", "top contributors" | `GROUP BY` ranking across everyone, by metric (reported/assigned/authored/involved). Bot/placeholder names filtered. |
-| **other** | topic that merely mentions a person ("what did X decide about auth") | Falls through to RAG. |
+| **Confluence** | Space (personal `~` spaces skipped) | Every page **and** blog post |
+| **Jira** | Project | Every issue (summary, description, comments, and fields) |
 
-**Precision — word-boundary matching:** person matching uses **whole-word** regex
-(`~*` `\y…\y` in SQL, `\b` in Python), not substring. Prevents "ana" matching
-"management"/"Diana" and "raj" matching "Nataraj". Regex-injection-safe (`re.escape`).
+All reads go through Atlassian's **search APIs**, which work with standard read scopes. For Jira
+we use the current enhanced JQL search with token-based pagination. Jira descriptions/comments
+arrive as Atlassian's structured "ADF" format, which we flatten to plain text.
 
-**"Involved" = holding a role** (assignee/reporter/author/editor) — *not* a mere text
-mention — so common-word names (Mark, Will) don't over-count, and "involvement" means
-actual work. Handles single & multiple people; lowercase & full names; deactivated real
-users (matched by plain name).
+### The pipeline
 
----
+For each item we:
 
-## Part G — Onboarding
+1. **Read** it from Atlassian, with enough detail to get its full text **and** its metadata in
+   one call.
+2. **Normalise & store** it as one row in `document_pages` - the title, the cleaned full text,
+   and structured fields (for Jira: assignee, reporter, status, project, priority, etc.).
+3. **Chunk** the text into ~800-token slices and **embed** each slice into a vector, stored in
+   `document_chunks`.
 
-`onboarding/services/onboarding.py` + `generation.py`. Grounded **only in Confluence**
-(`sources=["confluence"]`, pure semantic — a plan wants topical breadth, not literal hits).
+Because the structured people-fields are written in step 2 (the *read* phase), **"who did what"
+analytics is complete as soon as reading finishes - before the slower embedding step even runs.**
 
-- **Plan:** `role` → broad landscape retrieval → LLM → 7 days (topic + task each).
-- **Day content:** focused retrieval (role + topic + task) → LLM → typed content blocks
-  (rendered by the shared `BlockRenderer`: headings, code, tables, mermaid diagrams).
-- **Quiz:** retrieval over the plan's topics → 10 MCQs; attempts persisted.
-- Share toggle + public read-only view. Force-regenerate supported.
+### Built to survive a large, first-time ingest
 
-The UI shows a readiness banner pointing to **Connections** when the KB isn't ready.
+Reading an entire large workspace is a multi-hour operation across tens of thousands of requests,
+so the pipeline is deliberately resilient:
 
----
+- **Respects rate limits.** When Atlassian asks us to slow down, we wait exactly as long as it
+  tells us to (and retry patiently) rather than giving up and dropping a project.
+- **Keeps the session alive.** The access token is refreshed *before every project* (with a
+  safety margin), so a run that lasts longer than a token's ~1-hour lifetime never dies midway.
+- **Bounded memory.** We process **one project/space at a time** and release it before the next,
+  so memory stays flat regardless of workspace size (one project can hold 100k+ issues).
+- **Resumable & idempotent.** Re-running adds new items, updates changed ones, and **only
+  re-embeds what actually changed** - so repeat runs are cheap and safe. A container that fails
+  is skipped, counted, and surfaced ("N skipped - re-ingest to retry"), never fatal.
 
-## Security & multi-tenancy
+### Keeping the base fresh
 
-- **Tenant isolation:** every query is `company_id`-scoped; webhooks scope to the
-  connection's company so one tenant's page id can't touch another's.
-- **Company email only:** personal email domains are blocked from connecting.
-- **Connector identity check:** on OAuth callback we call Atlassian's `/me` (`read:me`
-  scope) and require the authorizing Atlassian account's email to **equal the Openship
-  login email** — otherwise a user signed into a *personal* Atlassian in their browser
-  could bind their personal Confluence/Jira as the whole company's KB. Mismatch or
-  unverifiable email → 403, no connection (fail-closed).
-- **Secrets:** OAuth tokens encrypted at rest (`services/encryption.py`); webhook
-  shared-secret via constant-time compare; embeddings need no secret.
-- **LLM keys** stay per-user; only the (local, keyless) embedding job is company-wide.
-- **No fabricated links/facts:** URL scrub + strict grounding + deterministic
-  people-answers (DB numbers, never LLM-invented).
-
----
-
-## API surface
-
-Routes under `onboarding/routes/` (mounted at `/py/...`):
-
-- **Connections/Atlassian:** `POST /confluence/connect`, `GET /confluence/callback`,
-  `GET /connections/status`, `POST /confluence/ingest?source=`,
-  `GET /confluence/ingest/{job_id}`, `POST /confluence/reconcile?source=`,
-  `POST /webhooks/confluence`, `POST /webhooks/jira`.
-- **Knowledge:** `POST /knowledge/query` (one-shot) + chat CRUD
-  (`create/list/get/delete/post_message`).
-- **Onboarding:** plan generate/list/get, day content, quiz get/generate, share, public.
-
-UI: **Connections** page (connect + per-source ingest/sync with staged progress),
-**Knowledge** full-screen chat (history sidebar, provider switcher, block-rendered
-answers with source chips), **Onboarding** (plans, day view, quiz).
-
----
-
-## Configuration
-
-| Setting | Default / note |
+| Mechanism | How it works |
 |---|---|
-| `ATLASSIAN_CLIENT_ID/SECRET/REDIRECT_URI` | OAuth app (required to connect) |
-| `ATLASSIAN_OAUTH_SCOPES` | Confluence + Jira read scopes + `offline_access` |
-| `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` (384-dim); keep in sync with `EMBEDDING_DIM` |
-| `CONFLUENCE_WEBHOOK_SECRET` | enables the Confluence webhook endpoint |
-| `JIRA_WEBHOOK_SECRET` | enables the Jira webhook endpoint |
-| `CONFLUENCE_POST_CONNECT_REDIRECT` | where to land after connect |
+| **Webhooks** | Atlassian notifies us when a page/issue is created, updated, or deleted; we re-embed or deactivate just that item, near-instantly. Secret-authenticated and scoped to the right company. |
+| **Reconcile** | A background job re-scans a source and reactivates/deactivates items to match what still exists upstream - the reliable baseline that catches anything a webhook missed. |
 
-**Migrations** (Alembic, `onb_*` ids): document_pages/chunks, `source` column,
-`ingestion_jobs.source`, Jira `assignee/reporter/status` columns, `meta` JSONB.
+---
 
-**Tests:** full suite green at ~99% total; the `onboarding/` services
-(confluence/retrieval/knowledge/generation) at 100%.
+## 4. Data model
+
+### 4.1 Before this work
+
+Openship already had the **learning-platform** schema: `users`, `skills`, `daily_tasks`,
+`quizzes`, `quiz_questions`, `quiz_attempts`, `user_streaks`, `topic_knowledge` (mastery),
+`llm_provider`, `user_api_keys`, `user_model_prices`, `llm_usage_logs`, `pricing_snapshots`, and
+`content_style_arms`. None of these were about company documents.
+
+### 4.2 What we changed on an existing table
+
+| Table | Change |
+|---|---|
+| `users` | Added **`company_id`** (foreign key → `companies`), set at sign-up. This links each existing user to their company so the knowledge base can be shared per organisation. |
+
+That is the **only** change to a pre-existing table - the knowledge platform is otherwise entirely
+new tables, so it sits alongside the learning platform without disturbing it.
+
+### 4.3 What we created (new tables)
+
+| Table | Purpose | Notable columns |
+|---|---|---|
+| **`companies`** | One row per organisation (the multi-tenant boundary) | `name`, `domain` (or full email for personal orgs) |
+| **`confluence_connections`** | The shared Atlassian connection for a company | `cloud_id`, `site_url`, encrypted `access_token` / `refresh_token`, `token_expires_at`, `status` |
+| **`document_pages`** | One row per ingested item (a Confluence page/blog **or** a Jira issue) | `source` (`confluence`\|`jira`), `confluence_page_id` (page id or issue key), `space_key` (space/project), `title`, `content_text`, `version`, **`assignee` / `reporter` / `status`** (structured Jira fields), **`meta`** (JSONB), `is_active` |
+| **`document_chunks`** | One row per ~800-token slice of a page | `content`, **`embedding`** (pgvector, 384-dim, HNSW cosine index), `token_count`, `chunk_index`, `source` |
+| **`ingestion_jobs`** | Drives the live progress UI | `kind` (`ingest`\|`reconcile`), `source`, `phase`, page/chunk counters, `status`, `error` |
+| **`knowledge_chats`** | A persistent chat conversation | per user + company |
+| **`knowledge_messages`** | One message in a chat | `content`, `blocks` (JSON), `citations` (JSON) |
+| **`onboarding_plans`** | A generated 7-day onboarding plan | role, share flag |
+| **`onboarding_days`** | One day of a plan | topic, task, `content_blocks` (JSON) |
+| **`onboarding_quiz_attempts`** | An onboarding quiz attempt | score, `answers` (JSON) |
+
+**Two design choices worth calling out:**
+
+- **`document_pages` holds both products in one table.** A `source` column distinguishes
+  Confluence from Jira, so retrieval can scope to one or both. Structured Jira people-fields
+  (`assignee`/`reporter`/`status`) are **first-class indexed columns** for exact analytics, while
+  everything source-specific and rarely-queried (labels, priority, breadcrumb, author, etc.) lives
+  in a **`meta` JSONB** column - so new fields need no schema migration.
+- **Vectors live in `document_chunks`** using PostgreSQL's `pgvector` extension (384 dimensions,
+  HNSW cosine index) - no separate vector database is required.
+
+### 4.4 How the model matured (before → after)
+
+The schema was refined as the feature grew:
+
+| Earlier | Now | Why |
+|---|---|---|
+| A single "onboarding docs" table | Split into `document_pages` + `document_chunks` | Clean separation of *source document* from its *embeddable slices* |
+| 768-dimension vectors | **384-dimension** vectors | Switched to a smaller, faster local model; keeps the index compact at scale |
+| Confluence only | `source` column added; Jira added | One pipeline, two products |
+| Fixed columns only | Added a **`meta` JSONB** column + structured Jira `assignee`/`reporter`/`status` | Exact people-analytics without a migration for every new field |
+
+---
+
+## 5. Embeddings (turning text into vectors)
+
+- Embeddings run **locally** inside the backend using a small open model
+  (`BAAI/bge-small-en-v1.5`, 384-dim). **No API key, no quota, no per-token cost, no external
+  calls** - it runs on CPU.
+- The model is downloaded once and cached; it is shared by all users of a deployment.
+- **Important split:** embedding is a company-wide, keyless local job; the **answer LLM stays
+  per-user** (each user brings their own provider API key). So indexing costs nothing, and
+  answering uses the asker's own model.
+
+---
+
+## 6. Onboarding
+
+Grounded **only in Confluence** (an onboarding plan wants topical breadth, not literal keyword
+hits, so it leans on semantic search).
+
+1. **Plan.** Given a role, we retrieve a broad set of relevant docs and ask the model to produce a
+   **7-day plan** - a topic and a task for each day.
+2. **Day content.** When a day is opened, we retrieve docs focused on that day's topic and generate
+   rich content - headings, code blocks, tables, and diagrams - rendered by the shared block
+   renderer.
+3. **Quiz.** A short multiple-choice quiz is generated over the plan's topics; attempts are saved.
+
+Plans can be shared via a public read-only link. If the knowledge base isn't ready yet, the UI
+guides the user to **Connections** first.
+
+---
+
+## 7. Knowledge chat & retrieval techniques
+
+The Knowledge chat is a multi-turn, persistent assistant that answers **only** from the company's
+Confluence + Jira. Its quality comes from the retrieval layer.
+
+### 7.1 Hybrid retrieval (semantic + lexical)
+
+Pure semantic search understands *meaning* but is weak on *exact tokens* like names and issue
+keys. So every query runs **two searches in parallel** and merges them:
+
+- **Semantic** - nearest chunks by vector similarity (good for concepts and paraphrases).
+- **Lexical** - exact word/phrase matching on the text (good for names, issue keys like `AR-2847`).
+
+Results are merged and **de-duplicated by page**, so the top results are distinct documents.
+
+### 7.2 Name-aware matching
+
+- **Full-name phrases are matched whole.** Asking about "Yogesh Kisslay" will not surface a
+  different "Yogesh" - the complete name is required.
+- **Known-people awareness.** We keep a per-company list of real people (from Jira
+  assignees/reporters and Confluence authors), so even a **lowercase** name ("what is sunadh
+  working on") is recognised as a person.
+- **Whole-word matching** avoids false hits - "raj" never matches "Nataraj", "ana" never matches
+  "management".
+
+### 7.3 Adaptive semantic/keyword balance
+
+A query that names a specific person or issue key leans on **keyword** matching; a conceptual
+question ("how do we deploy") leans on **semantic** matching. The blend adapts per query.
+
+### 7.4 People analytics - exact answers from the database
+
+Retrieval can only return a *sample* of matching chunks - it cannot *count* or *list everything*.
+So questions about people are answered by **exact database queries** instead:
+
+| Question type | Example | Answer |
+|---|---|---|
+| **List** | "what is X working on", "all of X's work", "tell me about X and Y" | The complete list of that person's Jira issues + Confluence docs, each with their **role**, as clickable links |
+| **Count / compare** | "how many issues did X report", "who did more, X or Y" | Exact per-role counts and a comparison |
+| **Leaderboard** | "who reported the most", "top contributors" | A ranking across everyone, by the requested metric |
+
+Roles are kept strictly distinct: **Assignee** = doing the work, **Reporter** = filed it, comment
+author = commented. "Involvement" means actually holding one of these roles - not merely being
+mentioned in text - so common-word names never over-count.
+
+### 7.5 Grounding & anti-hallucination
+
+- The model answers **only** from the retrieved excerpts; if something isn't covered, it says so.
+- Every answer carries **source-linked citations** - deep links to the exact Jira issue or
+  Confluence page.
+- Any URL the model tries to invent that is **not** present in the retrieved sources is
+  automatically stripped, so answers never contain fabricated links.
+
+---
+
+## 8. Security & multi-tenancy
+
+- **Tenant isolation** - every query is scoped to the user's `company_id`; one company can never
+  read another's documents. Webhooks are scoped to the owning company too.
+- **Connector identity check** - you can only connect with your own company's Atlassian account
+  (see §2).
+- **Encryption** - OAuth tokens are encrypted at rest; webhooks are authenticated with a
+  shared secret using a constant-time comparison.
+- **Key separation** - embeddings need no secret (local); the answer LLM uses each user's own key.
+- **No fabricated content** - strict grounding, stripped invented links, and deterministic
+  database answers for people-questions (never model-guessed numbers).
+
+---
+
+## 9. API surface
+
+All routes are served under `/py/…`.
+
+- **Connections** - connect, OAuth callback, connection status, start ingest (per source), poll
+  ingest progress, reconcile, and the Confluence/Jira webhook receivers.
+- **Knowledge** - one-shot query, plus full chat CRUD (create, list, get, delete, post message).
+- **Onboarding** - generate/list/get a plan, fetch day content, generate/submit the quiz, share,
+  and the public read-only view.
+
+The UI exposes three pages: **Connections** (connect + per-source ingest/sync with staged
+progress), **Knowledge** (full-screen chat with history, a provider switcher, and richly
+formatted answers with source chips), and **Onboarding** (plans, day view, quiz).
+
+---
+
+## 10. Configuration
+
+| Setting | Purpose |
+|---|---|
+| `ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET` / `ATLASSIAN_REDIRECT_URI` | Atlassian OAuth app - required to connect |
+| `ATLASSIAN_OAUTH_SCOPES` | Confluence + Jira read scopes (+ `offline_access`, `read:me`) |
+| `EMBEDDING_MODEL` | Local embedding model (default `BAAI/bge-small-en-v1.5`, 384-dim) |
+| `CONFLUENCE_WEBHOOK_SECRET` / `JIRA_WEBHOOK_SECRET` | Enable the respective webhook endpoints |
+
+The database schema is managed by Alembic migrations; embeddings run locally with no external
+dependency.

@@ -1,4 +1,4 @@
-# Openship: The Open-Source AI Learning Platform
+# Openship: The Open-Source AI Learning & Knowledge Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
@@ -8,9 +8,11 @@
 
 ## What Is Openship?
 
-Openship is a fully open-source, AI-powered learning platform built by the team at **Locus**.
+Openship is a fully open-source, AI platform built by the team at **Locus**, with two pillars:
 
-You pick a skill and set how many days and hours per day you can commit. Openship generates a structured **Month / Week / Day** curriculum, writes AI lessons for each chapter on demand, and runs weekly quizzes to track your mastery. Each new week is generated based on your quiz results, so the plan adapts to what you actually know rather than following a fixed template.
+1. **Adaptive learning** - you pick a skill and set how many days and hours per day you can commit. Openship generates a structured **Month / Week / Day** curriculum, writes AI lessons for each chapter on demand, and runs weekly quizzes to track your mastery. Each new week is generated based on your quiz results, so the plan adapts to what you actually know rather than following a fixed template.
+
+2. **Company knowledge platform** - connect your **Atlassian** workspace once and Openship ingests your **Confluence** pages and **Jira** issues into a single AI-searchable knowledge base (RAG). It powers company **Onboarding** plans and a **Knowledge chat** that answers from your own docs - with source-linked citations and people-analytics ("who's working on what").
 
 ---
 
@@ -109,9 +111,34 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 ### Other
 - **Shareable syllabi** - public link to share any syllabus (no account required to view)
 - **Course management** - delete any enrolled course (removes all chapters, progress, quizzes, and attempts)
+- **Learning streaks** - daily activity streak tracking per user
 - **Resizable chapter sidebar** - collapsible and draggable sidebar with chapter tree navigation
 - **JWT authentication** - cookie-based auth with access and refresh tokens, enforced globally via middleware
 - **Fully responsive** - works on mobile, tablet, and desktop
+
+---
+
+## Company Knowledge Platform (Confluence + Jira)
+
+Connect your Atlassian workspace once and Openship ingests your **Confluence** pages and **Jira** issues into a single searchable, AI-queryable knowledge base. Three surfaces share one connection, one ingestion pipeline, and one set of tables.
+
+### Connections - one Atlassian OAuth, two products
+- **Single OAuth 2.0 (3LO) connection** grants both Confluence and Jira; company-level encrypted tokens with auto-refresh
+- **Whole-workspace RAG ingestion** - read every page/issue → chunk → embed → store as pgvector vectors, with a live progress UI (reading → scanning → embedding)
+- **Local embeddings** via `fastembed` (`BAAI/bge-small-en-v1.5`, 384-dim) - **no API key, no quota, no per-token cost**; runs on CPU inside the backend
+- **Resilient at scale** (proven on a **133k-issue** tenant) - honors Atlassian rate limits (`Retry-After`), refreshes the OAuth token mid-run, and streams per project so memory stays bounded; resumable and idempotent
+- **Freshness** - Confluence + Jira **webhooks** re-embed changed items instantly; a **reconcile** job re-scans a source to catch deletions/restores
+- **Multi-tenant** - every doc is company-scoped; a connector identity check ensures you connect with your own company's Atlassian account
+
+### Onboarding - role-based, grounded in your docs
+- Generate a **7-day onboarding plan** for a role, grounded only in the company's Confluence
+- **On-demand per-day content** (headings, code, tables, mermaid diagrams) plus an end-of-onboarding **quiz**; shareable public view
+
+### Knowledge chat - ask across Confluence + Jira
+- ChatGPT-style, multi-turn, persistent chat that answers **only** from your indexed docs, with **source-linked citations** (deep links to the Jira issue / Confluence page)
+- **Hybrid retrieval** - semantic (pgvector cosine) **+** lexical word/phrase matching, so literal things like names and issue keys (`AR-2847`) are found, not just paraphrases; full-name phrase matching keeps "Yogesh Kisslay" from colliding with a different "Yogesh"
+- **People analytics** - "what is X working on", "who reported the most", "who did more, X or Y" answered from **exact database lookups** (counts, complete lists, leaderboards), with strict Jira role discipline (assignee vs reporter vs commenter)
+- **Anti-hallucination** - strict grounding, and any URL the model invents that isn't in the retrieved source is stripped
 
 ---
 
@@ -122,6 +149,8 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 | API | FastAPI + Uvicorn |
 | AI | Anthropic, OpenAI, Google Gemini, Mistral (via `instructor`) |
 | ML | Bayesian Knowledge Tracing, Thompson Sampling, Ebbinghaus Forgetting Curve |
+| Knowledge / RAG | pgvector, `fastembed` local embeddings (`BAAI/bge-small-en-v1.5`, 384-dim) |
+| Integrations | Atlassian OAuth 2.0 (Confluence + Jira), webhooks |
 | Database | PostgreSQL, SQLModel ORM, Alembic migrations |
 | Frontend | React 18 + TypeScript + Vite |
 | UI Components | shadcn/ui, Radix UI, Tailwind CSS |
@@ -192,6 +221,12 @@ Copy `.env.example` to `.env` and set at minimum:
 | `RUN_MIGRATIONS_ON_STARTUP` | No | Run `alembic upgrade head` on startup (default: `true`) |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime (default: `2`) |
 | `JWT_REFRESH_TOKEN_EXPIRE_HOURS` | No | Refresh token lifetime (default: `7`) |
+| `ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET` / `ATLASSIAN_REDIRECT_URI` | For Connections | Atlassian OAuth app credentials - required to connect Confluence/Jira |
+| `ATLASSIAN_OAUTH_SCOPES` | No | Override the default Confluence + Jira read scopes (`offline_access`, `read:me`) |
+| `EMBEDDING_MODEL` | No | Local embedding model (default: `BAAI/bge-small-en-v1.5`, 384-dim) |
+| `CONFLUENCE_WEBHOOK_SECRET` / `JIRA_WEBHOOK_SECRET` | No | Enable the respective webhook endpoints for instant freshness |
+
+> **Atlassian connections** are optional - the learning platform works without them. Set the `ATLASSIAN_*` vars only if you want the Confluence/Jira knowledge platform. Embeddings run locally, so **no embedding API key is ever needed.**
 
 > **LLM API keys** are not stored in `.env`. Users add their own key per provider through the Settings panel in the UI. Keys are partially encrypted at rest using `LLM_ENCRYPTION_KEY` (Fernet/AES-128-CBC). A database leak alone is not sufficient to reconstruct a key.
 

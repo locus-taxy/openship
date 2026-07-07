@@ -77,12 +77,10 @@ type View = "loading" | "not_generated" | "generating" | "ready" | "taking" | "s
 
 export function QuizPanel({
     skillId,
-    onBack,
     onQuizStatusChange,
     hasAllWeeklyData = false,
 }: {
     skillId: string | number
-    onBack: () => void
     onQuizStatusChange?: (status: string) => void
     hasAllWeeklyData?: boolean
 }) {
@@ -728,13 +726,11 @@ type WeeklyView = "loading" | "not_generated" | "generating" | "ready" | "taking
 export function WeeklyQuizPanel({
     skillId,
     week,
-    onBack,
     onQuizStatusChange,
     onWeekUnlocked,
 }: {
     skillId: string | number
     week: number
-    onBack: () => void
     onQuizStatusChange?: (status: string) => void
     onWeekUnlocked?: (newGeneratedWeeks: number) => void
 }) {
@@ -986,7 +982,6 @@ export function WeeklyQuizPanel({
     // ── Weekly Last Results ───────────────────────────────────────────────────
 
     if (view === "last_results" && lastAttempt && quiz) {
-        const resultMap = Object.fromEntries(lastAttempt.results.map((r) => [r.question_id, r]))
         const sortedTopics = Object.entries(lastAttempt.topic_scores).sort((a, b) => a[1].pct - b[1].pct)
 
         return (

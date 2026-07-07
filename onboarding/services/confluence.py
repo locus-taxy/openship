@@ -51,15 +51,28 @@ _TOKEN_URL = "https://auth.atlassian.com/oauth/token"
 _RESOURCES_URL = "https://api.atlassian.com/oauth/token/accessible-resources"
 _ME_URL = "https://api.atlassian.com/me"
 _HTTP_TIMEOUT = 15
-# The read phase makes hundreds of sequential calls over several minutes; retry
-# transient network errors / 5xx so one blip doesn't fail the whole ingest.
-_HTTP_MAX_ATTEMPTS = 4
+# The read phase makes thousands of sequential calls over an hour+; retry transient
+# network errors / 5xx / 429 so one blip doesn't fail the whole ingest. Rate limiting
+# (429) is expected on a large tenant, so we retry patiently and OBEY the server's
+# Retry-After — a project that keeps getting 429'd would otherwise be dropped whole
+# (see _search_issues: it returns all-or-nothing), losing tens of thousands of issues.
+_HTTP_MAX_ATTEMPTS = 10
 _HTTP_RETRY_BACKOFF = 2.0
+# Cap on a single Retry-After / backoff wait. Set to 5 min (not 60s): under a HARD
+# throttle Atlassian asks us to wait more than a minute, and a 60s cap meant we
+# under-waited, kept getting 429, exhausted our attempts, and SKIPPED the project
+# (that's how SE2/SECOPS/SM were lost). Honoring longer waits rides the throttle out.
+_HTTP_RETRY_MAX_SLEEP = 300.0
 _HTTP_RETRY_STATUSES = frozenset({429, 502, 503, 504})
 _sleep = time.sleep  # module-level so tests can patch it
 _STATE_EXPIRE_MINUTES = 15
 _STATE_TYPE = "confluence_oauth"
-_TOKEN_SKEW_SECONDS = 60
+# Treat a token as "expired" this many seconds early, so we refresh it BEFORE a unit
+# of work rather than mid-way. Set to 5 min (not seconds) because one ingest project
+# can take minutes to read: with only a 60s margin, a project starting with ~2 min of
+# token life left would run past expiry mid-read and 401. 5 min of headroom means each
+# project (re)starts with a comfortably fresh token.
+_TOKEN_SKEW_SECONDS = 300
 _PAGE_SEARCH_LIMIT = 100
 # Chunks are embedded in cross-page batches of ~this size; one big embed call is
 # far faster than one call per page (most pages hold only a few chunks).
@@ -398,9 +411,39 @@ def _get_valid_token(conn: ConfluenceConnection) -> str:
         return decrypt_secret(conn.access_token)
     return _refresh_access_token(conn)
 
+def _current_token(company_id: int, conn: ConfluenceConnection) -> str:
+    """A valid access token for an in-progress ingest, re-reading the connection from
+    the DB first. An Atlassian access token lives ~1h — shorter than a full large-
+    tenant ingest — so we refresh per container; re-reading picks up the fresh expiry
+    (avoiding repeated refreshes off a stale in-memory value) and any token written by
+    a reconnect. Falls back to the passed connection if it can't be re-read."""
+    return _get_valid_token(_get_connection(company_id) or conn)
+
+def _retry_after_seconds(resp) -> Optional[float]:
+    """The server's Retry-After (seconds), if it sent a valid one. Atlassian returns
+    this on 429/503; obeying it is what lets a rate-limited read eventually succeed
+    instead of exhausting a few short backoffs and dropping the whole project.
+    Defensive: headers may be absent or a mock in tests, so any parse issue → None."""
+    try:
+        raw = resp.headers.get("Retry-After")
+        secs = float(raw)
+        if secs >= 0:
+            return secs
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return None
+
+def _retry_delay(resp, attempt: int) -> float:
+    """How long to wait before the next attempt: obey Retry-After when present,
+    otherwise exponential backoff — both clamped to _HTTP_RETRY_MAX_SLEEP."""
+    server = _retry_after_seconds(resp) if resp is not None else None
+    delay = server if server is not None else _HTTP_RETRY_BACKOFF * (2**attempt)
+    return min(delay, _HTTP_RETRY_MAX_SLEEP)
+
 def _read_get(url: str, headers: dict) -> httpx.Response:
     """GET with retries on transient network errors and retryable 5xx/429, so a
-    single blip during the long read phase doesn't fail the whole ingest."""
+    single blip (or sustained rate limiting) during the long read phase doesn't fail
+    the whole ingest. Honors the server's Retry-After on 429/503."""
     last_exc: Optional[Exception] = None
     resp: Optional[httpx.Response] = None
     for attempt in range(_HTTP_MAX_ATTEMPTS):
@@ -414,7 +457,7 @@ def _read_get(url: str, headers: dict) -> httpx.Response:
                 return resp
             last_exc = None
         if attempt < _HTTP_MAX_ATTEMPTS - 1:
-            _sleep(_HTTP_RETRY_BACKOFF * (2**attempt))
+            _sleep(_retry_delay(resp, attempt))
     if resp is not None:
         return resp  # a retryable status that never cleared; caller maps to 502
     raise HTTPException(status_code=502, detail=f"Confluence request failed: {last_exc}")
@@ -679,7 +722,9 @@ def _search_issues(cloud_id: str, token: str, project_key: str) -> list:
     jql = f'project="{project_key}" ORDER BY created ASC'
     next_token: Optional[str] = None
     results: list = []
-    for _ in range(1000):  # safety cap
+    # Backstop only — the real stop is isLast/no-token. Must exceed the largest
+    # project's page count (a 100k-issue project is ~1000 pages at 100/page).
+    for _ in range(50000):  # safety cap
         params = {
             "jql": jql,
             "maxResults": _JIRA_ISSUE_SEARCH_LIMIT,
@@ -958,10 +1003,9 @@ def _source_readers(source: str):
     return _fetch_spaces, _search_pages
 
 def _run_ingest(company_id: int, job_id: int, source: str = "confluence") -> None:
-    """Background worker, in three visible phases: reading (fetch every page/issue
-    from every space/project) → indexing (upsert pages) → embedding (batch-embed
-    their chunks). `source` selects the read adapter (Confluence pages or Jira
-    issues); the write path is identical.
+    """Background worker, in visible phases: reading + indexing (fetch every
+    page/issue, upsert it) → embedding (batch-embed their chunks). `source` selects
+    the read adapter (Confluence pages or Jira issues); the write path is identical.
 
     Robustness: a failure confined to one space / page / embed-batch is logged and
     SKIPPED (counted, surfaced as a note, retried on the next ingest) rather than
@@ -975,56 +1019,71 @@ def _run_ingest(company_id: int, job_id: int, source: str = "confluence") -> Non
         token = _get_valid_token(conn)
         list_containers, list_items = _source_readers(source)
 
-        # Phase 1 — reading: fetch every item from every container. A container that
-        # keeps failing (after retries) is skipped so it can't sink the whole read.
-        spaces = list_containers(conn.cloud_id, token)
-        _update_job(job_id, phase="reading", total_spaces=len(spaces), processed_spaces=0)
-        raw_pages: list = []
+        # Phase 1 — reading + indexing, ONE container at a time so memory stays
+        # bounded regardless of tenant size (a single Jira project can be 100k+
+        # issues). Each container's items are upserted then dropped; we keep only the
+        # (page_db_id, text) pairs that actually need (re)embedding — the structured
+        # metadata (assignee/reporter/status) is already committed by _upsert_page, so
+        # people-analytics is complete the moment this phase finishes, before any
+        # embedding. A container that keeps failing (after retries) is skipped so it
+        # can't sink the whole read.
+        containers = list_containers(conn.cloud_id, token)
+        _update_job(job_id, phase="reading", total_spaces=len(containers), processed_spaces=0)
+        to_embed: list = []  # (page_db_id, text) — text only for pages needing embed
+        total_pages = 0
         skipped_spaces = 0
-        for i, space in enumerate(spaces, start=1):
-            key = space.get("key")
+        skipped_pages = 0
+        for i, container in enumerate(containers, start=1):
+            key = container.get("key")
             if key:
                 try:
-                    raw_pages.extend(list_items(conn.cloud_id, token, key))
+                    # Refresh the token per container so it can't go stale mid-run.
+                    token = _current_token(company_id, conn)
+                    items = list_items(conn.cloud_id, token, key)
                 except HTTPException as exc:
                     if exc.status_code == 401:
                         raise  # auth is global — fail the whole job, don't fake success
                     logger.warning("Ingest %s: skipping space %s (%s)", job_id, key, exc.detail)
                     skipped_spaces += 1
+                    items = []
                 except Exception as exc:
                     logger.warning("Ingest %s: skipping space %s (%s)", job_id, key, exc)
                     skipped_spaces += 1
-            _update_job(job_id, processed_spaces=i, total_pages=len(raw_pages))
+                    items = []
+                for page in items:
+                    if page.get("id"):  # skip malformed results with no id
+                        try:
+                            page_db_id, changed, text = _upsert_page(
+                                company_id, page, source=source
+                            )
+                            total_pages += 1
+                            if text and (changed or _page_chunk_count(page_db_id) == 0):
+                                to_embed.append((page_db_id, text))
+                        except Exception as exc:
+                            logger.warning("Ingest %s: skipping page (%s)", job_id, exc)
+                            skipped_pages += 1
+                items = None  # free this container before reading the next
+            # Progress is updated per container (not per page) to avoid tens of
+            # thousands of tiny DB writes on a large tenant.
+            _update_job(
+                job_id, processed_spaces=i, total_pages=total_pages, processed_pages=total_pages
+            )
 
-        # Phase 2 — indexing: upsert pages, deciding which need (re)embedding.
-        _update_job(job_id, phase="indexing", total_pages=len(raw_pages), processed_pages=0)
-        to_embed: list = []  # (page_db_id, text)
-        processed = 0
-        skipped_pages = 0
-        for page in raw_pages:
-            if page.get("id"):  # skip malformed results with no id (don't key on "None")
-                try:
-                    page_db_id, changed, text = _upsert_page(company_id, page, source=source)
-                    if text and (changed or _page_chunk_count(page_db_id) == 0):
-                        to_embed.append((page_db_id, text))
-                except Exception as exc:
-                    logger.warning("Ingest %s: skipping page (%s)", job_id, exc)
-                    skipped_pages += 1
-            processed += 1
-            _update_job(job_id, processed_pages=processed)
-
-        # Phase 3 — embedding: chunk each page, then embed in cross-page batches.
-        # A batch that fails is skipped (its pages keep 0 chunks → retried next run).
-        planned = [(pid, chunk_text(text)) for pid, text in to_embed]
-        planned = [(pid, chunks) for pid, chunks in planned if chunks]
-        total_chunks = sum(len(c) for _, c in planned)
+        # Phase 2 — embedding. First count the total chunks (chunk_text is cheap and we
+        # count-then-discard, so memory stays bounded) — this lets the progress bar show
+        # a real embedded/total rather than creeping N/N. Then chunk + embed in cross-page
+        # batches, chunking INSIDE the loop so we never hold every chunk at once. A batch
+        # that fails is skipped (its pages keep 0 chunks → retried next run).
+        total_chunks = sum(len(chunk_text(text)) for _, text in to_embed)
         _update_job(job_id, phase="embedding", total_chunks=total_chunks, embedded_chunks=0)
-
         embedded = 0
         failed_chunks = 0
         buffer: list = []
         buffered_chunks = 0
-        for page_db_id, chunks in planned:
+        for page_db_id, text in to_embed:
+            chunks = chunk_text(text)
+            if not chunks:
+                continue
             buffer.append((page_db_id, chunks))
             buffered_chunks += len(chunks)
             if buffered_chunks >= _EMBED_BATCH_SIZE:
@@ -1338,6 +1397,7 @@ def _run_reconcile(company_id: int, job_id: int, source: str = "confluence") -> 
             key = space.get("key")
             if key:
                 try:
+                    token = _current_token(company_id, conn)  # keep fresh across a long run
                     for page in list_items(conn.cloud_id, token, key):
                         live_ids.add(str(page.get("id")))
                 except HTTPException as exc:

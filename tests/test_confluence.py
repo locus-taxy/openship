@@ -709,6 +709,68 @@ class TestReadGet:
         ):
             assert _read_get("http://x", {}).status_code == 503
 
+    def test_honors_retry_after_header_on_429(self):
+        from onboarding.services.confluence import _read_get
+
+        r429 = MagicMock(status_code=429, headers={"Retry-After": "7"})
+        ok = _resp(200, {})
+        with (
+            patch("onboarding.services.confluence.httpx.get", side_effect=[r429, ok]),
+            patch("onboarding.services.confluence._sleep") as slept,
+        ):
+            assert _read_get("http://x", {}) is ok
+            slept.assert_called_once_with(7.0)
+
+class TestCurrentToken:
+    def test_reloads_connection_for_fresh_token(self):
+        from onboarding.services.confluence import _current_token
+
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()) as gc,
+            patch("onboarding.services.confluence._get_valid_token", return_value="tok") as gv,
+        ):
+            assert _current_token(1, _conn()) == "tok"
+            gc.assert_called_once_with(1)
+            gv.assert_called_once()
+
+    def test_falls_back_to_passed_connection_when_reload_none(self):
+        from onboarding.services.confluence import _current_token
+
+        fallback = _conn()
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=None),
+            patch("onboarding.services.confluence._get_valid_token", return_value="tok") as gv,
+        ):
+            assert _current_token(1, fallback) == "tok"
+            gv.assert_called_once_with(fallback)
+
+class TestRetryDelay:
+    def test_retry_after_seconds_parses_valid(self):
+        from onboarding.services.confluence import _retry_after_seconds
+
+        assert _retry_after_seconds(MagicMock(headers={"Retry-After": "5"})) == 5.0
+
+    def test_retry_after_seconds_none_when_missing_invalid_or_negative(self):
+        from onboarding.services.confluence import _retry_after_seconds
+
+        assert _retry_after_seconds(MagicMock(headers={})) is None  # missing → TypeError
+        assert (
+            _retry_after_seconds(MagicMock(headers={"Retry-After": "soon"})) is None
+        )  # ValueError
+        assert _retry_after_seconds(MagicMock(headers={"Retry-After": "-1"})) is None  # negative
+
+    def test_retry_delay_falls_back_to_backoff(self):
+        from onboarding.services.confluence import _retry_delay, _HTTP_RETRY_BACKOFF
+
+        assert _retry_delay(MagicMock(headers={}), 0) == _HTTP_RETRY_BACKOFF
+        assert _retry_delay(None, 1) == _HTTP_RETRY_BACKOFF * 2  # no response → backoff
+
+    def test_retry_delay_honors_and_clamps_retry_after(self):
+        from onboarding.services.confluence import _retry_delay, _HTTP_RETRY_MAX_SLEEP
+
+        assert _retry_delay(MagicMock(headers={"Retry-After": "3"}), 5) == 3.0
+        assert _retry_delay(MagicMock(headers={"Retry-After": "99999"}), 0) == _HTTP_RETRY_MAX_SLEEP
+
 class TestFetchSpaces:
     def test_single(self):
         from onboarding.services.confluence import _fetch_spaces
@@ -1510,6 +1572,26 @@ class TestRunIngest:
 
             _run_ingest(1, 7)
             embed.assert_not_called()
+
+    def test_embed_skips_page_that_chunks_to_nothing(self):
+        # A page flagged for embedding whose text chunks to [] is skipped (no embed,
+        # not counted as failed) — the whole run still completes "done".
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
+            patch("onboarding.services.confluence._search_pages", return_value=[_page("p1")]),
+            patch("onboarding.services.confluence._upsert_page", return_value=(1, True, "text")),
+            patch("onboarding.services.confluence._page_chunk_count", return_value=0),
+            patch("onboarding.services.confluence.chunk_text", return_value=[]),
+            patch("onboarding.services.confluence.embedding_service.embed_texts") as embed,
+            patch("onboarding.services.confluence._update_job") as upd,
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7)
+            embed.assert_not_called()
+            assert any(c.kwargs.get("status") == "done" for c in upd.call_args_list)
 
     def test_no_connection_failed(self):
         with (

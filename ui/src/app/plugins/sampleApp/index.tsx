@@ -1,11 +1,10 @@
 import { useEffect, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
 import {
-    BookOpen, Sparkles, PlayCircle, TrendingUp, Clock,
-    CalendarDays, ArrowRight, GraduationCap, CheckCircle2, CircleDot, Zap,
+    BookOpen, Sparkles, PlayCircle, Clock,
+    CalendarDays, GraduationCap, CheckCircle2, CircleDot, Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { getRequest } from "@/services"
@@ -30,40 +29,6 @@ function getGreeting() {
 
 function getFirstName(name: string) {
     return name?.split(" ")[0] ?? name
-}
-
-function ContinueCard({ item, onStart }: { item: Syllabus; onStart: () => void }) {
-    const progress = item.total_tasks > 0
-        ? Math.round((item.completed_tasks / item.total_tasks) * 100)
-        : 0
-    const isCompleted = progress === 100
-
-    return (
-        <div
-            onClick={onStart}
-            className="group flex items-center gap-4 rounded-xl border border-border/60 bg-card px-4 py-3.5 hover:border-primary/40 hover:shadow-sm transition-all duration-200 cursor-pointer"
-        >
-            <div className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-                isCompleted ? "bg-emerald-500/10 text-emerald-600" : "bg-indigo-500/10 text-indigo-600"
-            )}>
-                <BookOpen className="h-5 w-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">{item.skill}</p>
-                <div className="flex items-center gap-2 mt-1.5">
-                    <Progress value={progress} className="h-1.5 flex-1" />
-                    <span className="text-xs text-muted-foreground shrink-0">{progress}%</span>
-                </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs text-muted-foreground hidden sm:block">
-                    {item.completed_tasks}/{item.total_tasks} days
-                </span>
-                <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-            </div>
-        </div>
-    )
 }
 
 function StatCard({ icon: Icon, label, value, color }: {
@@ -110,11 +75,6 @@ export default function HomePage() {
     const inProgress = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks > 0 && s.completed_tasks < s.total_tasks)
     const completed = syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === s.total_tasks)
     const totalHours = syllabi.reduce((acc, s) => acc + s.hours * s.days, 0)
-
-    const continueSyllabi = [
-        ...inProgress,
-        ...syllabi.filter(s => s.total_tasks > 0 && s.completed_tasks === 0),
-    ].slice(0, 4)
 
     return (
         <div className="p-6 md:p-8 max-w-4xl space-y-8">

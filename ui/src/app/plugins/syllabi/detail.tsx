@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import hljs from "highlight.js"
 import { LlmBar } from "@/components/llm-bar"
 import { BlockRenderer, type ContentBlock } from "./block-renderer"
 import { useParams, useNavigate, useSearchParams } from "react-router"
@@ -881,9 +882,6 @@ export default function SyllabusDetailPage() {
     const completedCount = allTasks.filter((t) => t.completed).length
     const hasWeeklyQuizData = detail ? detail.generated_weeks >= detail.total_weeks : false
     const quizPassed = detail?.quiz_status === "passed"
-    const weeklyQuizzesPassed = detail
-        ? Object.values(detail.weekly_quiz_statuses as Record<string, string>).filter(s => s === "passed").length
-        : 0
     // Progress = chapter completions + final quiz only (weekly quizzes excluded)
     const totalSteps = allTasks.length > 0 ? allTasks.length + 1 : 0
     const completedSteps = completedCount + (quizPassed ? 1 : 0)
@@ -904,7 +902,6 @@ export default function SyllabusDetailPage() {
     function goToNextChapter() {
         if (!nextChapter || !detail) return
         const generatedWeeks = detail.generated_weeks
-        const totalWeeks = detail.total_weeks
         const allWeeks = detail.months.flatMap((m) => m.weeks)
         const nextWeek = allWeeks.find((w) => w.tasks.some((t) => t.id === nextChapter.id))
         const nextIsLocked = (nextWeek?.week ?? 0) > generatedWeeks
@@ -1191,14 +1188,12 @@ export default function SyllabusDetailPage() {
                             key={`weekly-${activeWeek}`}
                             skillId={skillId!}
                             week={activeWeek}
-                            onBack={() => setActiveView("chapter")}
                             onQuizStatusChange={(status) => handleWeeklyQuizStatusChange(activeWeek, status)}
                             onWeekUnlocked={handleWeekUnlocked}
                         />
                     ) : activeView === "quiz" ? (
                         <QuizPanel
                             skillId={skillId!}
-                            onBack={() => setActiveView("chapter")}
                             onQuizStatusChange={handleQuizStatusChange}
                             hasAllWeeklyData={hasWeeklyQuizData}
                         />
