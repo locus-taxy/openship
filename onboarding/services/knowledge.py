@@ -19,6 +19,7 @@ from onboarding.models.knowledge_message import KnowledgeMessage
 from onboarding.services import retrieval as retrieval_service
 from onboarding.services import generation as llm_service
 from onboarding.services import confluence as confluence_service
+from services.company import get_company_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -437,6 +438,11 @@ def _answer_blocks(company_id, question, provider, api_key, model, history=None)
             detail="No documents are available yet. Connect Atlassian and ingest content first.",
         )
     context = _format_context(chunks)
+    # Prepend the user's own company (resolved from their tenant, not the docs) so the
+    # chat can always answer "what's my company?" and combine it with any doc details.
+    company = get_company_by_id(company_id)
+    if company and company.name:
+        context = f'COMPANY: The user works at "{company.name}".\n\n{context}'
     result = llm_service.answer_blocks_from_context(
         question=question,
         context=context,

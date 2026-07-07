@@ -776,10 +776,53 @@ class TestAnswerBlocksFromContext:
         assert ("user", "prior") in [(m["role"], m["content"]) for m in captured["messages"]]
 
 class TestKnowledgeChats:
+    @pytest.fixture(autouse=True)
+    def _mock_company_lookup(self):
+        # _answer_blocks now resolves the user's company to prepend to the context.
+        # Return None here so it's skipped (behavior unchanged) and never hits the DB.
+        with patch("onboarding.services.knowledge.get_company_by_id", return_value=None):
+            yield
+
     def _chat(self, **kw):
         d = dict(id=1, company_id=1, user_id="1", title="New chat")
         d.update(kw)
         return KnowledgeChat(**d)
+
+    def test_post_message_injects_company_into_context(self):
+        # "What's my company?" — the resolved tenant name is prepended to the context
+        # so the model can answer it (and combine with any doc details).
+        session = MagicMock()
+        session.get.return_value = self._chat()
+        session.exec.return_value.all.return_value = []
+        chunks = [{"content": "c", "title": "Arch", "page_id": "p1", "source": "confluence"}]
+        company = MagicMock()
+        company.name = "acme.io"
+        patcher = _patch_chat_session(session)
+        try:
+            with (
+                patch("onboarding.services.knowledge.get_company_by_id", return_value=company),
+                patch(
+                    "onboarding.services.knowledge.retrieval_service.retrieve", return_value=chunks
+                ),
+                patch(
+                    "onboarding.services.knowledge.llm_service.answer_blocks_from_context",
+                    return_value={
+                        "blocks": [{"type": "paragraph", "content": "x"}],
+                        "used_docs": True,
+                    },
+                ) as answer,
+                patch(
+                    "onboarding.services.knowledge.confluence_service.get_site_url",
+                    return_value=None,
+                ),
+            ):
+                from onboarding.services.knowledge import post_message
+
+                post_message(1, 1, "1", "what is my company?", "openai", "k", None)
+                ctx = answer.call_args.kwargs["context"]
+                assert 'COMPANY: The user works at "acme.io".' in ctx
+        finally:
+            patcher.stop()
 
     def test_create_chat(self):
         session = MagicMock()
