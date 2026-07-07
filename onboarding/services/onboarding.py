@@ -274,10 +274,11 @@ def get_quiz(plan_id: int, user_id: str) -> dict:
             .where(OnboardingQuizAttempt.user_id == user_id)
             .order_by(OnboardingQuizAttempt.created_at.desc())
         ).all()
-        # Never send correct_answer to the client — grading happens server-side in
-        # save_quiz_attempt. Options + explanation are safe to expose.
+        # Strip correct_answer AND explanation before generation — both reveal the
+        # answer. Grading is server-side (save_quiz_attempt), which returns the
+        # explanation only in the post-submission results.
         questions = [
-            {k: v for k, v in q.items() if k != "correct_answer"}
+            {k: v for k, v in q.items() if k not in ("correct_answer", "explanation")}
             for q in json.loads(plan.quiz_questions)
         ]
         return {
@@ -338,19 +339,22 @@ def save_quiz_attempt(plan_id: int, user_id: str, answers: dict) -> dict:
         correct = 0
         results = []
         for i, q in enumerate(questions):
-            correct_key = q.get("correct_answer", "a")
+            # Fail closed: a question with no stored answer key can't be scored
+            # correct (never default to "a", which could mark a wrong answer right).
+            correct_key = (q.get("correct_answer") or "").strip().lower()
             selected = answers.get(str(i)) or ""
-            is_correct = selected == correct_key
+            is_correct = bool(correct_key) and selected == correct_key
             if is_correct:
                 correct += 1
             # Per-question grading is returned so the client can show right/wrong
-            # WITHOUT ever having the answer key up front (it grades server-side here).
+            # (and the explanation) WITHOUT ever having the answer key up front.
             results.append(
                 {
                     "index": i,
                     "selected": selected,
                     "correct": correct_key,
                     "is_correct": is_correct,
+                    "explanation": q.get("explanation", ""),
                 }
             )
 

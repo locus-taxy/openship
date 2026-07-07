@@ -742,10 +742,29 @@ class TestOnboardingService:
             assert result["score"] == 100
             assert result["correct"] == 10
             # Per-question grading is returned so the client can render right/wrong
-            # without ever holding the answer key.
+            # (and the explanation) without ever holding the answer key.
             assert len(result["results"]) == 10
             assert all(r["is_correct"] for r in result["results"])
             assert result["results"][0]["correct"] == "a"
+            assert "explanation" in result["results"][0]
+        finally:
+            patcher.stop()
+
+    def test_save_quiz_attempt_fails_closed_without_answer_key(self):
+        # A question with no stored correct_answer must be marked incorrect, never
+        # scored right by defaulting to "a".
+        questions = [{"question": "Q0"}, {"question": "Q1", "correct_answer": "b"}]
+        plan = _make_plan(quiz_questions=json.dumps(questions))
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = plan
+            session.exec.return_value.first.return_value = _make_attempt()
+            from onboarding.services.onboarding import save_quiz_attempt
+
+            result = save_quiz_attempt(1, "1", {"0": "a", "1": "b"})
+            assert result["results"][0]["is_correct"] is False  # no key → incorrect
+            assert result["results"][1]["is_correct"] is True
+            assert result["correct"] == 1
         finally:
             patcher.stop()
 
@@ -800,7 +819,10 @@ class TestOnboardingService:
             patcher.stop()
 
     def test_get_quiz_returns_cached(self):
-        questions = [{"question": f"Q{i}", "correct_answer": "a"} for i in range(10)]
+        questions = [
+            {"question": f"Q{i}", "correct_answer": "a", "explanation": "because"}
+            for i in range(10)
+        ]
         plan = _make_plan(quiz_questions=json.dumps(questions))
         attempt = _make_attempt()
         patcher, session = _patch_session()
@@ -812,8 +834,9 @@ class TestOnboardingService:
             result = get_quiz(1, "1")
             assert len(result["questions"]) == 10
             assert len(result["attempts"]) == 1
-            # correct_answer must never be sent to the client (grading is server-side).
+            # Neither the answer key nor the rationale may reach the client pre-submit.
             assert all("correct_answer" not in q for q in result["questions"])
+            assert all("explanation" not in q for q in result["questions"])
         finally:
             patcher.stop()
 

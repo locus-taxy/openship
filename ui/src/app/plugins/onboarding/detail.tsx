@@ -233,13 +233,14 @@ interface QuizQuestion {
     option_b: string
     option_c: string
     option_d: string
-    // correct_answer is intentionally NOT sent to the client — grading is server-side.
-    explanation: string
+    // correct_answer and explanation are intentionally NOT sent to the client
+    // before submission — grading is server-side; the explanation arrives with the
+    // per-question results in the attempt response.
 }
 
 interface QuizAttempt { id: number; score: number; correct: number; total: number; answers: string | null; created_at: string | null }
 
-interface QuestionResult { index: number; selected: string; correct: string; is_correct: boolean }
+interface QuestionResult { index: number; selected: string; correct: string; is_correct: boolean; explanation?: string }
 
 interface SubmitResult { score: number; passed: boolean; results: QuestionResult[] }
 
@@ -563,7 +564,7 @@ function OnboardingQuizPanel({ planId }: { planId: number }) {
                                             )
                                         })}
                                     </div>
-                                    {q.explanation && <p className="pl-6 text-xs text-muted-foreground italic">{q.explanation}</p>}
+                                    {r.explanation && <p className="pl-6 text-xs text-muted-foreground italic">{r.explanation}</p>}
                                 </div>
                             )
                         })}
