@@ -242,6 +242,17 @@ def retrieve(
         terms, is_entity_query, name_phrases = [], False, []
 
     with Session(engine) as session:
+        # Exact KNN when a `sources` filter is set. The pgvector HNSW index returns
+        # the GLOBAL nearest chunks and only THEN applies the source filter — so a
+        # source that's sparse near the query (e.g. Confluence for a Jira-heavy topic
+        # like RBAC/audit) can be filtered down to ZERO even though relevant docs
+        # exist. Disabling the index makes Postgres rank by distance within the
+        # filtered rows, always returning that source's true nearest. The filtered
+        # subset is small, so the exact scan is fast. Unfiltered chat keeps the index.
+        if sources:
+            conn = session.connection()
+            conn.exec_driver_sql("SET LOCAL enable_indexscan = OFF")
+            conn.exec_driver_sql("SET LOCAL enable_bitmapscan = OFF")
         base = _base_select(company_id, sources)
         vector_rows = session.exec(base.order_by(distance).limit(k)).all()
 
@@ -264,7 +275,18 @@ def retrieve(
                 base.where(or_(*filter_clauses)).order_by(score.desc(), distance).limit(k)
             ).all()
 
-    return _merge(lexical_rows, vector_rows, k, is_entity_query)
+    result = _merge(lexical_rows, vector_rows, k, is_entity_query)
+    logger.info(
+        "retrieve: sources=%s hybrid=%s k=%d -> %d chunk(s) [vector=%d lexical=%d] q=%r",
+        list(sources) if sources else "all",
+        hybrid,
+        k,
+        len(result),
+        len(vector_rows),
+        len(lexical_rows),
+        (query[:80] + "…") if len(query) > 80 else query,
+    )
+    return result
 
 def _merge(lexical_rows: list, vector_rows: list, k: int, is_entity_query: bool) -> List[dict]:
     """Lexical (literal) matches first, then semantic, deduped and capped at k. The

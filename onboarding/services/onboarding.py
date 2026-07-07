@@ -48,10 +48,23 @@ def _load_docs(
         company_id, query, k=k, sources=["confluence"], hybrid=False
     )
     if not context.strip():
+        logger.warning(
+            "Onboarding grounding EMPTY: 0 Confluence chunks for company=%d topic=%r — "
+            "the knowledge base has no Confluence docs ingested.",
+            company_id,
+            topic or "(plan landscape)",
+        )
         raise HTTPException(
             status_code=404,
             detail="No onboarding documents are available yet. Connect Confluence and ingest docs first.",
         )
+    logger.info(
+        "Onboarding grounding: company=%d topic=%r k=%d -> %d chars of Confluence context",
+        company_id,
+        topic or "(plan landscape)",
+        k,
+        len(context),
+    )
     return context
 
 def generate_plan(
@@ -63,6 +76,7 @@ def generate_plan(
     model: Optional[str],
     company_id: int,
 ) -> dict:
+    logger.info("Onboarding: generating 7-day plan [company=%d role=%r]", company_id, role)
     docs_text = _load_docs(company_id, role)
 
     days_data = llm_service.generate_onboarding_plan(
@@ -124,6 +138,9 @@ def get_day_content(
     company_id: int,
     force: bool = False,
 ) -> dict:
+    logger.info(
+        "Onboarding: day-content request [plan=%d day=%d force=%s]", plan_id, day_number, force
+    )
     with Session(engine) as session:
         plan = session.get(OnboardingPlan, plan_id)
         if not plan or plan.user_id != user_id:
@@ -141,6 +158,13 @@ def get_day_content(
         if day.content_blocks and not force:
             return {"day": day.model_dump()}
 
+        logger.info(
+            "Onboarding: generating day %d content [plan=%d topic=%r force=%s]",
+            day_number,
+            plan_id,
+            day.topic,
+            force,
+        )
         docs_text = _load_docs(company_id, plan.role, topic=day.topic, task=day.task)
 
         content = llm_service.generate_onboarding_day_content(
@@ -260,6 +284,7 @@ def generate_quiz(
         ).all()
         topics = [d.topic for d in days]
 
+    logger.info("Onboarding: generating quiz [plan=%d, %d topics]", plan_id, len(topics))
     # Ground the quiz in the exact topics the plan covered (broad sweep).
     docs_text = _load_docs(company_id, plan.role, topic=", ".join(topics), k=_PLAN_RETRIEVE_K)
     questions = llm_service.generate_onboarding_quiz(

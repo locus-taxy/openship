@@ -5,6 +5,7 @@ persistent history per user, with prior turns fed back to the model for follow-u
 """
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -18,6 +19,8 @@ from onboarding.models.knowledge_message import KnowledgeMessage
 from onboarding.services import retrieval as retrieval_service
 from onboarding.services import generation as llm_service
 from onboarding.services import confluence as confluence_service
+
+logger = logging.getLogger(__name__)
 
 _RETRIEVE_K = 12
 # How many prior messages (user + assistant) to feed back as follow-up context.
@@ -73,6 +76,7 @@ def _answer(company_id: int, question: str, provider, api_key, model, history=No
     """Retrieve relevant chunks and answer, with deduped citations. Shared by the
     one-shot query and the chat message path. Retrieves across all sources."""
     chunks = retrieval_service.retrieve(company_id, question, k=_RETRIEVE_K, sources=_CHAT_SOURCES)
+    logger.info("Knowledge query: company=%d retrieved=%d chunks", company_id, len(chunks))
     if not chunks:
         raise HTTPException(
             status_code=404,
@@ -422,9 +426,11 @@ def _answer_blocks(company_id, question, provider, api_key, model, history=None)
     # Y", "who did more", or a pronoun follow-up) need complete/exact DB lookups.
     person = _maybe_person_answer(company_id, question, provider, api_key, model, history=history)
     if person is not None:
+        logger.info("Knowledge: answered via people-analytics [company=%d]", company_id)
         return person
 
     chunks = retrieval_service.retrieve(company_id, question, k=_RETRIEVE_K, sources=_CHAT_SOURCES)
+    logger.info("Knowledge: RAG answer [company=%d retrieved=%d chunks]", company_id, len(chunks))
     if not chunks:
         raise HTTPException(
             status_code=404,
