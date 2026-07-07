@@ -195,24 +195,28 @@ def validate_content_heuristics(
     # in the content.  Topic titles ("What is Recursion?") are a cleaner source
     # than task descriptions which mix action verbs and external resource names
     # ("Read from GeeksforGeeks…") that never show up in chapter prose.
-    # Punctuation is stripped from each token before keyword extraction so that
-    # "(e.g.," and "docs)." are not accidentally promoted to keywords.
+    # Surrounding punctuation is stripped from each token (so "(e.g.," and "docs)."
+    # aren't promoted to keywords), but INTERNAL dots are kept so dotted tech terms
+    # like "Express.js" / "Node.js" survive. The dot is matched optionally below so
+    # the keyword still matches an un-dotted spelling ("ExpressJS") in the content.
     keyword_source = topic if topic else task_description
     task_keywords: set = set()
     for raw_w in keyword_source.split():
-        w = re.sub(r"[^\w-]", "", raw_w).lower()
+        w = re.sub(r"[^\w.-]", "", raw_w).strip(".-").lower()
         if len(w) > 3 and w not in _STOPWORDS:
             task_keywords.add(w)
     # If topic yielded no usable keywords, fall back to task_description so
     # check 3 is never silently disabled.
     if not task_keywords and topic:
         for raw_w in task_description.split():
-            w = re.sub(r"[^\w-]", "", raw_w).lower()
+            w = re.sub(r"[^\w.-]", "", raw_w).strip(".-").lower()
             if len(w) > 3 and w not in _STOPWORDS:
                 task_keywords.add(w)
     if task_keywords:
         matched = sum(
-            1 for kw in task_keywords if re.search(r"\b" + re.escape(kw) + r"\b", all_text)
+            1
+            for kw in task_keywords
+            if re.search(r"\b" + re.escape(kw).replace(r"\.", r"\.?") + r"\b", all_text)
         )
         required = min(2, len(task_keywords))
         if matched < required:

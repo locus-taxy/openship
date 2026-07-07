@@ -365,6 +365,44 @@ class TestTopicKeywordParam:
         result = validate_content_heuristics(blocks, "irrelevant task", topic="What is Recursion?")
         assert result.passed is True
 
+class TestDottedTechTermTopic:
+    """Regression: dotted tech terms (Express.js, Node.js, Vue.js) must survive
+    keyword extraction. Previously the internal dot was stripped ("Express.js" ->
+    "expressjs"), which never matched the content's "express.js" -> the chapter
+    failed topic relevance forever."""
+
+    def test_express_js_topic_passes_when_content_is_on_topic(self):
+        # Topic's only real keyword is "express.js" ("introduction"/"to" are dropped).
+        words = (
+            "Express.js is a minimal Node.js web framework. This chapter covers "
+            "Express.js routing and middleware. "
+        ) * 20
+        blocks = [
+            _make_block("heading", content="Introduction to Express.js", level=1),
+            _make_block("paragraph", content=words),
+        ]
+        result = validate_content_heuristics(
+            blocks, "Build a server with Express.js", topic="Introduction to Express.js"
+        )
+        assert result.passed is True, result.reason
+
+    def test_dot_is_optional_so_undotted_spelling_still_matches(self):
+        # Content writes "ExpressJS" (no dot); the "express.js" keyword should still match.
+        words = " ".join(["ExpressJS"] * 120)
+        blocks = [_make_block("paragraph", content=words)]
+        result = validate_content_heuristics(blocks, "Learn Express.js", topic="Express.js")
+        assert result.passed is True, result.reason
+
+    def test_off_topic_content_still_fails(self):
+        # Guard: the fix must not make it match everything — unrelated content fails.
+        words = " ".join(["photosynthesis"] * 120)
+        blocks = [_make_block("paragraph", content=words)]
+        result = validate_content_heuristics(
+            blocks, "Learn Express.js", topic="Introduction to Express.js"
+        )
+        assert result.passed is False
+        assert "keyword" in result.reason.lower()
+
     def test_topic_none_falls_back_to_task_description(self):
         # When topic is omitted the old behaviour is preserved — task_description is used.
         # "arrays in C++" → only keyword is "arrays" (≤3-char tokens filtered); content matches.
