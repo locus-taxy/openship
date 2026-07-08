@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { LlmBar } from "@/components/llm-bar"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { useToast } from "@/hooks/use-toast"
 import { ToastAction } from "@/components/ui/toast"
 import {
@@ -618,9 +619,12 @@ function DayNav({
             <div className="px-4 py-3 border-b shrink-0 space-y-2">
                 <div className="flex items-center justify-between">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Model</p>
-                    <button type="button" title="Open Settings" onClick={() => setSettingsOpen(true)} className="text-muted-foreground hover:text-foreground transition-colors">
-                        <Settings className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center gap-0.5">
+                        <ThemeToggle />
+                        <button type="button" title="Open Settings" onClick={() => setSettingsOpen(true)} className="text-muted-foreground hover:text-foreground transition-colors">
+                            <Settings className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
                 </div>
                 <LlmBar fullWidth />
             </div>

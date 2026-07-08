@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { Plus, Send, Loader2, Trash2, Sparkles, ArrowLeft, PanelLeft, BookOpen, FileText, ListChecks, ExternalLink } from "lucide-react"
+import { Plus, Send, Loader2, Trash2, Sparkles, ArrowLeft, PanelLeft, BookOpen, FileText, ListChecks, ExternalLink, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -10,6 +10,7 @@ import useStore from "@/store"
 import { useSidebar } from "@/components/ui/sidebar"
 import { BlockRenderer, type ContentBlock } from "@/app/plugins/syllabi/block-renderer"
 import { LlmBar } from "@/components/llm-bar"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 type Citation = { title: string; page_id: string; source?: "confluence" | "jira"; url?: string | null }
 type Msg = {
@@ -31,7 +32,7 @@ const EXAMPLES = [
 ]
 
 export default function KnowledgePage() {
-    const { setPluginName, setHideHeader } = useStore((s: any) => s)
+    const { setPluginName, setHideHeader, setSettingsOpen } = useStore((s: any) => s)
     const { setOpen } = useSidebar()
     const navigate = useNavigate()
 
@@ -139,7 +140,16 @@ export default function KnowledgePage() {
     const ready = !!status?.connected && status.chunk_count > 0
     if (!ready) {
         return (
-            <div className="flex h-[100dvh] flex-col items-center justify-center gap-4 p-6 text-center">
+            <div className="relative flex h-[100dvh] flex-col items-center justify-center gap-4 p-6 text-center">
+                <Button variant="outline" size="sm" className="absolute left-4 top-4 h-9 gap-1.5" onClick={() => navigate(-1)}>
+                    <ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Back</span>
+                </Button>
+                <div className="absolute right-4 top-4 flex items-center gap-1.5">
+                    <ThemeToggle variant="outline" />
+                    <Button variant="outline" size="icon" className="h-8 w-8" title="Settings" onClick={() => setSettingsOpen(true)}>
+                        <Settings className="h-4 w-4" />
+                    </Button>
+                </div>
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
                     <Sparkles className="h-7 w-7 text-muted-foreground" />
                 </div>
@@ -225,7 +235,11 @@ export default function KnowledgePage() {
                         <Sparkles className="h-4 w-4 shrink-0 text-primary" />
                         <h1 className="truncate text-sm font-semibold">Ask about your company docs</h1>
                     </div>
-                    <div className="ml-auto shrink-0">
+                    <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                        <ThemeToggle variant="outline" />
+                        <Button variant="outline" size="icon" className="h-8 w-8" title="Settings" onClick={() => setSettingsOpen(true)}>
+                            <Settings className="h-4 w-4" />
+                        </Button>
                         <LlmBar />
                     </div>
                 </header>
