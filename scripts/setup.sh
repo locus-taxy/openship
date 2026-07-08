@@ -23,7 +23,7 @@ echo -e "${BOLD}${CYAN}╚══════════════════
 echo ""
 
 # ── Step 0: Python 3.14 ────────────────────────────────────────────────────
-info "Step 0/5 — Python version"
+info "Step 1/6 — Python version"
 
 PYTHON_BIN=""
 for candidate in python3.14 python3.13 python3; do
@@ -56,79 +56,46 @@ else
     success "Python found: $($PYTHON_BIN --version)"
 fi
 
-# ── Step 1: PostgreSQL ──────────────────────────────────────────────────────
-info "Step 1/6 — PostgreSQL"
+# ── Step 1: Database (Docker + pgvector) ─────────────────────────────────────
+info "Step 2/6 — Database"
 
-if ! command -v psql >/dev/null 2>&1; then
-    warn "PostgreSQL not found."
-    if command -v brew >/dev/null 2>&1; then
-        echo -ne "${BOLD}Install PostgreSQL 14 via Homebrew?${RESET} [Y/n]: "
-        read -r ans
-        lower_ans=$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')
-        if [ "$lower_ans" != "n" ]; then
-            brew install postgresql@14
-            brew services start postgresql@14
-            export PATH="$(brew --prefix postgresql@14)/bin:$PATH"
-            success "PostgreSQL installed and started."
-        else
-            error "PostgreSQL is required. Install it manually and re-run setup."
-        fi
-    else
-        error "Homebrew not found. Install PostgreSQL from https://www.postgresql.org/download/ then re-run."
-    fi
-else
-    success "PostgreSQL found: $(psql --version)"
-    if ! pg_isready -q 2>/dev/null; then
-        warn "PostgreSQL is not running. Starting..."
-        brew services start postgresql@14 2>/dev/null || warn "Could not auto-start. Start PostgreSQL manually if DB connection fails."
-    fi
-fi
-
-# ── Step 2: Database setup ──────────────────────────────────────────────────
 DB_HOST="localhost"
 DB_PORT="5432"
-DB_USER="$(whoami)"
-
+DB_NAME="openship"
+DB_USER="openship"
+DB_PASS="openship"
 DB_EXISTS=false
 
-# If 'openship' already exists, skip all prompts and leave .env untouched
-if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -lqt 2>/dev/null | cut -d'|' -f1 | grep -qw "openship"; then
-    DB_NAME="openship"
-    DB_EXISTS=true
-    success "Database 'openship' already exists — skipping database setup."
-else
-    echo ""
-    echo -e "${BOLD} Database setup${RESET}"
-    echo -ne " Enter Database name: "
-    read -r DB_NAME
-    DB_NAME="${DB_NAME:-openship}"
-
-    echo -ne " Enter Database user: "
-    read -r input_user
-    DB_USER="${input_user:-$(whoami)}"
-
-    echo -ne " Enter Database password (leave blank for none): "
-    read -rs DB_PASS
-    echo ""
-
-    if [ -n "$DB_PASS" ]; then
-        export PGPASSWORD="$DB_PASS"
-    fi
-
-    info "Creating database '$DB_NAME'..."
-    if createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME"; then
-        success "Database '$DB_NAME' created."
-    else
-        error "Failed to create database. Check your PostgreSQL connection."
-    fi
-
-    if [ -n "$DB_PASS" ]; then
-        ENCODED_PASS=$("$PYTHON_BIN" -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().rstrip('\n'), safe=''))" <<< "$DB_PASS")
-        DATABASE_URL="postgresql+psycopg2://${DB_USER}:${ENCODED_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-    else
-        DATABASE_URL="postgresql+psycopg2://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-    fi
+# Docker is a required prerequisite (we do NOT auto-install it).
+if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    error "Docker is required. Install Docker Desktop, start it, then re-run 'make setup'.
+       Download: https://www.docker.com/products/docker-desktop/"
 fi
+
+# If Docker is installed but not running, try to start it, then wait briefly.
+if ! docker info >/dev/null 2>&1; then
+    info "Docker isn't running — trying to start Docker Desktop..."
+    open -a Docker 2>/dev/null || true
+    i=0
+    until docker info >/dev/null 2>&1; do
+        i=$((i + 1))
+        [ "$i" -gt 60 ] && error "Docker Desktop isn't running. Start it, then re-run 'make setup'."
+        sleep 2
+    done
+fi
+
+info "Starting PostgreSQL + pgvector via Docker..."
+docker compose -f "$ROOT/docker-compose.yml" up -d db
+info "Waiting for the database to accept connections..."
+i=0
+until docker compose -f "$ROOT/docker-compose.yml" exec -T db pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; do
+    i=$((i + 1))
+    [ "$i" -gt 60 ] && error "Database did not become ready in time."
+    sleep 1
+done
+success "Database ready (Postgres 16 + pgvector) on ${DB_HOST}:${DB_PORT}."
+DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+[ -f "$ROOT/.env" ] && DB_EXISTS=true  # preserve existing secrets on a re-run
 
 # ── Steps 3 & 4: Secrets + .env ─────────────────────────────────────────────
 if [ "$DB_EXISTS" = true ] && [ -f "$ROOT/.env" ]; then
@@ -195,6 +162,18 @@ else
     warn "Could not pre-download the embedding model; it will download on first ingest instead."
 fi
 
+if ! command -v npm >/dev/null 2>&1; then
+    warn "Node.js not found (needed for the UI)."
+    if command -v brew >/dev/null 2>&1; then
+        info "Installing Node.js..."
+        brew install node >/dev/null 2>&1 \
+            && success "Node.js installed." \
+            || error "Failed to install Node.js. Install it from https://nodejs.org and re-run."
+    else
+        error "Node.js is required for the UI. Install it from https://nodejs.org and re-run."
+    fi
+fi
+
 cd "$ROOT/ui" && npm install --silent
 success "Node dependencies installed."
 
@@ -204,40 +183,8 @@ fi
 
 info "Step 6/6 — Running database migrations..."
 
-# If the DB points to a revision this branch doesn't know about, stamp it to
-# the latest known revision so upgrade head can proceed cleanly.
-CURRENT_REV=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-    -t -c "SELECT version_num FROM alembic_version LIMIT 1;" 2>/dev/null | tr -d ' \n')
-
-if [ -n "$CURRENT_REV" ]; then
-    cd "$ROOT"
-    if ! "$VENV/bin/alembic" history 2>/dev/null | grep -q "$CURRENT_REV"; then
-        HEADS_OUTPUT=$("$VENV/bin/alembic" heads 2>/dev/null)
-        HEADS_COUNT=$(printf '%s\n' "$HEADS_OUTPUT" | grep -c .)
-        if [ "$HEADS_COUNT" -ne 1 ]; then
-            error "Expected exactly 1 alembic head but found $HEADS_COUNT — merge heads before resyncing."
-        fi
-        HEAD_REV=$(printf '%s' "$HEADS_OUTPUT" | awk '{print $1}')
-        # Validate HEAD_REV is safe to use in SQL (alphanumeric only — no quotes or special chars)
-        if ! printf '%s' "$HEAD_REV" | grep -qE '^[a-z0-9]{1,64}$'; then
-            error "Unexpected alembic revision format '$HEAD_REV' — aborting resync."
-        fi
-        warn "DB revision '$CURRENT_REV' not found in migration chain."
-        warn "This will overwrite alembic_version from '$CURRENT_REV' to '$HEAD_REV'."
-        warn "Only proceed if you are sure the DB schema matches the current codebase."
-        echo -ne "${BOLD}Resync alembic_version to '$HEAD_REV'?${RESET} [y/N]: "
-        read -r resync_ans
-        lower_resync=$(printf '%s' "$resync_ans" | tr '[:upper:]' '[:lower:]')
-        if [ "$lower_resync" = "y" ]; then
-            psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-                -c "UPDATE alembic_version SET version_num = '${HEAD_REV}';" >/dev/null
-            success "Resynced to revision '$HEAD_REV'."
-        else
-            error "Aborting — resolve the migration mismatch manually and re-run."
-        fi
-    fi
-fi
-
+# The Docker database is always a clean, known Postgres, so we migrate straight to
+# head. The first migration enables pgvector automatically (CREATE EXTENSION).
 cd "$ROOT" && "$VENV/bin/alembic" upgrade head
 success "Migrations applied."
 

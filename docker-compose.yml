@@ -1,0 +1,29 @@
+# Local development database: PostgreSQL with pgvector pre-installed and
+# version-matched (the official pgvector image). `make setup` / `make dev` start it
+# automatically, so a fresh clone needs no manual database or extension install.
+#
+#   make db-up      # start it
+#   make db-down    # stop it (data is preserved in the named volume)
+#
+# The app + UI still run locally (make dev); only the database runs in Docker.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: openship-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openship
+      POSTGRES_PASSWORD: openship
+      POSTGRES_DB: openship
+    ports:
+      - "5432:5432"
+    volumes:
+      - openship_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openship -d openship"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  openship_pgdata:

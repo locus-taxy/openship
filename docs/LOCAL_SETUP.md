@@ -1,112 +1,110 @@
-# Openship — local setup guide
+# Openship — local setup
 
-This guide replaces manual copy-paste setup. **Use the Makefile** so backend, frontend, and Git hooks are configured the same way for everyone.
+Only the **database** runs in Docker (Postgres + pgvector). The API and UI run locally.
 
-## Prerequisites
+---
 
-- **Python 3.9+** (`python3` on PATH)
-- **Node.js 18+** and **npm** (for the UI and Husky)
-- **Git** (clone the repo; Husky configures hooks from the project root)
-- **PostgreSQL** (or another DB supported by SQLAlchemy) if you are not using the default from `.env.example`
+## Mac
 
-## One-time setup
+### Automatic
 
-From the repository root:
+Install first: **Git**, **Homebrew**, **Docker Desktop** (running).
 
 ```bash
-make setup
+git clone <repo-url>
+cd openship
+make setup     # one-time: DB + deps + migrations
+make dev       # start API (:3005) + UI (:5173)
 ```
 
-This does the following automatically:
+Other commands: `make run-api`, `make run-ui`, `make db-up`, `make db-down`.
 
-1. Creates `.env` from `.env.example` if `.env` is missing (then edit secrets and `DATABASE_URL`).
-2. Creates a Python virtual environment at `.venv` and installs **runtime** deps (`requirements.txt`) and **dev** deps (`requirements-dev.txt`, including Black and pre-commit).
-3. Runs **`npm install`** in `ui/` for the Vite/React frontend.
-4. Runs **`npm install`** at the repo root so **Husky** runs its `prepare` script and wires Git to use `.husky/` as the hooks directory.
+### Manual
 
-After `make setup`, open `.env` and set at least:
+**1. Start the database.** Install and open **Postgres.app** — it includes pgvector and runs PostgreSQL on `localhost:5432`.
 
-- `DATABASE_URL` — PostgreSQL (or your chosen database) connection string
-- `JWT_SECRET_KEY` — at least 32 chars (required for auth startup)
-
-> **LLM provider:** API keys are no longer stored in `.env`. Each user configures their own LLM provider (Gemini, OpenAI, Anthropic, or Mistral) and API key via the Settings panel in the UI after logging in.
-
-For manual chapter email send, configure your company-managed SMTP relay in `.env`:
-
-- `SMTP_HOST` (required)
-- `SMTP_PORT` (default `587`)
-- `SMTP_FROM_EMAIL` (required)
-- Optional auth: `SMTP_USER`, `SMTP_PASSWORD`
-- TLS/SSL flags: `SMTP_USE_TLS` (default `true`), `SMTP_USE_SSL` (default `false`)
-
-If you use PostgreSQL 15+ and migrations fail on the `public` schema, see [postgres-public-schema.md](./postgres-public-schema.md).
-
-## Run API and frontend together
+**2. Create a database:**
 
 ```bash
-make dev
+createdb your_db_name
 ```
 
-This starts the **API first** (so Alembic migrations and the app are ready), **waits until** `http://127.0.0.1:3005` responds, then starts the UI:
-
-- **API:** FastAPI with Uvicorn on **http://127.0.0.1:3005** (with reload)
-- **UI:** Vite dev server (default **http://127.0.0.1:5173**)
-
-### Run services separately
+**3. Create `.env`** in the repo root, using your Postgres user/password:
 
 ```bash
-make run-api   # backend only
-make run-ui    # frontend only
+DATABASE_URL=postgresql+psycopg2://your_user:your_password@localhost:5432/your_db_name
+RUN_MIGRATIONS_ON_STARTUP=true
+JWT_SECRET_KEY=<32+ random chars>
+LLM_ENCRYPTION_KEY=<python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())">
 ```
 
-## Migrations
+> Postgres.app's default user is your Mac username with **no password**, so it's often just:
+> `postgresql+psycopg2://your_user@localhost:5432/your_db_name`
 
-If `RUN_MIGRATIONS_ON_STARTUP` is `true` in `.env` (default in `.env.example`), the API runs `alembic upgrade head` once on startup. You can also run migrations manually:
+**4. Open the openship project and install, migrate, and run:**
 
 ```bash
-.venv/bin/python run_migrations.py
+cd openship
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt -r requirements-test.txt
+cd ui && npm install && cd ..
+.venv/bin/alembic upgrade head
+
+# run (two terminals):
+.venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005
+cd ui && npm run dev
 ```
 
-## Python formatting and pre-commit
-
-Formatting is enforced **before each commit**:
-
-1. **Husky** runs `.husky/pre-commit` when you `git commit`.
-2. That script runs **`pre-commit`**, which applies the hooks in `.pre-commit-config.yaml` (currently **Black**, aligned with `pyproject.toml`).
-
-You need **`make setup`** first so `.venv/bin/pre-commit` exists. If you skip root `npm install` (e.g. no `.git` directory), hooks are not configured; clone the repo and run `make setup` for the full flow.
-
-To format the whole tree without committing:
+**Prefer Docker for the database instead of Postgres.app?** Run `docker compose up -d db`. It creates Postgres + pgvector with a **default config** (user `openship`, password `openship`, db `openship`), so your `DATABASE_URL` is:
 
 ```bash
-make format
+DATABASE_URL=postgresql+psycopg2://openship:openship@localhost:5432/openship
 ```
 
-For CI or a strict check (fails if anything is not Black-clean, without the second pass):
+---
 
-```bash
-make format-check
+## Windows
+
+Uses **Docker** for the database (both ways).
+
+### Automatic
+
+Install first: **Git**, **Docker Desktop** (running). Python and Node are auto-installed via winget.
+
+```powershell
+git clone <repo-url>
+cd openship
+scripts\setup.cmd    # one-time: DB + deps + migrations
+scripts\dev.cmd      # start API (:3005) + UI (:5173)
 ```
 
-## Makefile reference
+(You can also just double-click `scripts\setup.cmd` then `scripts\dev.cmd` in File Explorer.)
 
-| Target        | Purpose                                      |
-| ------------- | -------------------------------------------- |
-| `make help`   | Short usage summary                          |
-| `make setup`  | Venv, Python deps, UI deps, Husky            |
-| `make install`| Same as `make setup`                         |
-| `make dev`    | API first (wait for :3005), then Vite UI     |
-| `make run-api`| Backend only                                 |
-| `make run-ui` | Frontend only                                |
-| `make format` | Black via pre-commit (all files)             |
-| `make format-check` | Black check; exit non-zero if dirty    |
+### Manual
+
+```powershell
+docker compose up -d db      # Postgres + pgvector
+
+# .env in repo root (same keys as Mac, DATABASE_URL uses the Docker DB):
+#   DATABASE_URL=postgresql+psycopg2://openship:openship@localhost:5432/openship
+#   RUN_MIGRATIONS_ON_STARTUP=true
+#   JWT_SECRET_KEY=<32+ random chars>
+#   LLM_ENCRYPTION_KEY=<a Fernet key>
+
+python -m venv .venv
+.venv\Scripts\pip.exe install -r requirements.txt -r requirements-dev.txt -r requirements-test.txt
+cd ui; npm install; cd ..
+.venv\Scripts\alembic.exe upgrade head
+
+# run (two terminals):
+.venv\Scripts\uvicorn.exe main:app --reload --host 0.0.0.0 --port 3005
+cd ui; npm run dev
+```
+
+---
 
 ## Troubleshooting
 
-- **`openship: missing .venv/bin/pre-commit`** — Run `make setup` from the repo root.
-- **Husky did not run** — Ensure you cloned with Git and that `npm install` ran at the repo root (part of `make setup`).
-- **Port in use** — Change the Uvicorn port in `Makefile` (`run-api`) or the Vite config in `ui/` if 3005 / 5173 conflict with other apps.
-- **`permission denied for schema public` (Alembic)** — PostgreSQL 15+ limits `public`; grant `USAGE, CREATE` to your app user. See [postgres-public-schema.md](./postgres-public-schema.md).
-- **`email-validator is not installed` / `ImportError` on auth routes** — Run `pip install -r requirements.txt` (includes `email-validator` for Pydantic `EmailStr`).
-- **”LLM provider and API key not set”** — Log in, click the ⚙ gear icon in the sidebar, choose your provider (Gemini, OpenAI, Anthropic, or Mistral) and paste your API key.
-- **Manual chapter email returns 503** — Ensure `SMTP_HOST` and `SMTP_FROM_EMAIL` are set; if auth is required, provide both `SMTP_USER` and `SMTP_PASSWORD`.
+- **"Docker is required / not running"** — Install/start Docker Desktop, then re-run.
+- **Port 5432 in use** — Another Postgres is running on it; stop it first.
+- **Ports 3005 / 5173 in use** — Change them in `Makefile` (`run-api`) or `ui/vite.config.ts`.

@@ -7,8 +7,11 @@ Create Date: 2026-07-01 02:00:00.000000
 Adds the RAG knowledge base: document_pages (one row per Confluence page) and
 document_chunks (embedded slices), plus chunk/embed progress on ingestion_jobs.
 
-Requires the pgvector extension to be enabled once by a superuser:
-    CREATE EXTENSION IF NOT EXISTS vector;
+Enables the pgvector extension itself (CREATE EXTENSION IF NOT EXISTS vector) so a
+fresh database migrates cleanly with no manual step — provided the pgvector binary
+is installed on the server and the connecting role may create extensions (true for a
+local superuser; on managed Postgres a DBA usually pre-enables it, in which case the
+IF NOT EXISTS makes this a harmless no-op).
 """
 
 from typing import Sequence, Union
@@ -25,6 +28,9 @@ depends_on: Union[str, Sequence[str], None] = None
 EMBEDDING_DIM = 768
 
 def upgrade() -> None:
+    # Enable pgvector before any vector column is created. Idempotent, so it's a
+    # no-op where a DBA already enabled it.
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.create_table(
         "document_pages",
         sa.Column("id", sa.Integer(), nullable=False),
