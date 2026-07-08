@@ -1,5 +1,5 @@
 <#
-  Openship dev launcher for Windows (PowerShell) — mirrors `make dev`.
+  Openship dev launcher for Windows (PowerShell) - mirrors `make dev`.
 
   Starts the database (Docker), then opens the API and the UI in two new
   PowerShell windows. Run from the repo root:

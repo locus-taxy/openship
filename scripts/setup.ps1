@@ -1,12 +1,12 @@
 <#
-  Openship setup for Windows (PowerShell) — mirrors scripts/setup.sh.
+  Openship setup for Windows (PowerShell) - mirrors scripts/setup.sh.
 
   Docker-first database (Postgres + pgvector runs in a container); Python and Node
   run locally. Run from the repo root:
 
       powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 
-  Prerequisites (install these first — the script does NOT download Docker):
+  Prerequisites (install these first - the script does NOT download Docker):
     - Docker Desktop (installed and running)
   Python and Node are auto-installed via winget if missing.
 #>
@@ -25,7 +25,7 @@ Write-Host "     Openship Setup (Windows)"          -ForegroundColor Cyan
 Write-Host "======================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Step 1: Python 3.11+ ─────────────────────────────────────────────────────
+# -- Step 1: Python 3.11+ -----------------------------------------------------
 Info "Step 1/6 - Python"
 $PyExe = $null; $PyArgs = @()
 if (Get-Command py -ErrorAction SilentlyContinue)          { $PyExe = "py"; $PyArgs = @("-3") }
@@ -44,7 +44,7 @@ if (-not $pyOk) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Info "Installing Python 3.12 via winget..."
         winget install -e --id Python.Python.3.12 --silent --accept-source-agreements --accept-package-agreements
-        # winget updates PATH in the registry but not this session — refresh it, then re-detect.
+        # winget updates PATH in the registry but not this session - refresh it, then re-detect.
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
         if (Get-Command py -ErrorAction SilentlyContinue)         { $PyExe = "py"; $PyArgs = @("-3") }
         elseif (Get-Command python -ErrorAction SilentlyContinue) { $PyExe = "python"; $PyArgs = @() }
@@ -55,7 +55,7 @@ if (-not $pyOk) {
 }
 Ok ("Python: " + (& $PyExe @PyArgs --version))
 
-# ── Step 2: Database (Docker + pgvector) — Docker is a required prerequisite ──
+# -- Step 2: Database (Docker + pgvector) - Docker is a required prerequisite --
 Info "Step 2/6 - Database (Docker + pgvector)"
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Die "Docker is required. Install Docker Desktop, start it, then re-run.`n     Download: https://www.docker.com/products/docker-desktop/"
@@ -77,10 +77,10 @@ for ($i = 0; $i -lt 60; $i++) {
 if (-not $ready) { Die "Database did not become ready in time." }
 Ok "Database ready (Postgres 16 + pgvector) on localhost:5432."
 
-# ── Steps 3 & 4: Secrets + .env ──────────────────────────────────────────────
+# -- Steps 3 & 4: Secrets + .env ----------------------------------------------
 $EnvPath = Join-Path $Root ".env"
 if (Test-Path $EnvPath) {
-    Info "Step 3/6 - .env already exists — leaving it untouched."
+    Info "Step 3/6 - .env already exists - leaving it untouched."
 } else {
     Info "Step 3/6 - Generating secrets"
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
@@ -116,7 +116,7 @@ SMTP_TIMEOUT_SECONDS=20
     Ok ".env written."
 }
 
-# ── Step 5: Python venv + deps, embedding model, Node + UI deps ──────────────
+# -- Step 5: Python venv + deps, embedding model, Node + UI deps --------------
 Info "Step 5/6 - Installing dependencies"
 & $PyExe @PyArgs -m venv "$Root\.venv"
 $VenvPy = Join-Path $Root ".venv\Scripts\python.exe"
@@ -146,7 +146,7 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
 Push-Location "$Root\ui"; npm install --silent; Pop-Location
 Ok "Node dependencies installed."
 
-# ── Step 6: Migrations (creates tables + enables pgvector) ───────────────────
+# -- Step 6: Migrations (creates tables + enables pgvector) -------------------
 Info "Step 6/6 - Running database migrations..."
 Push-Location $Root
 & (Join-Path $Root ".venv\Scripts\alembic.exe") upgrade head
