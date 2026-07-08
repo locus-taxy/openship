@@ -32,7 +32,7 @@ function parseInlineTokens(text: string): React.ReactNode[] {
         if (match.index > last) tokens.push(text.slice(last, match.index))
         const raw = match[0]
         if (raw.startsWith("`")) {
-            tokens.push(<code key={match.index} className="bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-[0.82em] font-mono">{raw.slice(1, -1)}</code>)
+            tokens.push(<code key={match.index} className="bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded text-[0.82em] font-mono">{raw.slice(1, -1)}</code>)
         } else if (raw.startsWith("**")) {
             tokens.push(<strong key={match.index}>{raw.slice(2, -2)}</strong>)
         } else {
@@ -282,13 +282,13 @@ export function BlockItem({ block }: { block: ContentBlock }) {
             return <h2 className="text-xl font-semibold text-foreground mt-5 mb-2 border-b border-border/50 pb-2"><InlineText text={text} /></h2>
         }
         case "paragraph":
-            return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
+            return <p className="text-zinc-600 dark:text-zinc-300 leading-7"><InlineText text={block.content ?? ""} /></p>
         case "code":
             return <CodeBlock code={block.content ?? ""} language={block.language ?? ""} />
         case "bullet_list":
-            return <ul className="list-disc pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
+            return <ul className="list-disc pl-5 space-y-1 text-zinc-600 dark:text-zinc-300">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
         case "numbered_list":
-            return <ol className="list-decimal pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
+            return <ol className="list-decimal pl-5 space-y-1 text-zinc-600 dark:text-zinc-300">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
         case "table":
             return (
                 <div className="overflow-x-auto rounded-lg border border-border">
@@ -299,7 +299,7 @@ export function BlockItem({ block }: { block: ContentBlock }) {
                         <tbody>
                             {block.rows?.map((row, i) => (
                                 <tr key={i} className={i % 2 === 1 ? "bg-muted/20" : ""}>
-                                    {row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600"><InlineText text={cell} /></td>)}
+                                    {row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600 dark:text-zinc-300"><InlineText text={cell} /></td>)}
                                 </tr>
                             ))}
                         </tbody>
@@ -313,7 +313,7 @@ export function BlockItem({ block }: { block: ContentBlock }) {
                 </div>
             )
         case "quote":
-            return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 italic"><InlineText text={block.content ?? ""} /></blockquote>
+            return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 dark:text-zinc-300 italic"><InlineText text={block.content ?? ""} /></blockquote>
         case "divider":
             return <hr className="border-border my-2" />
         case "diagram":
