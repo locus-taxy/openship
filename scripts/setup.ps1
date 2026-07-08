@@ -25,8 +25,8 @@ Write-Host "     Openship Setup (Windows)"          -ForegroundColor Cyan
 Write-Host "======================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Step 0: Python 3.11+ ─────────────────────────────────────────────────────
-Info "Step 0/6 - Python"
+# ── Step 1: Python 3.11+ ─────────────────────────────────────────────────────
+Info "Step 1/6 - Python"
 $PyExe = $null; $PyArgs = @()
 if (Get-Command py -ErrorAction SilentlyContinue)          { $PyExe = "py"; $PyArgs = @("-3") }
 elseif (Get-Command python -ErrorAction SilentlyContinue)  { $PyExe = "python" }
@@ -44,15 +44,19 @@ if (-not $pyOk) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Info "Installing Python 3.12 via winget..."
         winget install -e --id Python.Python.3.12 --silent --accept-source-agreements --accept-package-agreements
-        $PyExe = "py"; $PyArgs = @("-3")
+        # winget updates PATH in the registry but not this session — refresh it, then re-detect.
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        if (Get-Command py -ErrorAction SilentlyContinue)         { $PyExe = "py"; $PyArgs = @("-3") }
+        elseif (Get-Command python -ErrorAction SilentlyContinue) { $PyExe = "python"; $PyArgs = @() }
+        else { Die "Python was installed but isn't on PATH in this session. Close and reopen PowerShell, then re-run scripts\setup.cmd." }
     } else {
         Die "Python 3.11+ required. Install from https://www.python.org/downloads/ then re-run."
     }
 }
 Ok ("Python: " + (& $PyExe @PyArgs --version))
 
-# ── Step 1: Database (Docker + pgvector) — Docker is a required prerequisite ──
-Info "Step 1/6 - Database (Docker + pgvector)"
+# ── Step 2: Database (Docker + pgvector) — Docker is a required prerequisite ──
+Info "Step 2/6 - Database (Docker + pgvector)"
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Die "Docker is required. Install Docker Desktop, start it, then re-run.`n     Download: https://www.docker.com/products/docker-desktop/"
 }
@@ -130,7 +134,11 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Info "Installing Node.js LTS via winget..."
         winget install -e --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements
-        Warn "If 'npm' isn't recognized below, close and reopen PowerShell, then re-run this script."
+        # Refresh PATH so npm is usable in this session (winget only updates the registry).
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Die "Node.js was installed but isn't on PATH in this session. Close and reopen PowerShell, then re-run scripts\setup.cmd."
+        }
     } else {
         Die "Node.js is required for the UI. Install from https://nodejs.org and re-run."
     }

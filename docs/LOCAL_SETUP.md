@@ -69,7 +69,14 @@ Uses **Docker** for the database (both ways).
 
 ### Automatic
 
-Install first: **Git**, **Docker Desktop** (running). Python and Node are auto-installed via winget.
+**Install first:**
+
+| Prerequisite | Get it |
+| --- | --- |
+| **Git** | https://git-scm.com/download/win |
+| **Docker Desktop** (installed and running) | https://www.docker.com/products/docker-desktop/ |
+
+Python and Node are auto-installed via **winget** (built into Windows 10/11) if missing.
 
 ```powershell
 git clone <repo-url>

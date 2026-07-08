@@ -1,0 +1,3 @@
+# Windows batch wrappers must be CRLF so cmd.exe parses them reliably.
+*.cmd text eol=crlf
+*.bat text eol=crlf
