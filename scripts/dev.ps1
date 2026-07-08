@@ -7,7 +7,8 @@
       powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 #>
 
-$ErrorActionPreference = "Stop"
+# docker writes progress/warnings to stderr; "Stop" would treat that as fatal.
+$ErrorActionPreference = "Continue"
 $Root = (Resolve-Path "$PSScriptRoot\..").Path
 
 Write-Host "Ensuring the database is up..." -ForegroundColor Cyan

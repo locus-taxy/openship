@@ -11,7 +11,10 @@
   Python and Node are auto-installed via winget if missing.
 #>
 
-$ErrorActionPreference = "Stop"
+# Native tools (docker, winget, pip, npm) write progress/warnings to stderr; with
+# "Stop", PowerShell treats that stderr as a terminating error. Use "Continue" and
+# check exit codes ($LASTEXITCODE) explicitly instead.
+$ErrorActionPreference = "Continue"
 $Root = (Resolve-Path "$PSScriptRoot\..").Path
 
 function Info($m) { Write-Host "[setup] $m" -ForegroundColor Cyan }
@@ -120,8 +123,10 @@ SMTP_TIMEOUT_SECONDS=20
 Info "Step 5/6 - Installing dependencies"
 & $PyExe @PyArgs -m venv "$Root\.venv"
 $VenvPy = Join-Path $Root ".venv\Scripts\python.exe"
+if (-not (Test-Path $VenvPy)) { Die "Failed to create the virtual environment (.venv)." }
 & $VenvPy -m pip install --upgrade pip -q
 & $VenvPy -m pip install -r "$Root\requirements.txt" -r "$Root\requirements-dev.txt" -r "$Root\requirements-test.txt" -q
+if ($LASTEXITCODE -ne 0) { Die "pip install failed." }
 Ok "Python dependencies installed."
 
 Info "Pre-downloading the local embedding model (one-time)..."
@@ -143,14 +148,17 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
         Die "Node.js is required for the UI. Install from https://nodejs.org and re-run."
     }
 }
-Push-Location "$Root\ui"; npm install --silent; Pop-Location
+Push-Location "$Root\ui"; npm install --silent; $npmExit = $LASTEXITCODE; Pop-Location
+if ($npmExit -ne 0) { Die "npm install failed." }
 Ok "Node dependencies installed."
 
 # -- Step 6: Migrations (creates tables + enables pgvector) -------------------
 Info "Step 6/6 - Running database migrations..."
 Push-Location $Root
 & (Join-Path $Root ".venv\Scripts\alembic.exe") upgrade head
+$alembicExit = $LASTEXITCODE
 Pop-Location
+if ($alembicExit -ne 0) { Die "Database migration failed." }
 Ok "Migrations applied."
 
 Write-Host ""
