@@ -9,6 +9,7 @@ from controllers.quiz import (
     get_weekly_quiz,
     submit_weekly_quiz,
     _generate_next_week,
+    regenerate_week,
 )
 from schemas.quiz import QuizSubmitRequest
 from models.user import User
@@ -563,3 +564,116 @@ class TestGenerateNextWeek:
         with (patch("controllers.quiz.get_weak_topics", side_effect=RuntimeError("db down")),):
             # Should not raise
             _generate_next_week(**self._base_kwargs())
+
+class TestRegenerateWeek:
+    def _skill(self, **kw):
+        d = dict(
+            id=1,
+            user_id="1",
+            email="test@example.com",
+            skill="Python",
+            days=30,
+            hours=2,
+            total_weeks=4,
+            generated_weeks=2,
+        )
+        d.update(kw)
+        return Skill(**d)
+
+    def test_raises_400_when_no_weekly_structure(self):
+        session = MagicMock()
+        session.get.return_value = self._skill(total_weeks=0)
+        patcher = _patch_quiz_session(session)
+        try:
+            with pytest.raises(HTTPException) as exc:
+                regenerate_week(1, 2, current_user=_make_user())
+            assert exc.value.status_code == 400
+        finally:
+            patcher.stop()
+
+    def test_raises_400_when_week_out_of_range(self):
+        session = MagicMock()
+        session.get.return_value = self._skill()
+        patcher = _patch_quiz_session(session)
+        try:
+            with pytest.raises(HTTPException) as exc:
+                regenerate_week(1, 1, current_user=_make_user())  # week 1 isn't ML-generated
+            assert exc.value.status_code == 400
+        finally:
+            patcher.stop()
+
+    def test_raises_400_when_not_unlocked(self):
+        session = MagicMock()
+        session.get.return_value = self._skill(generated_weeks=2)
+        patcher = _patch_quiz_session(session)
+        try:
+            with pytest.raises(HTTPException) as exc:
+                regenerate_week(1, 3, current_user=_make_user())  # week 3 > generated_weeks 2
+            assert exc.value.status_code == 400
+        finally:
+            patcher.stop()
+
+    def test_raises_409_when_already_generated(self):
+        session = MagicMock()
+        session.get.return_value = self._skill()
+        patcher = _patch_quiz_session(session)
+        try:
+            with patch("controllers.quiz.get_max_day_for_week", return_value=8):
+                with pytest.raises(HTTPException) as exc:
+                    regenerate_week(1, 2, current_user=_make_user())
+                assert exc.value.status_code == 409
+        finally:
+            patcher.stop()
+
+    def test_raises_400_when_no_api_key(self):
+        session = MagicMock()
+        session.get.return_value = self._skill()
+        patcher = _patch_quiz_session(session)
+        try:
+            with (
+                patch("controllers.quiz.get_max_day_for_week", return_value=0),
+                patch("controllers.quiz.get_user_provider_name", return_value="gemini"),
+                patch("controllers.quiz.get_user_api_key", return_value=""),
+                patch("controllers.quiz.get_user_model", return_value="m"),
+            ):
+                with pytest.raises(HTTPException) as exc:
+                    regenerate_week(1, 2, current_user=_make_user())
+                assert exc.value.status_code == 400
+        finally:
+            patcher.stop()
+
+    def test_schedules_generation_on_success(self):
+        session = MagicMock()
+        session.get.return_value = self._skill()
+        bg = MagicMock()
+        patcher = _patch_quiz_session(session)
+        try:
+            with (
+                patch("controllers.quiz.get_max_day_for_week", return_value=0),
+                patch("controllers.quiz.get_user_provider_name", return_value="gemini"),
+                patch("controllers.quiz.get_user_api_key", return_value="key"),
+                patch("controllers.quiz.get_user_model", return_value="gemini-flash"),
+            ):
+                result = regenerate_week(1, 2, current_user=_make_user(), background_tasks=bg)
+            assert result == {"status": "generating", "week": 2}
+            bg.add_task.assert_called_once()
+        finally:
+            patcher.stop()
+
+    def test_runs_synchronously_without_background_tasks(self):
+        session = MagicMock()
+        session.get.return_value = self._skill()
+        patcher = _patch_quiz_session(session)
+        try:
+            with (
+                patch("controllers.quiz.get_max_day_for_week", return_value=0),
+                patch("controllers.quiz.get_user_provider_name", return_value="gemini"),
+                patch("controllers.quiz.get_user_api_key", return_value="key"),
+                patch("controllers.quiz.get_user_model", return_value="m"),
+                patch("controllers.quiz._generate_next_week") as gen,
+            ):
+                result = regenerate_week(1, 2, current_user=_make_user())
+            assert result == {"status": "generating", "week": 2}
+            gen.assert_called_once()
+        finally:
+            patcher.stop()

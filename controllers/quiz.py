@@ -395,6 +395,56 @@ def submit_weekly_quiz(
         next_week_unlocked=new_generated_weeks if newly_unlocked else None,
     )
 
+def regenerate_week(
+    skill_id: int,
+    week: int,
+    current_user: User,
+    background_tasks: Optional[BackgroundTasks] = None,
+) -> dict:
+    """Re-run ML generation for a week that was unlocked but whose background task
+    didn't complete (e.g. the server lost its LLM connection mid-generation). Guarded
+    so it only fills an EMPTY, already-unlocked week — it never overwrites a week that
+    already has content."""
+    skill = _get_owned_skill(skill_id, current_user)
+    if skill.total_weeks <= 0:
+        raise HTTPException(status_code=400, detail="This course has no weekly structure.")
+    if week < 2 or week > skill.total_weeks:
+        raise HTTPException(status_code=400, detail=f"Week {week} cannot be regenerated.")
+    if week > skill.generated_weeks:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Week {week} isn't unlocked yet — pass the previous week's quiz first.",
+        )
+    if get_max_day_for_week(skill_id, week) > 0:
+        raise HTTPException(status_code=409, detail=f"Week {week} is already generated.")
+
+    provider = get_user_provider_name(current_user)
+    api_key = get_user_api_key(current_user)
+    model = get_user_model(current_user)
+    if not api_key:
+        raise HTTPException(
+            status_code=400, detail="Set your LLM provider and API key in Settings first."
+        )
+
+    gen_kwargs = dict(
+        skill_id=skill_id,
+        skill_name=skill.skill,
+        skill_days=skill.days,
+        skill_total_weeks=skill.total_weeks,
+        skill_hours=skill.hours,
+        user_id_int=current_user.id,
+        user_id_str=str(current_user.id),
+        next_week=week,
+        provider=provider,
+        api_key=api_key,
+        model=model,
+    )
+    if background_tasks is not None:
+        background_tasks.add_task(_generate_next_week, **gen_kwargs)
+    else:
+        _generate_next_week(**gen_kwargs)
+    return {"status": "generating", "week": week}
+
 # ── Final quiz ─────────────────────────────────────────────────────────────────
 
 def generate_quiz_for_skill(skill_id: int, current_user: User) -> QuizGenerateResponse:

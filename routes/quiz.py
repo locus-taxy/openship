@@ -27,6 +27,10 @@ def submit_weekly_quiz(
         skill_id, week, payload, request.state.user, background_tasks
     )
 
+@router.post("/{skill_id}/week/{week}/regenerate")
+def regenerate_week(skill_id: int, week: int, request: Request, background_tasks: BackgroundTasks):
+    return quiz_controller.regenerate_week(skill_id, week, request.state.user, background_tasks)
+
 # ── Final quiz routes ──────────────────────────────────────────────────────────
 
 @router.post("/{skill_id}/generate")
