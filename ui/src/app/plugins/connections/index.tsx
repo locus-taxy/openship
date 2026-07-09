@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import {
-    Loader2, Plug, CheckCircle2, AlertTriangle, RefreshCw, DownloadCloud, Info, FileText, ListChecks,
+    Loader2, Plug, CheckCircle2, AlertTriangle, RefreshCw, DownloadCloud, Info, FileText, ListChecks, Ban,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -66,6 +66,9 @@ const SOURCE_META: Record<Source, {
 function announceJob(job: JobResult): { title: string; description: string; variant?: "destructive" } {
     const label = job.source ? SOURCE_META[job.source].name : "Atlassian"
     const isReconcile = job.kind === "reconcile"
+    if (job.status === "cancelled") {
+        return { title: `${label} sync cancelled`, description: job.error || "Stopped." }
+    }
     if (job.status === "failed") {
         return {
             title: isReconcile ? `${label} sync failed` : `${label} ingestion failed`,
@@ -95,6 +98,7 @@ export default function ConnectionsPage() {
     const [jobId, setJobId] = useState<number | null>(null)
     const [progress, setProgress] = useState<JobProgress | null>(null)
     const [elapsed, setElapsed] = useState(0)
+    const [cancelling, setCancelling] = useState(false)
     const { setPluginName } = useStore((state: any) => state)
 
     useEffect(() => { setPluginName("Connections") }, [setPluginName])
@@ -126,32 +130,32 @@ export default function ConnectionsPage() {
         if (success && data?.authorize_url) window.location.href = data.authorize_url
     }
 
-    function optimisticProgress(kind: "ingest" | "reconcile", source: Source): JobProgress {
+    function optimisticProgress(source: Source): JobProgress {
         return {
-            status: "running", kind, source, phase: "reading",
+            status: "running", kind: "ingest", source, phase: "reading",
             total_spaces: 0, processed_spaces: 0,
             total_pages: 0, processed_pages: 0, total_chunks: 0, embedded_chunks: 0,
         }
     }
 
+    // A single "Sync" runs a full ingest: it adds new content, updates changed
+    // content, AND drops anything removed upstream — one read, no separate reconcile.
     async function startIngest(source: Source) {
+        setCancelling(false)
         const { success, data } = await postRequest(`/py/confluence/ingest?source=${source}`, {})
         if (success && data?.job_id != null) {
             setJobId(data.job_id)
-            setProgress(optimisticProgress("ingest", source))
+            setProgress(optimisticProgress(source))
         } else {
             loadStatus()
         }
     }
 
-    async function startReconcile(source: Source) {
-        const { success, data } = await postRequest(`/py/confluence/reconcile?source=${source}`, {})
-        if (success && data?.job_id != null) {
-            setJobId(data.job_id)
-            setProgress(optimisticProgress("reconcile", source))
-        } else {
-            loadStatus()
-        }
+    async function cancelJob() {
+        if (jobId == null) return
+        setCancelling(true)
+        // Cooperative: the backend flips the job to 'cancelled'; the next poll reflects it.
+        await postRequest(`/py/confluence/ingest/${jobId}/cancel`, {})
     }
 
     // Poll the running job (company-wide, so any source's job surfaces here).
@@ -162,8 +166,9 @@ export default function ConnectionsPage() {
             const { success, data } = await getRequest(`/py/confluence/ingest/${jobId}`)
             if (!active || !success) return
             setProgress(data)
-            if (data.status === "done" || data.status === "failed") {
+            if (data.status === "done" || data.status === "failed" || data.status === "cancelled") {
                 active = false
+                setCancelling(false)
                 window.localStorage.removeItem(`ingest_started_${jobId}`)
                 loadStatus()
             }
@@ -220,9 +225,10 @@ export default function ConnectionsPage() {
                             busy={jobRunning}
                             progress={jobRunning && activeSource === source ? progress : null}
                             elapsed={elapsed}
+                            cancelling={cancelling}
                             onIngest={() => startIngest(source)}
-                            onSync={() => startReconcile(source)}
-                            onDismiss={() => { setJobId(null); setProgress(null) }}
+                            onCancel={cancelJob}
+                            onDismiss={() => { setJobId(null); setProgress(null); setCancelling(false) }}
                         />
                     ))}
                     <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
@@ -280,14 +286,15 @@ function AtlassianCard({ status, connecting, onConnect }: {
     )
 }
 
-function SourceCard({ source, counts, busy, progress, elapsed, onIngest, onSync, onDismiss }: {
+function SourceCard({ source, counts, busy, progress, elapsed, cancelling, onIngest, onCancel, onDismiss }: {
     source: Source
     counts: SourceCounts
     busy: boolean
     progress: JobProgress | null
     elapsed: number
+    cancelling: boolean
     onIngest: () => void
-    onSync: () => void
+    onCancel: () => void
     onDismiss: () => void
 }) {
     const meta = SOURCE_META[source]
@@ -312,32 +319,30 @@ function SourceCard({ source, counts, busy, progress, elapsed, onIngest, onSync,
                 </div>
                 {!progress && (
                     <div className="flex items-center gap-1.5">
-                        {hasDocs && (
-                            <Button variant="ghost" size="sm" onClick={onSync} disabled={busy} title={`Sync with ${meta.name}`}>
-                                <RefreshCw className="h-4 w-4" />
-                            </Button>
-                        )}
-                        <Button variant={hasDocs ? "outline" : "default"} size="sm" onClick={onIngest} disabled={busy}>
-                            <DownloadCloud className="mr-2 h-4 w-4" />
-                            {hasDocs ? `Re-ingest` : `Ingest ${meta.unit}`}
+                        <Button variant={hasDocs ? "outline" : "default"} size="sm" onClick={onIngest} disabled={busy} title={hasDocs ? `Sync ${meta.name}` : undefined}>
+                            {hasDocs ? <RefreshCw className="mr-2 h-4 w-4" /> : <DownloadCloud className="mr-2 h-4 w-4" />}
+                            {hasDocs ? `Sync` : `Ingest ${meta.unit}`}
                         </Button>
                     </div>
                 )}
             </div>
 
-            {progress && <JobProgressView source={source} progress={progress} elapsed={elapsed} onDismiss={onDismiss} />}
+            {progress && <JobProgressView source={source} progress={progress} elapsed={elapsed} cancelling={cancelling} onCancel={onCancel} onDismiss={onDismiss} />}
         </div>
     )
 }
 
-function JobProgressView({ source, progress, elapsed, onDismiss }: {
+function JobProgressView({ source, progress, elapsed, cancelling, onCancel, onDismiss }: {
     source: Source
     progress: JobProgress
     elapsed: number
+    cancelling: boolean
+    onCancel: () => void
     onDismiss: () => void
 }) {
     const meta = SOURCE_META[source]
     const failed = progress.status === "failed"
+    const cancelled = progress.status === "cancelled"
     const isReconcile = progress.kind === "reconcile"
     const pct = (done: number, total: number) => (total > 0 ? Math.round((done / total) * 100) : 0)
     const STAGES = isReconcile
@@ -361,12 +366,23 @@ function JobProgressView({ source, progress, elapsed, onDismiss }: {
             </div>
         )
     }
+    if (cancelled) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Ban className="h-4 w-4" /> Cancelled after {formatElapsed(elapsed)}. Partial progress saved.
+                <Button variant="outline" size="sm" className="ml-auto" onClick={onDismiss}>Dismiss</Button>
+            </div>
+        )
+    }
     return (
         <div className="space-y-3 border-t border-border pt-3">
             <div className="flex items-center gap-2 text-sm font-medium">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 {isReconcile ? `Syncing with ${meta.name}…` : `Indexing ${meta.name}…`}
                 <span className="ml-auto text-xs font-normal tabular-nums text-muted-foreground">{formatElapsed(elapsed)}</span>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground hover:text-destructive" onClick={onCancel} disabled={cancelling}>
+                    <Ban className="mr-1 h-3.5 w-3.5" />{cancelling ? "Cancelling…" : "Cancel"}
+                </Button>
             </div>
             {STAGES.map((stage, idx) => {
                 const isDone = idx < currentIdx

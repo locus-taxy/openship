@@ -932,6 +932,39 @@ def _running_job(company_id: int) -> Optional[IngestionJob]:
             .order_by(IngestionJob.id.desc())
         ).first()
 
+def _is_cancelled(job_id: int) -> bool:
+    """True once the cancel endpoint has flipped this job to 'cancelled'. Read fresh
+    from the DB so the running background worker can observe the request mid-run."""
+    with Session(engine) as session:
+        job = session.get(IngestionJob, job_id)
+        return job is not None and job.status == "cancelled"
+
+def _sweep_deleted(company_id: int, source: str, live_ids: set, skipped_keys: set) -> int:
+    """Deactivate active pages NOT seen in this full read (removed upstream). Pages
+    whose container failed to read this run (skipped_keys) are left untouched so a
+    transient fetch error never looks like a deletion. Scoped to `source`. Restores
+    are already handled by _upsert_page (it flips is_active back on for seen pages).
+    Returns the number deactivated."""
+    deactivated = 0
+    with Session(engine) as session:
+        pages = session.exec(
+            select(DocumentPage)
+            .where(DocumentPage.company_id == company_id)
+            .where(DocumentPage.source == source)
+            .where(DocumentPage.is_active)
+        ).all()
+        for page in pages:
+            if page.confluence_page_id in live_ids:
+                continue
+            if page.space_key in skipped_keys:
+                continue
+            page.is_active = False
+            session.add(page)
+            deactivated += 1
+        if deactivated:
+            session.commit()
+    return deactivated
+
 def reap_running_jobs() -> int:
     """Mark any lingering 'running' jobs as failed. Called on app startup: these
     jobs run as in-process background tasks, so a process restart leaves any
@@ -1044,10 +1077,16 @@ def _run_ingest(company_id: int, job_id: int, source: str = "confluence") -> Non
         containers = list_containers(conn.cloud_id, token)
         _update_job(job_id, phase="reading", total_spaces=len(containers), processed_spaces=0)
         to_embed: list = []  # (page_db_id, text) — text only for pages needing embed
+        live_ids: set = set()  # ids seen upstream this run — drives the deletion sweep
+        skipped_keys: set = set()  # containers that failed to read — protected from the sweep
+        cancelled = False
         total_pages = 0
         skipped_spaces = 0
         skipped_pages = 0
         for i, container in enumerate(containers, start=1):
+            if _is_cancelled(job_id):
+                cancelled = True
+                break
             key = container.get("key")
             if key:
                 try:
@@ -1059,10 +1098,12 @@ def _run_ingest(company_id: int, job_id: int, source: str = "confluence") -> Non
                         raise  # auth is global — fail the whole job, don't fake success
                     logger.warning("Ingest %s: skipping space %s (%s)", job_id, key, exc.detail)
                     skipped_spaces += 1
+                    skipped_keys.add(key)
                     items = []
                 except Exception as exc:
                     logger.warning("Ingest %s: skipping space %s (%s)", job_id, key, exc)
                     skipped_spaces += 1
+                    skipped_keys.add(key)
                     items = []
                 for page in items:
                     if page.get("id"):  # skip malformed results with no id
@@ -1070,6 +1111,7 @@ def _run_ingest(company_id: int, job_id: int, source: str = "confluence") -> Non
                             page_db_id, changed, text = _upsert_page(
                                 company_id, page, source=source
                             )
+                            live_ids.add(str(page.get("id")))
                             total_pages += 1
                             if text and (changed or _page_chunk_count(page_db_id) == 0):
                                 to_embed.append((page_db_id, text))
@@ -1082,6 +1124,28 @@ def _run_ingest(company_id: int, job_id: int, source: str = "confluence") -> Non
             _update_job(
                 job_id, processed_spaces=i, total_pages=total_pages, processed_pages=total_pages
             )
+
+        # Cancelled mid-read → stop cleanly. Pages read so far are already saved
+        # (resumable next run); crucially, SKIP the deletion sweep — a partial read
+        # must never mark unread pages as deleted.
+        if cancelled:
+            _update_job(
+                job_id,
+                status="cancelled",
+                phase="cancelled",
+                error="Cancelled - partial progress saved.",
+                completed=True,
+            )
+            return
+
+        # Deletion sweep (mark-and-sweep): we've now read the WHOLE tenant, so any
+        # active page we didn't see upstream was removed there — deactivate it. Guard
+        # hard: only sweep a real read where at least one container was read
+        # successfully; skipped containers are protected inside _sweep_deleted.
+        readable = [c for c in containers if c.get("key")]
+        deactivated = 0
+        if readable and len(skipped_keys) < len(readable):
+            deactivated = _sweep_deleted(company_id, source, live_ids, skipped_keys)
 
         # Phase 2 — embedding. First count the total chunks (chunk_text is cheap and we
         # count-then-discard, so memory stays bounded) — this lets the progress bar show
@@ -1101,27 +1165,47 @@ def _run_ingest(company_id: int, job_id: int, source: str = "confluence") -> Non
             buffer.append((page_db_id, chunks))
             buffered_chunks += len(chunks)
             if buffered_chunks >= _EMBED_BATCH_SIZE:
+                if _is_cancelled(job_id):
+                    cancelled = True
+                    break
                 embedded, failed_chunks = _flush_and_track(
                     company_id, job_id, buffer, embedded, failed_chunks, source=source
                 )
                 buffer, buffered_chunks = [], 0
-        if buffer:
+        if buffer and not cancelled:
             embedded, failed_chunks = _flush_and_track(
                 company_id, job_id, buffer, embedded, failed_chunks, source=source
             )
+
+        # Cancelled mid-embed → the read + sweep already completed (deletions are
+        # valid); just stop embedding. Remaining chunks embed on the next run.
+        if cancelled:
+            _update_job(
+                job_id,
+                status="cancelled",
+                phase="cancelled",
+                error="Cancelled - partial progress saved.",
+                completed=True,
+            )
+            return
 
         # If there was work to embed but nothing landed, embedding is broken — fail.
         if total_chunks and embedded == 0:
             raise HTTPException(status_code=502, detail="Embedding failed for every page.")
 
-        parts = []
+        problems = []
         if skipped_spaces:
-            parts.append(f"{skipped_spaces} space(s) skipped")
+            problems.append(f"{skipped_spaces} space(s) skipped")
         if skipped_pages:
-            parts.append(f"{skipped_pages} page(s) skipped")
+            problems.append(f"{skipped_pages} page(s) skipped")
         if failed_chunks:
-            parts.append(f"{failed_chunks} chunk(s) failed")
-        note = ("; ".join(parts) + " — re-ingest to retry.") if parts else None
+            problems.append(f"{failed_chunks} chunk(s) failed")
+        parts = []
+        if deactivated:
+            parts.append(f"{deactivated} removed")
+        if problems:
+            parts.append("; ".join(problems) + " — re-ingest to retry")
+        note = "; ".join(parts) if parts else None
         _update_job(job_id, status="done", phase="done", error=note, completed=True)
         if source == "jira":
             # New assignees/reporters just landed — drop the cached name set so the
@@ -1169,6 +1253,26 @@ def get_ingest_status(user, job_id: int) -> dict:
         job = session.get(IngestionJob, job_id)
         if job is None or job.company_id != company.id:
             raise HTTPException(status_code=404, detail="Ingestion job not found.")
+        return _job_progress(job)
+
+def cancel_ingest(user, job_id: int) -> dict:
+    """Cooperatively cancel a running ingest. Flips the job to 'cancelled' so the
+    worker stops cleanly between containers/embed-batches — no half-written page and
+    no deletion sweep on a partial read. A finished job is returned unchanged
+    (idempotent)."""
+    company = get_or_create_company_for_user(user)
+    with Session(engine) as session:
+        job = session.get(IngestionJob, job_id)
+        if job is None or job.company_id != company.id:
+            raise HTTPException(status_code=404, detail="Ingestion job not found.")
+        if job.status == "running":
+            job.status = "cancelled"
+            job.phase = "cancelled"
+            job.error = "Cancelled - partial progress saved."
+            job.completed_at = _utcnow()
+            session.add(job)
+            session.commit()
+            session.refresh(job)
         return _job_progress(job)
 
 # ── webhooks (freshness) ────────────────────────────────────────────────────────

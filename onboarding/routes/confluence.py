@@ -34,6 +34,10 @@ def ingest(
 def ingest_status(job_id: int, request: Request):
     return confluence_controller.ingest_status(job_id, request.state.user)
 
+@router.post("/confluence/ingest/{job_id}/cancel")
+def cancel_ingest(job_id: int, request: Request):
+    return confluence_controller.cancel_ingest(job_id, request.state.user)
+
 @router.post("/webhooks/confluence")
 def webhook(
     payload: dict,

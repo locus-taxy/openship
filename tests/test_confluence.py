@@ -1560,6 +1560,18 @@ class TestBeginIngest:
             patcher.stop()
 
 class TestRunIngest:
+    @pytest.fixture(autouse=True)
+    def _neutralize_db_helpers(self):
+        # These existing tests mock every collaborator but run against no real DB, so
+        # neutralize the two DB-touching helpers added for cancel + deletion sweep:
+        # never cancelled, sweep is a no-op. Sweep + cancel behavior is covered in
+        # TestIngestSweep / TestCancelIngest below with proper session mocks.
+        with (
+            patch("onboarding.services.confluence._is_cancelled", return_value=False),
+            patch("onboarding.services.confluence._sweep_deleted", return_value=0),
+        ):
+            yield
+
     def test_success(self):
         with (
             patch("onboarding.services.confluence._get_connection", return_value=_conn()),
@@ -1913,6 +1925,253 @@ class TestRunIngest:
             store.assert_called_once()  # only the batch that embedded is stored
             done = [c for c in upd.call_args_list if c.kwargs.get("status") == "done"]
             assert done and "chunk" in (done[-1].kwargs.get("error") or "")
+
+class TestSweepDeleted:
+    def _pg(self, pid, space="ENG", active=True):
+        p = MagicMock()
+        p.confluence_page_id = pid
+        p.space_key = space
+        p.is_active = active
+        return p
+
+    def test_deactivates_page_missing_upstream(self):
+        seen, gone = self._pg("p1"), self._pg("p2")
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.all.return_value = [seen, gone]
+            from onboarding.services.confluence import _sweep_deleted
+
+            n = _sweep_deleted(1, "confluence", live_ids={"p1"}, skipped_keys=set())
+            assert n == 1
+            assert seen.is_active is True
+            assert gone.is_active is False
+        finally:
+            patcher.stop()
+
+    def test_protects_pages_in_skipped_container(self):
+        gone = self._pg("p2", space="OPS")
+        patcher, session = _patch_session()
+        try:
+            session.exec.return_value.all.return_value = [gone]
+            from onboarding.services.confluence import _sweep_deleted
+
+            # OPS failed to read this run — a transient error must not look like a delete.
+            n = _sweep_deleted(1, "confluence", live_ids=set(), skipped_keys={"OPS"})
+            assert n == 0
+            assert gone.is_active is True
+        finally:
+            patcher.stop()
+
+class TestIsCancelled:
+    def test_true_when_status_cancelled(self):
+        job = MagicMock()
+        job.status = "cancelled"
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = job
+            from onboarding.services.confluence import _is_cancelled
+
+            assert _is_cancelled(7) is True
+        finally:
+            patcher.stop()
+
+    def test_false_when_running_or_missing(self):
+        patcher, session = _patch_session()
+        try:
+            from onboarding.services.confluence import _is_cancelled
+
+            session.get.return_value = None
+            assert _is_cancelled(7) is False
+            job = MagicMock()
+            job.status = "running"
+            session.get.return_value = job
+            assert _is_cancelled(7) is False
+        finally:
+            patcher.stop()
+
+class TestIngestSweep:
+    def test_sweep_called_after_full_read(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._update_job"),
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
+            patch("onboarding.services.confluence._search_pages", return_value=[_page("p1")]),
+            patch("onboarding.services.confluence._upsert_page", return_value=(1, True, "text")),
+            patch("onboarding.services.confluence._page_chunk_count", return_value=0),
+            patch("onboarding.services.confluence.chunk_text", return_value=["c1"]),
+            patch(
+                "onboarding.services.confluence.embedding_service.embed_texts",
+                return_value=[[0.1]],
+            ),
+            patch("onboarding.services.confluence._delete_chunks"),
+            patch("onboarding.services.confluence._store_chunks"),
+            patch("onboarding.services.confluence._is_cancelled", return_value=False),
+            patch("onboarding.services.confluence._sweep_deleted", return_value=0) as sweep,
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7)
+            sweep.assert_called_once()
+            # signature: (company_id, source, live_ids, skipped_keys)
+            args = sweep.call_args.args
+            assert "p1" in args[2]
+            assert args[3] == set()
+
+    def test_sweep_skipped_when_container_read_fails(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._update_job"),
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
+            patch(
+                "onboarding.services.confluence._search_pages",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("onboarding.services.confluence._is_cancelled", return_value=False),
+            patch("onboarding.services.confluence._sweep_deleted", return_value=0) as sweep,
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7)
+            sweep.assert_not_called()  # the only container was skipped — nothing reliably read
+
+    def test_cancel_before_read_skips_sweep(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
+            patch("onboarding.services.confluence._search_pages", return_value=[_page("p1")]),
+            patch("onboarding.services.confluence._update_job") as upd,
+            patch("onboarding.services.confluence._is_cancelled", return_value=True),
+            patch("onboarding.services.confluence._sweep_deleted", return_value=0) as sweep,
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7)
+            sweep.assert_not_called()
+            assert any(c.kwargs.get("status") == "cancelled" for c in upd.call_args_list)
+
+    def test_cancel_during_embedding_stops_and_skips_store(self):
+        # Not cancelled during the read (sweep runs), then cancelled at the first embed
+        # batch — it must stop without storing that batch and mark the job cancelled.
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._update_job") as upd,
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
+            patch("onboarding.services.confluence._search_pages", return_value=[_page("p1")]),
+            patch("onboarding.services.confluence._upsert_page", return_value=(1, True, "text")),
+            patch("onboarding.services.confluence._page_chunk_count", return_value=0),
+            patch("onboarding.services.confluence.chunk_text", return_value=["c1"]),
+            patch("onboarding.services.confluence._delete_chunks"),
+            patch("onboarding.services.confluence._store_chunks") as store,
+            patch("onboarding.services.confluence._EMBED_BATCH_SIZE", 1),
+            patch("onboarding.services.confluence._is_cancelled", side_effect=[False, True]),
+            patch("onboarding.services.confluence._sweep_deleted", return_value=0),
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7)
+            store.assert_not_called()
+            assert any(c.kwargs.get("status") == "cancelled" for c in upd.call_args_list)
+
+    def test_done_note_reports_removed_count(self):
+        with (
+            patch("onboarding.services.confluence._get_connection", return_value=_conn()),
+            patch("onboarding.services.confluence._get_valid_token", return_value="t"),
+            patch("onboarding.services.confluence._update_job") as upd,
+            patch("onboarding.services.confluence._fetch_spaces", return_value=[{"key": "ENG"}]),
+            patch("onboarding.services.confluence._search_pages", return_value=[_page("p1")]),
+            patch("onboarding.services.confluence._upsert_page", return_value=(1, True, "text")),
+            patch("onboarding.services.confluence._page_chunk_count", return_value=0),
+            patch("onboarding.services.confluence.chunk_text", return_value=["c1"]),
+            patch(
+                "onboarding.services.confluence.embedding_service.embed_texts",
+                return_value=[[0.1]],
+            ),
+            patch("onboarding.services.confluence._delete_chunks"),
+            patch("onboarding.services.confluence._store_chunks"),
+            patch("onboarding.services.confluence._is_cancelled", return_value=False),
+            patch("onboarding.services.confluence._sweep_deleted", return_value=3),
+        ):
+            from onboarding.services.confluence import _run_ingest
+
+            _run_ingest(1, 7)
+            done = [c for c in upd.call_args_list if c.kwargs.get("status") == "done"]
+            assert done and "3 removed" in (done[-1].kwargs.get("error") or "")
+
+class TestCancelIngest:
+    def _job(self, company_id=1, status="running"):
+        j = MagicMock()
+        j.id = 7
+        j.company_id = company_id
+        j.status = status
+        j.kind = "ingest"
+        j.source = "confluence"
+        j.phase = "reading"
+        j.total_spaces = j.processed_spaces = 0
+        j.total_pages = j.processed_pages = 0
+        j.total_chunks = j.embedded_chunks = 0
+        j.error = None
+        return j
+
+    def test_cancels_running_job(self):
+        company = MagicMock()
+        company.id = 1
+        job = self._job()
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = job
+            with patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=company,
+            ):
+                from onboarding.services.confluence import cancel_ingest
+
+                result = cancel_ingest(user=MagicMock(), job_id=7)
+            assert job.status == "cancelled"
+            assert result["status"] == "cancelled"
+        finally:
+            patcher.stop()
+
+    def test_wrong_company_404(self):
+        company = MagicMock()
+        company.id = 1
+        job = self._job(company_id=2)
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = job
+            with patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=company,
+            ):
+                from onboarding.services.confluence import cancel_ingest
+
+                with pytest.raises(HTTPException) as ei:
+                    cancel_ingest(user=MagicMock(), job_id=7)
+                assert ei.value.status_code == 404
+        finally:
+            patcher.stop()
+
+    def test_idempotent_on_finished_job(self):
+        company = MagicMock()
+        company.id = 1
+        job = self._job(status="done")
+        patcher, session = _patch_session()
+        try:
+            session.get.return_value = job
+            with patch(
+                "onboarding.services.confluence.get_or_create_company_for_user",
+                return_value=company,
+            ):
+                from onboarding.services.confluence import cancel_ingest
+
+                result = cancel_ingest(user=MagicMock(), job_id=7)
+            assert job.status == "done"  # a finished job is left unchanged
+            assert result["status"] == "done"
+        finally:
+            patcher.stop()
 
 class TestIngestStatus:
     def test_found(self):
@@ -2681,6 +2940,16 @@ class TestRoutes:
             return_value={"status": "done"},
         ):
             assert auth_client.get("/confluence/ingest/1").json()["status"] == "done"
+
+    def test_cancel_ingest_route(self, auth_client):
+        with patch(
+            "onboarding.controllers.confluence.confluence_service.cancel_ingest",
+            return_value={"status": "cancelled"},
+        ) as svc:
+            r = auth_client.post("/confluence/ingest/7/cancel")
+        assert r.status_code == 200
+        assert r.json()["status"] == "cancelled"
+        assert svc.call_args.args[1] == 7  # (user, job_id)
 
     def test_reconcile(self, auth_client):
         with patch(

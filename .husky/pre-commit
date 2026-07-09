@@ -2,8 +2,11 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
-if [ ! -x .venv/bin/pre-commit ]; then
-  echo "openship: missing .venv/bin/pre-commit — run: make setup"
-  exit 1
-fi
-exec .venv/bin/pre-commit run
+# venv layout differs by OS: Unix uses bin/, Windows uses Scripts/. Pick whichever exists.
+for pc in .venv/bin/pre-commit .venv/Scripts/pre-commit.exe .venv/Scripts/pre-commit; do
+  if [ -e "$pc" ]; then
+    exec "$pc" run
+  fi
+done
+echo "openship: pre-commit not found in .venv - run: make setup (macOS/Linux) or scripts\\setup.cmd (Windows)"
+exit 1

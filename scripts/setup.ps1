@@ -140,6 +140,10 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
 }
 Push-Location "$Root\ui"; npm install --silent; $npmExit = $LASTEXITCODE; Pop-Location
 if ($npmExit -ne 0) { Die "npm install failed." }
+# Root install runs the "prepare": "husky" script, which wires the git pre-commit
+# hook (sets core.hooksPath). Without this, commits skip Black + tests silently.
+Push-Location $Root; npm install --silent; $npmRootExit = $LASTEXITCODE; Pop-Location
+if ($npmRootExit -ne 0) { Die "npm install (root, git hooks) failed." }
 Ok "Node dependencies installed."
 
 # -- Step 6: Migrations (creates tables + enables pgvector) -------------------

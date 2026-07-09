@@ -20,6 +20,9 @@ def ingest(user, background_tasks, source="confluence"):
 def ingest_status(job_id, user):
     return confluence_service.get_ingest_status(user, job_id)
 
+def cancel_ingest(job_id, user):
+    return confluence_service.cancel_ingest(user, job_id)
+
 def webhook(payload, secret, background_tasks):
     # Verify synchronously (bad secret → 401 now), then acknowledge instantly and do the
     # fetch+embed in the background so a burst of webhooks can't block web workers.
