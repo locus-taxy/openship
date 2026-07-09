@@ -125,7 +125,7 @@ ATLASSIAN_OAUTH_SCOPES = _strip_opt("ATLASSIAN_OAUTH_SCOPES") or _DEFAULT_ATLASS
 
 # Where to send the browser after a successful connect.
 CONFLUENCE_POST_CONNECT_REDIRECT = (
-    _strip_opt("CONFLUENCE_POST_CONNECT_REDIRECT") or "/onboarding?connected=1"
+    _strip_opt("CONFLUENCE_POST_CONNECT_REDIRECT") or "/connections?connected=1"
 )
 
 # Shared secrets for authenticating incoming webhooks (freshness). Set each to enable

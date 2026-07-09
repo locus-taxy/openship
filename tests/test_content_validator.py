@@ -147,6 +147,30 @@ class TestValidateContentHeuristics:
         assert result.passed is True
         assert result.reason == ""
 
+    def test_slash_topic_splits_into_separate_keywords(self):
+        # Regression: a topic like "Basic Input/Output" used to glue into the
+        # unmatchable keyword "inputoutput", so a chapter that says "input" and
+        # "output" separately wrongly failed check 3. It must now split and pass.
+        text = " ".join(["input output basic"] * 40)  # 120 words, all three present
+        blocks = [
+            _make_block("heading", content="Basic Input/Output", level=1),
+            _make_block("paragraph", content=text),
+        ]
+        result = validate_content_heuristics(
+            blocks, "Use input() and print() functions.", topic="Basic Input/Output"
+        )
+        assert result.passed is True
+
+    def test_dotted_tech_term_survives_as_one_keyword(self):
+        # "Express.js" must stay intact (not split on the dot) and match content.
+        text = " ".join(["express.js routing middleware"] * 40)
+        blocks = [
+            _make_block("heading", content="Express.js Routing", level=1),
+            _make_block("paragraph", content=text),
+        ]
+        result = validate_content_heuristics(blocks, "Routing", topic="Express.js Routing")
+        assert result.passed is True
+
     def test_fails_when_too_short(self):
         blocks = [_make_block("paragraph", content="short text")]
         result = validate_content_heuristics(blocks, "Arrays in C++")

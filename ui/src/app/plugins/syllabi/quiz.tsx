@@ -864,12 +864,12 @@ export function WeeklyQuizPanel({
                             <h2 className="text-xl font-bold tracking-tight">Week {week} Quiz</h2>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                            5 questions covering this week's topics. Your answers train the ML model to personalise your final quiz and content style.
+                            One question per topic covering this week's chapters. Your answers train the ML model to personalise your final quiz and content style.
                         </p>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
-                            <p className="text-2xl font-bold">5</p>
+                            <p className="text-2xl font-bold">1<span className="text-base font-medium text-muted-foreground"> / topic</span></p>
                             <p className="text-xs text-muted-foreground mt-0.5">Questions</p>
                         </div>
                         <div className="rounded-xl border bg-muted/30 px-4 py-3 text-center">
