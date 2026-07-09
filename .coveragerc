@@ -6,6 +6,7 @@ omit =
     venv/*
     .venv/*
     */__pycache__/*
+    scripts/*
     black_then_collapse.py
     collapse_blank_lines.py
     run_migrations.py

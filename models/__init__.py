@@ -13,6 +13,10 @@ from models.quiz_attempt import QuizAttempt
 from models.topic_knowledge import TopicKnowledge
 from models.content_style_arms import ContentStyleArm
 
+# Onboarding / RAG models live in the onboarding package; import registers their
+# tables in SQLModel metadata (for app startup + alembic autogenerate).
+import onboarding.models  # noqa: F401
+
 __all__ = [
     "ContentStyleArm",
     "DailyTask",

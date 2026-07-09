@@ -1,4 +1,4 @@
-# Openship: The Open-Source AI Learning Platform
+# Openship: The Open-Source AI Learning & Knowledge Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
@@ -8,9 +8,11 @@
 
 ## What Is Openship?
 
-Openship is a fully open-source, AI-powered learning platform built by the team at **Locus**.
+Openship is a fully open-source, AI platform built by the team at **Locus**, with two pillars:
 
-You pick a skill and set how many days and hours per day you can commit. Openship generates a structured **Month / Week / Day** curriculum, writes AI lessons for each chapter on demand, and runs weekly quizzes to track your mastery. Each new week is generated based on your quiz results, so the plan adapts to what you actually know rather than following a fixed template.
+1. **Adaptive learning** - you pick a skill and set how many days and hours per day you can commit. Openship generates a structured **Month / Week / Day** curriculum, writes AI lessons for each chapter on demand, and runs weekly quizzes to track your mastery. Each new week is generated based on your quiz results, so the plan adapts to what you actually know rather than following a fixed template.
+
+2. **Company knowledge platform** - connect your **Atlassian** workspace once and Openship ingests your **Confluence** pages and **Jira** issues into a single AI-searchable knowledge base (RAG). It powers company **Onboarding** plans and a **Knowledge chat** that answers from your own docs - with source-linked citations and people-analytics ("who's working on what").
 
 ---
 
@@ -20,7 +22,10 @@ You pick a skill and set how many days and hours per day you can commit. Openshi
 
 
 
-https://github.com/user-attachments/assets/c4f19506-851a-422c-bc63-a0e2252c8e78
+https://github.com/user-attachments/assets/5583c075-7c33-48ad-8706-26d4b3acafea
+
+
+
 
 
 
@@ -109,9 +114,35 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 ### Other
 - **Shareable syllabi** - public link to share any syllabus (no account required to view)
 - **Course management** - delete any enrolled course (removes all chapters, progress, quizzes, and attempts)
+- **Learning streaks** - daily activity streak tracking per user
 - **Resizable chapter sidebar** - collapsible and draggable sidebar with chapter tree navigation
 - **JWT authentication** - cookie-based auth with access and refresh tokens, enforced globally via middleware
 - **Fully responsive** - works on mobile, tablet, and desktop
+
+---
+
+## Company Knowledge Platform (Confluence + Jira)
+
+Connect your Atlassian workspace once and Openship ingests your **Confluence** pages and **Jira** issues into a single searchable, AI-queryable knowledge base. Three surfaces share one connection, one ingestion pipeline, and one set of tables.
+
+### Connections - one Atlassian OAuth, two products
+- **Single OAuth 2.0 (3LO) connection** grants both Confluence and Jira; company-level encrypted tokens with auto-refresh
+- **Whole-workspace RAG ingestion** - read every page/issue → chunk → embed → store as pgvector vectors, with a live progress UI (reading → scanning → embedding)
+- **Local embeddings** via `fastembed` (`BAAI/bge-small-en-v1.5`, 384-dim) - **no API key, no quota, no per-token cost**; runs on CPU inside the backend
+- **Resilient at scale** (proven on a **133k-issue** tenant) - honors Atlassian rate limits (`Retry-After`), refreshes the OAuth token mid-run, and streams per project so memory stays bounded; resumable and idempotent
+- **One-click Sync** - a single **Sync** does everything in one read: adds new items, updates changed ones, and removes items deleted upstream (and restores reappearing ones). A running sync can be **cancelled** cleanly - partial progress is saved and resumable
+- **Freshness** - Confluence + Jira **webhooks** re-embed changed items instantly, between full syncs
+- **Multi-tenant** - every doc is company-scoped; a connector identity check ensures you connect with your own company's Atlassian account
+
+### Onboarding - role-based, grounded in your docs
+- Generate a **7-day onboarding plan** for a role, grounded only in the company's Confluence
+- **On-demand per-day content** (headings, code, tables, mermaid diagrams) plus an end-of-onboarding **quiz**; shareable public view
+
+### Knowledge chat - ask across Confluence + Jira
+- ChatGPT-style, multi-turn, persistent chat that answers **only** from your indexed docs, with **source-linked citations** (deep links to the Jira issue / Confluence page)
+- **Hybrid retrieval** - semantic (pgvector cosine) **+** lexical word/phrase matching, so literal things like names and issue keys (`AR-2847`) are found, not just paraphrases; full-name phrase matching keeps "Yogesh Kisslay" from colliding with a different "Yogesh"
+- **People analytics** - "what is X working on", "who reported the most", "who did more, X or Y" answered from **exact database lookups** (counts, complete lists, leaderboards), with strict Jira role discipline (assignee vs reporter vs commenter)
+- **Anti-hallucination** - strict grounding, and any URL the model invents that isn't in the retrieved source is stripped
 
 ---
 
@@ -122,6 +153,8 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 | API | FastAPI + Uvicorn |
 | AI | Anthropic, OpenAI, Google Gemini, Mistral (via `instructor`) |
 | ML | Bayesian Knowledge Tracing, Thompson Sampling, Ebbinghaus Forgetting Curve |
+| Knowledge / RAG | pgvector, `fastembed` local embeddings (`BAAI/bge-small-en-v1.5`, 384-dim) |
+| Integrations | Atlassian OAuth 2.0 (Confluence + Jira), webhooks |
 | Database | PostgreSQL, SQLModel ORM, Alembic migrations |
 | Frontend | React 18 + TypeScript + Vite |
 | UI Components | shadcn/ui, Radix UI, Tailwind CSS |
@@ -133,47 +166,85 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 
 ## Getting Started
 
-### Prerequisites
+Only the **database** runs in Docker (PostgreSQL + pgvector). The API (FastAPI) and UI (React/Vite) run directly on your machine. LLM API keys are added later in the UI - never in `.env`.
 
-- Python 3.9+ (`python3` on PATH)
-- Node.js 18+ and npm
-- Git
-- PostgreSQL
+### macOS
 
-### Quick start
+**Install first:** [Git](https://git-scm.com), [Homebrew](https://brew.sh), and [Docker Desktop](https://www.docker.com/products/docker-desktop/) (installed and running). Python and Node are auto-installed via Homebrew if missing.
+
+**Automatic (recommended):**
 
 ```bash
 git clone https://github.com/locus-taxy/openship.git
 cd openship
-make setup
+make setup     # starts the DB, installs deps, writes .env, runs migrations
+make dev       # starts API (:3005) + UI (:5173) in two terminals
 ```
 
-`make setup` runs `scripts/setup.sh` which:
-1. Creates `.env` from `.env.example` if one does not exist
-2. Creates a Python virtual environment at `.venv` and installs all deps
-3. Runs `npm install` in `ui/` for the frontend
-4. Configures Husky git hooks (requires a git clone)
+Then open http://localhost:5173, sign up, and add your LLM API key in Settings.
 
-Edit `.env` with your database URL and secrets (see [Environment Variables](#environment-variables)), then start:
+**Manual (no Docker):** use a Postgres that has **pgvector** - the simplest is [Postgres.app](https://postgresapp.com) (it bundles pgvector).
 
 ```bash
-make dev
+createdb openship
+# Create .env in the repo root (see Environment Variables below):
+#   DATABASE_URL=postgresql+psycopg2://<user>@localhost:5432/openship
+#   JWT_SECRET_KEY=<32+ random chars>
+#   LLM_ENCRYPTION_KEY=<python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())">
+#   RUN_MIGRATIONS_ON_STARTUP=true
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt -r requirements-test.txt
+cd ui && npm install && cd ..
+.venv/bin/alembic upgrade head
+# run in two shells:
+.venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005
+cd ui && npm run dev
 ```
 
-> **macOS** - `make dev` opens two separate Terminal windows (API on `:3005`, UI on `:5173`). It waits for the API to be ready before launching the UI.
->
-> **Linux** - run `make run-api` and `make run-ui` in two separate shells instead.
+### Windows
 
-For a full walkthrough including PostgreSQL setup and troubleshooting see **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
+**Install first:** [Git](https://git-scm.com/download/win) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) (installed and running). Python and Node are auto-installed via **winget** (built into Windows 10/11).
+
+**Automatic (recommended):**
+
+```powershell
+git clone https://github.com/locus-taxy/openship.git
+cd openship
+scripts\setup.cmd    # starts the DB, installs deps, writes .env, runs migrations
+scripts\dev.cmd      # starts API (:3005) + UI (:5173)
+```
+
+(You can also double-click `scripts\setup.cmd` then `scripts\dev.cmd` in File Explorer.)
+
+**Manual:** on Windows the database uses **Docker** (there is no Postgres.app):
+
+```powershell
+docker compose up -d db
+# Create .env in the repo root:
+#   DATABASE_URL=postgresql+psycopg2://openship:openship@localhost:5432/openship
+#   JWT_SECRET_KEY=<32+ random chars>
+#   LLM_ENCRYPTION_KEY=<a Fernet key>
+#   RUN_MIGRATIONS_ON_STARTUP=true
+python -m venv .venv
+.venv\Scripts\pip.exe install -r requirements.txt -r requirements-dev.txt -r requirements-test.txt
+cd ui; npm install; cd ..
+.venv\Scripts\alembic.exe upgrade head
+# run in two shells:
+.venv\Scripts\uvicorn.exe main:app --reload --host 0.0.0.0 --port 3005
+cd ui; npm run dev
+```
+
+Full walkthrough + troubleshooting: **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
 
 ### Available commands
 
 | Command | Description |
 |---------|-------------|
-| `make setup` | One-time setup: venv, deps, `.env`, Husky hooks |
-| `make dev` | Start API + UI (macOS) |
-| `make run-api` | FastAPI only, with hot reload on `:3005` |
+| `make setup` (macOS) / `scripts\setup.cmd` (Windows) | One-time: start DB, venv + deps, `.env`, migrations |
+| `make dev` (macOS) / `scripts\dev.cmd` (Windows) | Start the DB, then API + UI |
+| `make run-api` | FastAPI only, hot reload on `:3005` |
 | `make run-ui` | Vite dev server only on `:5173` |
+| `make db-up` / `make db-down` | Start / stop the PostgreSQL + pgvector container (Docker) |
 | `make format` | Auto-format Python with Black via pre-commit |
 | `make format-check` | CI-style format check |
 | `make install` | Alias for `make setup` |
@@ -182,7 +253,7 @@ For a full walkthrough including PostgreSQL setup and troubleshooting see **[doc
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and set at minimum:
+`make setup` / `scripts\setup.cmd` generate `.env` automatically. For a manual setup, create `.env` yourself with at least:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -192,6 +263,12 @@ Copy `.env.example` to `.env` and set at minimum:
 | `RUN_MIGRATIONS_ON_STARTUP` | No | Run `alembic upgrade head` on startup (default: `true`) |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime (default: `2`) |
 | `JWT_REFRESH_TOKEN_EXPIRE_HOURS` | No | Refresh token lifetime (default: `7`) |
+| `ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET` / `ATLASSIAN_REDIRECT_URI` | For Connections | Atlassian OAuth app credentials - required to connect Confluence/Jira |
+| `ATLASSIAN_OAUTH_SCOPES` | No | Override the default Confluence + Jira read scopes (`offline_access`, `read:me`) |
+| `EMBEDDING_MODEL` | No | Local embedding model (default: `BAAI/bge-small-en-v1.5`, 384-dim) |
+| `CONFLUENCE_WEBHOOK_SECRET` / `JIRA_WEBHOOK_SECRET` | No | Enable the respective webhook endpoints for instant freshness |
+
+> **Atlassian connections** are optional - the learning platform works without them. Set the `ATLASSIAN_*` vars only if you want the Confluence/Jira knowledge platform. Embeddings run locally, so **no embedding API key is ever needed.**
 
 > **LLM API keys** are not stored in `.env`. Users add their own key per provider through the Settings panel in the UI. Keys are partially encrypted at rest using `LLM_ENCRYPTION_KEY` (Fernet/AES-128-CBC). A database leak alone is not sufficient to reconstruct a key.
 

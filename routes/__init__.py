@@ -5,6 +5,9 @@ from routes.syllabus import router as syllabus_router
 from routes.content import router as content_router
 from routes.newsletter import router as newsletter_router
 from routes.quiz import router as quiz_router
+from onboarding.routes.onboarding import router as onboarding_router
+from onboarding.routes.confluence import router as confluence_router
+from onboarding.routes.knowledge import router as knowledge_router
 
 def register_routers(app: FastAPI):
     app.include_router(auth_router)
@@ -13,3 +16,6 @@ def register_routers(app: FastAPI):
     app.include_router(content_router)
     app.include_router(newsletter_router)
     app.include_router(quiz_router)
+    app.include_router(onboarding_router)
+    app.include_router(confluence_router)
+    app.include_router(knowledge_router)

@@ -4,14 +4,16 @@ VENV := .venv
 PIP := $(VENV)/bin/pip
 ROOT := $(abspath .)
 
-.PHONY: help setup dev run-api run-ui format format-check install
+.PHONY: help setup dev run-api run-ui format format-check install db-up db-down
 
 help:
 	@echo "Openship Makefile"
-	@echo "  make setup       Create venv, install Python + UI deps, configure Husky + pre-commit, seed .env"
-	@echo "  make dev         Start API and UI in separate Terminal windows"
+	@echo "  make setup       Start the DB (Docker), create venv, install Python + UI deps, seed .env, migrate"
+	@echo "  make dev         Start the DB, then API and UI in separate Terminal windows"
 	@echo "  make run-api     FastAPI only (reload)"
 	@echo "  make run-ui      Vite dev server only"
+	@echo "  make db-up       Start the PostgreSQL + pgvector database (Docker)"
+	@echo "  make db-down     Stop the database (data is preserved)"
 	@echo "  make format      Run Black + single-blank-line pass via pre-commit (may run twice)"
 	@echo "  make format-check  CI-style: fail if Python formatting is not clean"
 	@echo "  make install     Alias for setup"
@@ -22,7 +24,16 @@ setup:
 	@chmod +x "$(ROOT)/scripts/setup.sh"
 	@bash "$(ROOT)/scripts/setup.sh"
 
+# Start/stop the local database (Postgres + pgvector) via Docker.
+db-up:
+	docker compose -f "$(ROOT)/docker-compose.yml" up -d db
+
+db-down:
+	docker compose -f "$(ROOT)/docker-compose.yml" down
+
 dev: # macOS only — uses osascript to open Terminal windows; on Linux use make run-api and make run-ui in separate shells
+	@echo "Ensuring the database is up..."
+	@docker compose -f "$(ROOT)/docker-compose.yml" up -d db 2>/dev/null || echo "(skipping Docker DB — using a local PostgreSQL)"
 	@echo "Opening API terminal..."
 	@osascript -e 'tell application "Terminal" to do script "echo \"=== Openship API ===\"; cd \"$(ROOT)\" && $(VENV)/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005"'
 	@echo "Waiting for API on :3005..."

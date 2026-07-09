@@ -22,30 +22,35 @@ export interface ContentBlock {
     format?: string
 }
 
+function parseInlineTokens(text: string): React.ReactNode[] {
+    // Tokenize: inline code, bold, markdown links [text](url)
+    const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)]+\))/g
+    const tokens: React.ReactNode[] = []
+    let last = 0
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(text)) !== null) {
+        if (match.index > last) tokens.push(text.slice(last, match.index))
+        const raw = match[0]
+        if (raw.startsWith("`")) {
+            tokens.push(<code key={match.index} className="bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded text-[0.82em] font-mono">{raw.slice(1, -1)}</code>)
+        } else if (raw.startsWith("**")) {
+            tokens.push(<strong key={match.index}>{raw.slice(2, -2)}</strong>)
+        } else {
+            const linkMatch = raw.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/)
+            if (linkMatch) {
+                tokens.push(<a key={match.index} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:opacity-80">{linkMatch[1]}</a>)
+            } else {
+                tokens.push(raw)
+            }
+        }
+        last = match.index + raw.length
+    }
+    if (last < text.length) tokens.push(text.slice(last))
+    return tokens
+}
+
 export function InlineText({ text }: { text: string }) {
-    const parts = text.split(/(`[^`]+`)/g)
-    return (
-        <>
-            {parts.map((part, i) => {
-                if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-                    return (
-                        <code key={i} className="bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-[0.82em] font-mono">
-                            {part.slice(1, -1)}
-                        </code>
-                    )
-                }
-                const boldParts = part.split(/(\*\*[^*]+\*\*)/g)
-                if (boldParts.length > 1) {
-                    return boldParts.map((bp, j) =>
-                        bp.startsWith("**") && bp.endsWith("**") && bp.length > 4
-                            ? <strong key={`${i}-${j}`}>{bp.slice(2, -2)}</strong>
-                            : <span key={`${i}-${j}`}>{bp}</span>
-                    )
-                }
-                return <span key={i}>{part}</span>
-            })}
-        </>
-    )
+    return <>{parseInlineTokens(text)}</>
 }
 
 export function CodeBlock({ code, language }: { code: string; language: string }) {
@@ -116,62 +121,89 @@ export function CodeBlock({ code, language }: { code: string; language: string }
  * Applied BEFORE rendering — keeps diagrams alive instead of falling back.
  */
 function sanitizeDiagram(code: string): string {
+    // erDiagram uses ||--o{ / }o--|| cardinality operators whose { confuses the brace
+    // counter in Pass 1, causing all subsequent lines to be merged into one.  Entity
+    // attribute blocks ({...}) are also intentionally multi-line, so the {..} cleanLabel
+    // in Pass 2 would corrupt them.  Skip both passes for erDiagram — the LLM output is
+    // structurally correct and needs no reshaping.
+    const isErDiagram = /^\s*erDiagram\b/i.test(code)
+
     const cleanLabel = (s: string) =>
-        s.replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "")
+        // – (en dash) confuses Mermaid's flowchart lexer; @ is rejected in pipe labels.
+        // () and {} inside labels break the parser (Mermaid reads them as shape syntax,
+        // e.g. tenant_{client_id} in a [..] label); strip those brackets, keep the text.
+        s.replace(/–/g, "-").replace(/@/g, "").replace(/\//g, " or ").replace(/:/g, " -").replace(/&/g, " and ").replace(/"/g, "").replace(/[(){}]/g, "")
 
     // Pass 1 — smart multi-line label merge.
     // Loop until node brackets are balanced, merging continuation lines one at a time.
     // A line that opens a new edge/statement (-->, ---, subgraph, end) stops the merge
     // even if brackets are still unbalanced.
+    // Skipped for erDiagram: ||--o{ sets cu=1 and would swallow all following lines.
     const rawLines = code.split("\n")
     const merged: string[] = []
-    let i = 0
-    while (i < rawLines.length) {
-        let line = rawLines[i]
-        i++
+    if (isErDiagram) {
+        merged.push(...rawLines)
+    } else {
+        let i = 0
         while (i < rawLines.length) {
-            const sq = (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0)
-            const pa = (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0)
-            const cu = (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
-            if (sq <= 0 && pa <= 0 && cu <= 0) break  // balanced — done
-            const next = rawLines[i]
-            if (next === undefined) break
-            if (/-->|---|subgraph|\bend\b|^\s*(?:style|classDef|linkStyle|click)\s/.test(next)) break  // new statement — stop
-            line = line.trimEnd() + " " + next.trim()
+            let line = rawLines[i]
             i++
+            while (i < rawLines.length) {
+                const sq = (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0)
+                const pa = (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0)
+                const cu = (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
+                if (sq <= 0 && pa <= 0 && cu <= 0) break  // balanced — done
+                const next = rawLines[i]
+                if (next === undefined) break
+                if (/-->|---|subgraph|\bend\b|^\s*(?:style|classDef|linkStyle|click)\s/.test(next)) break  // new statement — stop
+                line = line.trimEnd() + " " + next.trim()
+                i++
+            }
+            merged.push(line)
         }
-        merged.push(line)
     }
 
     // Pass 2 — per-line fixes
     return merged
         .map(line => {
-            // Close any still-unclosed brackets at end of line
-            const sq = (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0)
-            if (sq > 0) line += "]".repeat(sq)
-            const pa = (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0)
-            if (pa > 0) line += ")".repeat(pa)
-            const cu = (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
-            if (cu > 0) line += "}".repeat(cu)
+            if (!isErDiagram) {
+                // Close any still-unclosed brackets at end of line
+                const sq = (line.match(/\[/g)?.length ?? 0) - (line.match(/\]/g)?.length ?? 0)
+                if (sq > 0) line += "]".repeat(sq)
+                const pa = (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0)
+                if (pa > 0) line += ")".repeat(pa)
+                const cu = (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
+                if (cu > 0) line += "}".repeat(cu)
 
-            // Fix edge labels placed AFTER the destination node
-            // Wrong: --> C[Label] |edge text|   Right: -->|edge text| C[Label]
-            line = line.replace(
-                /(-->)\s*([A-Za-z][\w]*(?:\[[^\]]*\]|\([^)]*\)|\{[^}]*\})?)\s*\|([^|\n]+)\|/g,
-                (_, arr, node, edgeLabel) => `${arr}|${edgeLabel.trim()}| ${node}`,
-            )
+                // Fix edge labels placed AFTER the destination node
+                // Wrong: --> C[Label] |edge text|   Right: -->|edge text| C[Label]
+                line = line.replace(
+                    /(-->)\s*([A-Za-z][\w]*(?:\[[^\]]*\]|\([^)]*\)|\{[^}]*\})?)\s*\|([^|\n]+)\|/g,
+                    (_, arr, node, edgeLabel) => `${arr}|${edgeLabel.trim()}| ${node}`,
+                )
 
-            // Fix unclosed pipe edge labels where the destination node got merged into the label.
-            // e.g.: A -->|check cache miss Bfibonacci4  →  A -->|check cache miss| B[fibonacci4]
-            line = line.replace(
-                /(--[->])\|([^|\n]+)\s([A-Z])(\w*)\s*$/,
-                (_, edge, label, nodeId, nodeLabel) => {
-                    const nl = nodeLabel.trim()
-                    return `${edge}|${label.trim()}| ${nodeId}${nl ? `[${nl}]` : ""}`
-                },
-            )
-            // Fallback: strip any still-unclosed pipe edge labels so the parser doesn't choke.
-            line = line.replace(/(--[->]|\.->)\|[^|\n]+$/, "$1")
+                // Fix unclosed pipe edge labels where the destination node got merged into the label.
+                // e.g.: A -->|check cache miss Bfibonacci4  →  A -->|check cache miss| B[fibonacci4]
+                line = line.replace(
+                    /(--[->])\|([^|\n]+)\s([A-Z])(\w*)\s*$/,
+                    (_, edge, label, nodeId, nodeLabel) => {
+                        const nl = nodeLabel.trim()
+                        return `${edge}|${label.trim()}| ${nodeId}${nl ? `[${nl}]` : ""}`
+                    },
+                )
+                // Fallback: strip any still-unclosed pipe edge labels so the parser doesn't choke.
+                line = line.replace(/(--[->]|\.->)\|[^|\n]+$/, "$1")
+
+                // Complete pipe edge label with no destination node — reduce to just the source node.
+                // e.g. G -->|External APIs, Queues, Webhooks|  →  G
+                line = line.replace(/([A-Za-z][\w]*)\s*(?:--[->]|\.->)\s*\|[^|\n]+\|\s*$/, "$1")
+
+                // {..} and |..| cleanup — skipped for erDiagram:
+                // entity bodies use valid attribute syntax; ||--o{ cardinality would be corrupted.
+                line = line
+                    .replace(/\{([^}]+)\}/g, (_, c) => `{${cleanLabel(c)}}`)
+                    .replace(/\|([^|\n]+)\|/g, (_, c) => `|${cleanLabel(c)}|`)
+            }
 
             // Clean forbidden characters inside node labels and edge labels.
             // HTML-mode labels ["..."] preserve their quotes so <br/> and : remain valid;
@@ -186,9 +218,7 @@ function sanitizeDiagram(code: string): string {
                     }
                     return `[${cleanLabel(c)}]`
                 })
-                .replace(/\(([^)]+)\)/g,  (_, c) => `(${cleanLabel(c)})`)
-                .replace(/\{([^}]+)\}/g,  (_, c) => `{${cleanLabel(c)}}`)
-                .replace(/\|([^|\n]+)\|/g, (_, c) => `|${cleanLabel(c)}|`)
+                .replace(/\(([^)]+)\)/g, (_, c) => `(${cleanLabel(c)})`)
         })
         .join("\n")
 }
@@ -252,13 +282,13 @@ export function BlockItem({ block }: { block: ContentBlock }) {
             return <h2 className="text-xl font-semibold text-foreground mt-5 mb-2 border-b border-border/50 pb-2"><InlineText text={text} /></h2>
         }
         case "paragraph":
-            return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
+            return <p className="text-zinc-600 dark:text-zinc-300 leading-7"><InlineText text={block.content ?? ""} /></p>
         case "code":
             return <CodeBlock code={block.content ?? ""} language={block.language ?? ""} />
         case "bullet_list":
-            return <ul className="list-disc pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
+            return <ul className="list-disc pl-5 space-y-1 text-zinc-600 dark:text-zinc-300">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ul>
         case "numbered_list":
-            return <ol className="list-decimal pl-5 space-y-1 text-zinc-600">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
+            return <ol className="list-decimal pl-5 space-y-1 text-zinc-600 dark:text-zinc-300">{block.items?.map((item, i) => <li key={i} className="leading-7"><InlineText text={item} /></li>)}</ol>
         case "table":
             return (
                 <div className="overflow-x-auto rounded-lg border border-border">
@@ -269,7 +299,7 @@ export function BlockItem({ block }: { block: ContentBlock }) {
                         <tbody>
                             {block.rows?.map((row, i) => (
                                 <tr key={i} className={i % 2 === 1 ? "bg-muted/20" : ""}>
-                                    {row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600"><InlineText text={cell} /></td>)}
+                                    {row.map((cell, j) => <td key={j} className="border border-border px-4 py-2 text-zinc-600 dark:text-zinc-300"><InlineText text={cell} /></td>)}
                                 </tr>
                             ))}
                         </tbody>
@@ -283,7 +313,7 @@ export function BlockItem({ block }: { block: ContentBlock }) {
                 </div>
             )
         case "quote":
-            return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 italic"><InlineText text={block.content ?? ""} /></blockquote>
+            return <blockquote className="border-l-4 border-primary/40 bg-muted/30 rounded-r-lg py-2 px-4 text-zinc-600 dark:text-zinc-300 italic"><InlineText text={block.content ?? ""} /></blockquote>
         case "divider":
             return <hr className="border-border my-2" />
         case "diagram":

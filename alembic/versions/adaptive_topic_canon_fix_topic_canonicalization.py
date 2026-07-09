@@ -1,8 +1,14 @@
 """fix_topic_canonicalization
 
-Revision ID: y3z4a5b6c7d8
-Revises: x2y3z4a5b6c7
+Revision ID: adaptive_topic_canon
+Revises: onb_user_company
 Create Date: 2026-06-20 00:00:00.000000
+
+NOTE: originally revision "y3z4a5b6c7d8" off "x2y3z4a5b6c7" on main. The
+`feature/issue-96-onboarding` branch independently used that same revision id for
+its onboarding-tables migration, so on merge this one was re-chained to a unique id
+and re-parented onto the onboarding head. Its schema changes (a daily_tasks column
+and a new table) are independent of onboarding, so running it last is equivalent.
 
 Two schema changes that together prevent phantom LLM-generated topic names
 (e.g. "Reinforcing: Arrays") from polluting BKT state and the forgetting curve:
@@ -20,8 +26,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "y3z4a5b6c7d8"
-down_revision: Union[str, Sequence[str], None] = "x2y3z4a5b6c7"
+revision: str = "adaptive_topic_canon"
+down_revision: Union[str, Sequence[str], None] = "onb_user_company"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

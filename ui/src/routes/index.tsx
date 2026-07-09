@@ -10,6 +10,11 @@ import GenerateContentPage from "@/app/plugins/generateContent";
 import GenerateSyllabusPage from "@/app/plugins/generateSyllabus";
 import EnrollPage from "@/app/plugins/enroll";
 import AnalyticsPage from "@/app/plugins/analytics";
+import OnboardingPage from "@/app/plugins/onboarding"
+import OnboardingDetailPage from "@/app/plugins/onboarding/detail"
+import PublicOnboardingPage from "@/app/plugins/onboarding/public";
+import KnowledgePage from "@/app/plugins/knowledge";
+import ConnectionsPage from "@/app/plugins/connections";
 import LoginPage from "@/app/auth/login";
 import SignupPage from "@/app/auth/signup";
 
@@ -52,6 +57,10 @@ const router = createBrowserRouter([
         element: <PublicSyllabusPage />,
     },
     {
+        path: "/public/onboarding/:planId",
+        element: <PublicOnboardingPage />,
+    },
+    {
         path: "/",
         element: <Layout />,
         errorElement: <GlobalErrorBoundary />,
@@ -83,6 +92,22 @@ const router = createBrowserRouter([
             {
                 path: "analytics",
                 element: <AnalyticsPage />,
+            },
+            {
+                path: "onboarding",
+                element: <OnboardingPage />,
+            },
+            {
+                path: "onboarding/:planId",
+                element: <OnboardingDetailPage />,
+            },
+            {
+                path: "knowledge",
+                element: <KnowledgePage />,
+            },
+            {
+                path: "connections",
+                element: <ConnectionsPage />,
             },
         ],
     },

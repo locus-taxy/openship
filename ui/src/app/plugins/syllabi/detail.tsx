@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react"
+import hljs from "highlight.js"
 import { LlmBar } from "@/components/llm-bar"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { BlockRenderer, type ContentBlock } from "./block-renderer"
 import { useParams, useNavigate, useSearchParams } from "react-router"
 import {
@@ -486,7 +488,7 @@ function ChapterContentPanel({ chapter, isGenerating, onGenerationStart, onGener
 
 // ─── Chapter Nav (left panel) ─────────────────────────────────────────────────
 
-function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, onSelectWeeklyQuiz, activeWeek, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus, generatedWeeks, totalWeeks, generatingWeek, bulkGenerating, onGenerateWeek }: {
+function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, isQuizActive, onSelectWeeklyQuiz, activeWeek, overallProgress, completedCount, totalCount, shareEnabled, togglingShare, copied, copyFailed, skillId, onToggleShare, onCopyLink, quizStatus, generatedWeeks, totalWeeks, generatingWeek, bulkGenerating, onGenerateWeek, onRetryWeek }: {
     detail: SyllabusDetail
     activeChapterId: number | null
     onSelectChapter: (chapter: Chapter) => void
@@ -510,11 +512,22 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
     generatingWeek: number | null
     bulkGenerating: Record<number, { done: number; total: number }>
     onGenerateWeek: (week: number, tasks: Chapter[]) => void
+    onRetryWeek: (week: number) => void
 }) {
     const [openMonths, setOpenMonths] = useState<Set<number>>(
         () => new Set(detail.months.map((m) => m.month))
     )
     const { setSettingsOpen } = useStore((s: any) => s)
+
+    // A week that's unlocked (<= generatedWeeks) but has no tasks means its background
+    // generation didn't finish — surface a retry so the user isn't stuck.
+    const presentWeeks = new Set<number>(
+        detail.months.flatMap((m) => m.weeks.map((w) => w.week))
+    )
+    let missingWeek: number | null = null
+    for (let w = 2; w <= generatedWeeks; w++) {
+        if (!presentWeeks.has(w)) { missingWeek = w; break }
+    }
 
     function toggleMonth(month: number) {
         setOpenMonths((prev) => {
@@ -543,14 +556,17 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
             <div className="px-4 py-3 border-b shrink-0 space-y-2">
                 <div className="flex items-center justify-between">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Choose a model</p>
-                    <button
-                        type="button"
-                        title="Open Settings"
-                        onClick={() => setSettingsOpen(true)}
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                        <Settings className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center gap-0.5">
+                        <ThemeToggle />
+                        <button
+                            type="button"
+                            title="Open Settings"
+                            onClick={() => setSettingsOpen(true)}
+                            className="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <Settings className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
                 </div>
                 <LlmBar fullWidth />
             </div>
@@ -737,6 +753,17 @@ function ChapterNav({ detail, activeChapterId, onSelectChapter, onSelectQuiz, is
                     </div>
                 )}
 
+                {/* Unlocked-but-empty week: generation didn't finish — offer a retry */}
+                {missingWeek !== null && missingWeek !== generatingWeek && (
+                    <div className="mx-3 my-2 rounded-lg border border-dashed border-border p-3">
+                        <p className="text-xs font-medium">Week {missingWeek} didn't finish generating</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 mb-2">The connection likely dropped. Retry to generate it.</p>
+                        <Button size="sm" variant="outline" className="h-7 w-full gap-1.5 text-xs" onClick={() => onRetryWeek(missingWeek!)}>
+                            <Sparkles className="h-3 w-3" />Generate Week {missingWeek}
+                        </Button>
+                    </div>
+                )}
+
                 {/* Final Quiz — always shown at end of chapter list */}
                 {totalCount > 0 && (
                     <div className="border-t mt-1">
@@ -881,9 +908,6 @@ export default function SyllabusDetailPage() {
     const completedCount = allTasks.filter((t) => t.completed).length
     const hasWeeklyQuizData = detail ? detail.generated_weeks >= detail.total_weeks : false
     const quizPassed = detail?.quiz_status === "passed"
-    const weeklyQuizzesPassed = detail
-        ? Object.values(detail.weekly_quiz_statuses as Record<string, string>).filter(s => s === "passed").length
-        : 0
     // Progress = chapter completions + final quiz only (weekly quizzes excluded)
     const totalSteps = allTasks.length > 0 ? allTasks.length + 1 : 0
     const completedSteps = completedCount + (quizPassed ? 1 : 0)
@@ -904,7 +928,6 @@ export default function SyllabusDetailPage() {
     function goToNextChapter() {
         if (!nextChapter || !detail) return
         const generatedWeeks = detail.generated_weeks
-        const totalWeeks = detail.total_weeks
         const allWeeks = detail.months.flatMap((m) => m.weeks)
         const nextWeek = allWeeks.find((w) => w.tasks.some((t) => t.id === nextChapter.id))
         const nextIsLocked = (nextWeek?.week ?? 0) > generatedWeeks
@@ -974,6 +997,37 @@ export default function SyllabusDetailPage() {
             setDetail(data)
             setShareEnabled(data.share_enabled ?? false)
         }
+        setGeneratingWeek(null)
+    }
+
+    // Retry generating a week that was unlocked but never finished generating
+    // (e.g. the server lost its LLM connection mid-generation).
+    async function handleRetryWeek(week: number) {
+        const { success, data } = await postRequest(`/py/quiz/${skillId}/week/${week}/regenerate`, {})
+        if (!success) {
+            toast({
+                variant: "destructive",
+                title: "Couldn't start generation",
+                description: (data as any)?.detail || "Please try again in a moment.",
+            })
+            return
+        }
+        setGeneratingWeek(week)
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 2000))
+            const res = await getRequest(`/py/syllabi/${skillId}`)
+            if (!res.success) break
+            const present = new Set<number>(
+                res.data.months.flatMap((m: any) => m.weeks.map((w: any) => w.week as number))
+            )
+            if (present.has(week)) {
+                setDetail(res.data)
+                setGeneratingWeek(null)
+                return
+            }
+        }
+        const res = await getRequest(`/py/syllabi/${skillId}`)
+        if (res.success) setDetail(res.data)
         setGeneratingWeek(null)
     }
 
@@ -1133,6 +1187,7 @@ export default function SyllabusDetailPage() {
                         generatingWeek={generatingWeek}
                         bulkGenerating={bulkGenerating}
                         onGenerateWeek={handleGenerateWeek}
+                        onRetryWeek={handleRetryWeek}
                     />
                     {/* Resize handle */}
                     <div
@@ -1191,14 +1246,12 @@ export default function SyllabusDetailPage() {
                             key={`weekly-${activeWeek}`}
                             skillId={skillId!}
                             week={activeWeek}
-                            onBack={() => setActiveView("chapter")}
                             onQuizStatusChange={(status) => handleWeeklyQuizStatusChange(activeWeek, status)}
                             onWeekUnlocked={handleWeekUnlocked}
                         />
                     ) : activeView === "quiz" ? (
                         <QuizPanel
                             skillId={skillId!}
-                            onBack={() => setActiveView("chapter")}
                             onQuizStatusChange={handleQuizStatusChange}
                             hasAllWeeklyData={hasWeeklyQuizData}
                         />

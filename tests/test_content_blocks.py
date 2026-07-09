@@ -5,6 +5,47 @@ from services.llm import BlockType, ContentBlock, StructuredChapterContent
 def make_block(**kwargs):
     return ContentBlock(**kwargs)
 
+class TestContentBlockTypeCoercion:
+    """Out-of-vocabulary block types from the LLM must be coerced, not crash the
+    whole response. Valid types must pass through untouched."""
+
+    def test_list_item_becomes_bullet_with_content_moved_to_items(self):
+        b = ContentBlock.model_validate({"type": "list_item", "content": "Do the thing"})
+        assert b.type == BlockType.BULLET_LIST
+        assert b.items == ["Do the thing"]
+        assert b.content is None
+
+    def test_unknown_type_falls_back_to_paragraph(self):
+        b = ContentBlock.model_validate({"type": "weird_thing", "content": "hello"})
+        assert b.type == BlockType.PARAGRAPH
+        assert b.content == "hello"
+
+    def test_common_aliases_map_to_valid_types(self):
+        assert (
+            ContentBlock.model_validate({"type": "ordered_list", "items": ["a"]}).type
+            == BlockType.NUMBERED_LIST
+        )
+        assert (
+            ContentBlock.model_validate({"type": "text", "content": "x"}).type
+            == BlockType.PARAGRAPH
+        )
+        assert (
+            ContentBlock.model_validate({"type": "header", "content": "x"}).type
+            == BlockType.HEADING
+        )
+        assert (
+            ContentBlock.model_validate({"type": "mermaid", "content": "graph TD"}).type
+            == BlockType.DIAGRAM
+        )
+
+    def test_valid_types_are_untouched(self):
+        # A well-formed bullet_list keeps its items and gains no content shuffling.
+        b = ContentBlock.model_validate({"type": "bullet_list", "items": ["a", "b"]})
+        assert b.type == BlockType.BULLET_LIST and b.items == ["a", "b"]
+        # A valid paragraph is unchanged.
+        p = ContentBlock.model_validate({"type": "paragraph", "content": "hi"})
+        assert p.type == BlockType.PARAGRAPH and p.content == "hi"
+
 class TestContentBlockHeading:
     def test_valid_heading(self):
         b = make_block(type="heading", content="My Title", level=1)

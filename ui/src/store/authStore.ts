@@ -6,6 +6,7 @@ interface UserInfo {
     email: string;
     name: string;
     is_active: boolean;
+    company?: string | null;  // read-only org name (derived from email at signup)
 }
 
 interface AuthState {

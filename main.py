@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 # pytest's caplog (which hooks into root) still captures records in tests.
 _app_handler = logging.StreamHandler()
 _app_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
-for _logger_name in ("openship", "services", "controllers"):
+for _logger_name in ("openship", "services", "controllers", "onboarding"):
     _lg = logging.getLogger(_logger_name)
     _lg.setLevel(logging.INFO)
     if not _lg.handlers:
@@ -30,6 +30,16 @@ logger = logging.getLogger("openship")
 async def lifespan(_app: FastAPI):
     logger.info("openship: application startup — running migrations if enabled")
     run_startup_migrations()
+    # Background ingest/reconcile jobs run in-process; a restart orphans any that
+    # were mid-run as 'running' forever. Reap them so the feature isn't wedged.
+    try:
+        from onboarding.services.confluence import reap_running_jobs
+
+        reaped = reap_running_jobs()
+        if reaped:
+            logger.info("openship: reaped %d interrupted ingestion job(s)", reaped)
+    except Exception:
+        logger.exception("openship: failed to reap interrupted ingestion jobs")
     logger.info("openship: application startup — serving API")
     yield
 

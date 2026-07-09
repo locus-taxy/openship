@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router"
 import {
     BookOpen, Clock,
     Flame, Award, ChevronRight, Zap, BarChart2, CalendarDays, Sparkles, PlayCircle, TrendingUp,
-    Cpu, DollarSign,
+    Cpu, DollarSign, MessagesSquare, GraduationCap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -170,8 +170,8 @@ export default function AnalyticsPage() {
                                 <h1 className="text-2xl sm:text-3xl font-black text-white">
                                     {user?.name ? `Welcome, ${getFirstName(user.name)}!` : "Welcome!"}
                                 </h1>
-                                <p className="text-indigo-200 mt-2 text-sm sm:text-base max-w-md mx-auto leading-relaxed">
-                                    Enroll in your first course and Openship will build a personalised AI learning plan just for you.
+                                <p className="text-indigo-200 mt-2 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
+                                    Start with a course for an adaptive AI learning plan - and connect your Confluence &amp; Jira to unlock company knowledge chat and guided onboarding.
                                 </p>
                             </div>
                             <button
@@ -185,28 +185,35 @@ export default function AnalyticsPage() {
 
                     {/* What you'll get */}
                     <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground text-center mb-4">What you'll get</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-2">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10">
-                                    <BarChart2 className="h-5 w-5 text-indigo-500" />
-                                </div>
-                                <p className="font-semibold text-sm">Progress Tracking</p>
-                                <p className="text-xs text-muted-foreground leading-relaxed">See your completion rate, streaks, and overall progress at a glance.</p>
-                            </div>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground text-center mb-4">What Openship gives you</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-2">
                                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
                                     <Sparkles className="h-5 w-5 text-violet-500" />
                                 </div>
-                                <p className="font-semibold text-sm">AI-Personalised Plan</p>
-                                <p className="text-xs text-muted-foreground leading-relaxed">Weekly plans adapt to your weak spots and learning style automatically.</p>
+                                <p className="font-semibold text-sm">Adaptive AI Courses</p>
+                                <p className="text-xs text-muted-foreground leading-relaxed">Pick a skill - Openship builds a month/week/day plan and adapts each new week to your quiz results.</p>
+                            </div>
+                            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-2">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10">
+                                    <MessagesSquare className="h-5 w-5 text-sky-500" />
+                                </div>
+                                <p className="font-semibold text-sm">Company Knowledge Chat</p>
+                                <p className="text-xs text-muted-foreground leading-relaxed">Connect Confluence &amp; Jira, then ask anything - answers are grounded in your own docs with source citations (RAG).</p>
+                            </div>
+                            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-2">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
+                                    <GraduationCap className="h-5 w-5 text-emerald-500" />
+                                </div>
+                                <p className="font-semibold text-sm">Guided Onboarding</p>
+                                <p className="text-xs text-muted-foreground leading-relaxed">Role-based onboarding plans generated from your company's real docs, with a quiz to check what stuck.</p>
                             </div>
                             <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-2">
                                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
-                                    <Flame className="h-5 w-5 text-amber-500" />
+                                    <BarChart2 className="h-5 w-5 text-amber-500" />
                                 </div>
-                                <p className="font-semibold text-sm">Daily Streaks</p>
-                                <p className="text-xs text-muted-foreground leading-relaxed">Build a learning habit and track your consistency with streak tracking.</p>
+                                <p className="font-semibold text-sm">Progress &amp; Streaks</p>
+                                <p className="text-xs text-muted-foreground leading-relaxed">Track completion, quiz scores, and daily streaks across every course from one dashboard.</p>
                             </div>
                         </div>
                     </div>

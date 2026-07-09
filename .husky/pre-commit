@@ -1,9 +1,28 @@
 #!/usr/bin/env sh
 set -e
+# Skip on Windows: pre-commit streaming the full pytest + coverage output through
+# git-bash deadlocks the console there. Checks still run on macOS/Linux (and CI).
+# This lives in the tracked hook so it survives future `npm install` / setup runs.
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    echo "openship: pre-commit hooks are skipped on Windows (checks run on macOS/Linux)."
+    exit 0
+    ;;
+esac
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
-if [ ! -x .venv/bin/pre-commit ]; then
-  echo "openship: missing .venv/bin/pre-commit — run: make setup"
+# venv layout differs by OS: Unix uses bin/, Windows uses Scripts/.
+if [ -d .venv/Scripts ]; then
+  VBIN=.venv/Scripts
+else
+  VBIN=.venv/bin
+fi
+# Put the venv's tools (python, black, pytest, pre-commit) on PATH so the hooks
+# resolve identically on macOS/Linux and Windows.
+PATH="$ROOT/$VBIN:$PATH"
+export PATH
+if [ ! -e "$VBIN/pre-commit" ] && [ ! -e "$VBIN/pre-commit.exe" ]; then
+  echo "openship: pre-commit not found in .venv - run: make setup (macOS/Linux) or scripts\\setup.cmd (Windows)"
   exit 1
 fi
-exec .venv/bin/pre-commit run
+exec pre-commit run

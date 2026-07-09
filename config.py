@@ -100,3 +100,46 @@ LLM_ENCRYPTION_KEY = _strip_opt("LLM_ENCRYPTION_KEY")
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "2"))
 JWT_REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_HOURS", "7"))
+
+# ── Atlassian / Confluence OAuth (optional) ─────────────────────────────────
+# Three-legged OAuth 2.0 for connecting a company's Confluence. All optional so
+# the server runs without them; the connect flow returns 503 until configured.
+ATLASSIAN_CLIENT_ID = _strip_opt("ATLASSIAN_CLIENT_ID")
+ATLASSIAN_CLIENT_SECRET = _strip_opt("ATLASSIAN_CLIENT_SECRET")
+ATLASSIAN_REDIRECT_URI = _strip_opt("ATLASSIAN_REDIRECT_URI")
+
+# Read-only Confluence + Jira scopes plus offline_access (needed for a refresh
+# token). One Atlassian OAuth app grants both products; the same connection is
+# reused to ingest Confluence pages and Jira issues.
+_DEFAULT_ATLASSIAN_SCOPES = (
+    "offline_access "
+    "read:confluence-space.summary "
+    "read:confluence-content.summary "
+    "read:confluence-content.all "
+    "search:confluence "
+    "read:jira-work "
+    "read:jira-user "
+    "read:me"  # identity API — verify the connector == the Openship user
+)
+ATLASSIAN_OAUTH_SCOPES = _strip_opt("ATLASSIAN_OAUTH_SCOPES") or _DEFAULT_ATLASSIAN_SCOPES
+
+# Where to send the browser after a successful connect.
+CONFLUENCE_POST_CONNECT_REDIRECT = (
+    _strip_opt("CONFLUENCE_POST_CONNECT_REDIRECT") or "/connections?connected=1"
+)
+
+# Shared secrets for authenticating incoming webhooks (freshness). Set each to enable
+# that source's webhook endpoint; leave unset and rely on re-ingest / reconcile.
+CONFLUENCE_WEBHOOK_SECRET = _strip_opt("CONFLUENCE_WEBHOOK_SECRET")
+JIRA_WEBHOOK_SECRET = _strip_opt("JIRA_WEBHOOK_SECRET")
+
+# ── Embeddings ───────────────────────────────────────────────────────────────
+# Embeddings run locally via fastembed (a small ONNX sentence-transformer) — no
+# API key or quota. bge-small-en-v1.5 outputs 384-dim vectors; keep
+# EMBEDDING_DIMENSIONS in sync with both the model and the document_chunks column.
+EMBEDDING_MODEL = _strip_opt("EMBEDDING_MODEL") or "BAAI/bge-small-en-v1.5"
+EMBEDDING_DIMENSIONS = _env_int("EMBEDDING_DIMENSIONS", 384)
+
+def is_confluence_oauth_configured() -> bool:
+    """True when the Atlassian client id, secret, and redirect URI are all set."""
+    return bool(ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET and ATLASSIAN_REDIRECT_URI)

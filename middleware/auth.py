@@ -21,6 +21,11 @@ PUBLIC_EXACT: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/auth/login"),
         ("POST", "/auth/refresh"),
         ("POST", "/auth/logout"),
+        # Atlassian OAuth redirect — identity carried in the signed state param.
+        ("GET", "/confluence/callback"),
+        # Atlassian webhooks — authenticated by shared secret, not a user cookie.
+        ("POST", "/webhooks/confluence"),
+        ("POST", "/webhooks/jira"),
         ("GET", "/docs"),
         ("GET", "/openapi.json"),
         ("GET", "/redoc"),

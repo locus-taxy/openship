@@ -72,21 +72,24 @@ class TestCreateUser:
         session = MagicMock()
         patcher = _patch_session(session)
         try:
-            create_user("new@example.com", "New User", "plainpassword")
+            with patch("services.user.get_or_create_company", return_value=MagicMock(id=1)):
+                create_user("new@example.com", "New User", "plainpassword")
             added = session.add.call_args[0][0]
             assert added.hashed_password != "plainpassword"
             assert added.hashed_password.startswith("$2b$")
         finally:
             patcher.stop()
 
-    def test_sets_email_and_name(self):
+    def test_sets_email_name_and_company(self):
         session = MagicMock()
         patcher = _patch_session(session)
         try:
-            create_user("new@example.com", "New User", "pass")
+            with patch("services.user.get_or_create_company", return_value=MagicMock(id=42)):
+                create_user("new@example.com", "New User", "pass")
             added = session.add.call_args[0][0]
             assert added.email == "new@example.com"
             assert added.name == "New User"
+            assert added.company_id == 42  # linked at signup
         finally:
             patcher.stop()
 
