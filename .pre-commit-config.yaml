@@ -1,12 +1,14 @@
 # Runs on `git commit` via Husky → .husky/pre-commit → pre-commit run
 # Black alone would re-insert two blank lines between top-level defs; we run collapse
 # in the same hook after Black so the repo stays on single-blank-line style.
+# Entries use bare `python`/`pytest` (not python3 or .venv/bin/...) so they resolve on
+# both macOS/Linux and Windows — .husky/pre-commit puts the right venv dir on PATH.
 repos:
   - repo: local
     hooks:
       - id: black-then-collapse-blank-lines
         name: Black + single blank line between blocks
-        entry: python3 scripts/black_then_collapse.py
+        entry: python scripts/black_then_collapse.py
         language: system
         pass_filenames: true
         require_serial: true
@@ -14,7 +16,7 @@ repos:
         exclude: ^(ui/|\.venv/)
       - id: pytest
         name: Unit tests
-        entry: .venv/bin/pytest --tb=short -v --cov-fail-under=99
+        entry: pytest --tb=short -v --cov-fail-under=99
         language: system
         pass_filenames: false
         always_run: true

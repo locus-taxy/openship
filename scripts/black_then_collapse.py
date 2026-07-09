@@ -7,13 +7,16 @@ expands spacing even if collapse restores the previous bytes).
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
-BLACK = ROOT / ".venv" / "bin" / "black"
+# venv layout differs by OS: Windows uses Scripts\black.exe, Unix uses bin/black.
+_VENV_BIN = ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+BLACK = _VENV_BIN / ("black.exe" if os.name == "nt" else "black")
 COLLAPSE = ROOT / "scripts" / "collapse_blank_lines.py"
 SKIP_PARTS = frozenset({"venv", ".venv", "node_modules", "ui", "__pycache__"})
 
@@ -47,7 +50,7 @@ def snap(paths: list[Path]) -> dict[str, str]:
 
 def main() -> int:
     if not BLACK.is_file():
-        print("openship: missing .venv/bin/black — run: make setup", file=sys.stderr)
+        print("openship: black not found in .venv - run: make setup", file=sys.stderr)
         return 1
 
     py = sys.executable
