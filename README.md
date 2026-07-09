@@ -162,47 +162,85 @@ Connect your Atlassian workspace once and Openship ingests your **Confluence** p
 
 ## Getting Started
 
-### Prerequisites
+Only the **database** runs in Docker (PostgreSQL + pgvector). The API (FastAPI) and UI (React/Vite) run directly on your machine. LLM API keys are added later in the UI - never in `.env`.
 
-- Python 3.9+ (`python3` on PATH)
-- Node.js 18+ and npm
-- Git
-- PostgreSQL
+### macOS
 
-### Quick start
+**Install first:** [Git](https://git-scm.com), [Homebrew](https://brew.sh), and [Docker Desktop](https://www.docker.com/products/docker-desktop/) (installed and running). Python and Node are auto-installed via Homebrew if missing.
+
+**Automatic (recommended):**
 
 ```bash
 git clone https://github.com/locus-taxy/openship.git
 cd openship
-make setup
+make setup     # starts the DB, installs deps, writes .env, runs migrations
+make dev       # starts API (:3005) + UI (:5173) in two terminals
 ```
 
-`make setup` runs `scripts/setup.sh` which:
-1. Creates `.env` from `.env.example` if one does not exist
-2. Creates a Python virtual environment at `.venv` and installs all deps
-3. Runs `npm install` in `ui/` for the frontend
-4. Configures Husky git hooks (requires a git clone)
+Then open http://localhost:5173, sign up, and add your LLM API key in Settings.
 
-Edit `.env` with your database URL and secrets (see [Environment Variables](#environment-variables)), then start:
+**Manual (no Docker):** use a Postgres that has **pgvector** - the simplest is [Postgres.app](https://postgresapp.com) (it bundles pgvector).
 
 ```bash
-make dev
+createdb openship
+# Create .env in the repo root (see Environment Variables below):
+#   DATABASE_URL=postgresql+psycopg2://<user>@localhost:5432/openship
+#   JWT_SECRET_KEY=<32+ random chars>
+#   LLM_ENCRYPTION_KEY=<python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())">
+#   RUN_MIGRATIONS_ON_STARTUP=true
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt -r requirements-test.txt
+cd ui && npm install && cd ..
+.venv/bin/alembic upgrade head
+# run in two shells:
+.venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 3005
+cd ui && npm run dev
 ```
 
-> **macOS** - `make dev` opens two separate Terminal windows (API on `:3005`, UI on `:5173`). It waits for the API to be ready before launching the UI.
->
-> **Linux** - run `make run-api` and `make run-ui` in two separate shells instead.
+### Windows
 
-For a full walkthrough including PostgreSQL setup and troubleshooting see **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
+**Install first:** [Git](https://git-scm.com/download/win) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) (installed and running). Python and Node are auto-installed via **winget** (built into Windows 10/11).
+
+**Automatic (recommended):**
+
+```powershell
+git clone https://github.com/locus-taxy/openship.git
+cd openship
+scripts\setup.cmd    # starts the DB, installs deps, writes .env, runs migrations
+scripts\dev.cmd      # starts API (:3005) + UI (:5173)
+```
+
+(You can also double-click `scripts\setup.cmd` then `scripts\dev.cmd` in File Explorer.)
+
+**Manual:** on Windows the database uses **Docker** (there is no Postgres.app):
+
+```powershell
+docker compose up -d db
+# Create .env in the repo root:
+#   DATABASE_URL=postgresql+psycopg2://openship:openship@localhost:5432/openship
+#   JWT_SECRET_KEY=<32+ random chars>
+#   LLM_ENCRYPTION_KEY=<a Fernet key>
+#   RUN_MIGRATIONS_ON_STARTUP=true
+python -m venv .venv
+.venv\Scripts\pip.exe install -r requirements.txt -r requirements-dev.txt -r requirements-test.txt
+cd ui; npm install; cd ..
+.venv\Scripts\alembic.exe upgrade head
+# run in two shells:
+.venv\Scripts\uvicorn.exe main:app --reload --host 0.0.0.0 --port 3005
+cd ui; npm run dev
+```
+
+Full walkthrough + troubleshooting: **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
 
 ### Available commands
 
 | Command | Description |
 |---------|-------------|
-| `make setup` | One-time setup: venv, deps, `.env`, Husky hooks |
-| `make dev` | Start API + UI (macOS) |
-| `make run-api` | FastAPI only, with hot reload on `:3005` |
+| `make setup` (macOS) / `scripts\setup.cmd` (Windows) | One-time: start DB, venv + deps, `.env`, migrations |
+| `make dev` (macOS) / `scripts\dev.cmd` (Windows) | Start the DB, then API + UI |
+| `make run-api` | FastAPI only, hot reload on `:3005` |
 | `make run-ui` | Vite dev server only on `:5173` |
+| `make db-up` / `make db-down` | Start / stop the PostgreSQL + pgvector container (Docker) |
 | `make format` | Auto-format Python with Black via pre-commit |
 | `make format-check` | CI-style format check |
 | `make install` | Alias for `make setup` |
@@ -211,7 +249,7 @@ For a full walkthrough including PostgreSQL setup and troubleshooting see **[doc
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and set at minimum:
+`make setup` / `scripts\setup.cmd` generate `.env` automatically. For a manual setup, create `.env` yourself with at least:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
