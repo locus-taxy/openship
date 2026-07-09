@@ -116,16 +116,20 @@ so the pipeline is deliberately resilient:
   safety margin), so a run that lasts longer than a token's ~1-hour lifetime never dies midway.
 - **Bounded memory.** We process **one project/space at a time** and release it before the next,
   so memory stays flat regardless of workspace size (one project can hold 100k+ issues).
-- **Resumable & idempotent.** Re-running adds new items, updates changed ones, and **only
-  re-embeds what actually changed** - so repeat runs are cheap and safe. A container that fails
-  is skipped, counted, and surfaced ("N skipped - re-ingest to retry"), never fatal.
+- **Resumable & idempotent.** Re-running adds new items, updates changed ones, **removes ones
+  deleted upstream**, and **only re-embeds what actually changed** - so repeat runs are cheap and
+  safe. A container that fails is skipped, counted, and surfaced ("N skipped - re-ingest to
+  retry"), never fatal.
+- **Cancellable.** A long sync can be stopped from the UI; the worker exits cleanly between
+  projects/embed-batches. Partial progress is saved (resumable), and a cancelled/partial run
+  never runs the deletion sweep - so an interrupted read can't wrongly delete anything.
 
 ### Keeping the base fresh
 
 | Mechanism | How it works |
 |---|---|
 | **Webhooks** | Atlassian notifies us when a page/issue is created, updated, or deleted; we re-embed or deactivate just that item, near-instantly. Secret-authenticated and scoped to the right company. |
-| **Reconcile** | A background job re-scans a source and reactivates/deactivates items to match what still exists upstream - the reliable baseline that catches anything a webhook missed. |
+| **Sync (full re-scan)** | A full ingest doubles as the reconcile: in one read it upserts current items and, on a **complete** pass, deactivates any that vanished upstream (and reactivates restored ones) - the reliable baseline that catches anything a webhook missed. Guarded so a partial/cancelled read never deletes, and a container that failed to read is left untouched. |
 
 ---
 
@@ -155,7 +159,7 @@ new tables, so it sits alongside the learning platform without disturbing it.
 | **`confluence_connections`** | The shared Atlassian connection for a company | `cloud_id`, `site_url`, encrypted `access_token` / `refresh_token`, `token_expires_at`, `status` |
 | **`document_pages`** | One row per ingested item (a Confluence page/blog **or** a Jira issue) | `source` (`confluence`\|`jira`), `confluence_page_id` (page id or issue key), `space_key` (space/project), `title`, `content_text`, `version`, **`assignee` / `reporter` / `status`** (structured Jira fields), **`meta`** (JSONB), `is_active` |
 | **`document_chunks`** | One row per ~800-token slice of a page | `content`, **`embedding`** (pgvector, 384-dim, HNSW cosine index), `token_count`, `chunk_index`, `source` |
-| **`ingestion_jobs`** | Drives the live progress UI | `kind` (`ingest`\|`reconcile`), `source`, `phase`, page/chunk counters, `status`, `error` |
+| **`ingestion_jobs`** | Drives the live progress UI | `kind`, `source`, `phase`, page/chunk counters, `status` (`running`\|`done`\|`failed`\|`cancelled`), `error` |
 | **`knowledge_chats`** | A persistent chat conversation | per user + company |
 | **`knowledge_messages`** | One message in a chat | `content`, `blocks` (JSON), `citations` (JSON) |
 | **`onboarding_plans`** | A generated 7-day onboarding plan | role, share flag |
@@ -288,14 +292,15 @@ mentioned in text - so common-word names never over-count.
 All routes are served under `/py/…`.
 
 - **Connections** - connect, OAuth callback, connection status, start ingest (per source), poll
-  ingest progress, reconcile, and the Confluence/Jira webhook receivers.
+  ingest progress, cancel a running ingest, and the Confluence/Jira webhook receivers.
 - **Knowledge** - one-shot query, plus full chat CRUD (create, list, get, delete, post message).
 - **Onboarding** - generate/list/get a plan, fetch day content, generate/submit the quiz, share,
   and the public read-only view.
 
-The UI exposes three pages: **Connections** (connect + per-source ingest/sync with staged
-progress), **Knowledge** (full-screen chat with history, a provider switcher, and richly
-formatted answers with source chips), and **Onboarding** (plans, day view, quiz).
+The UI exposes three pages: **Connections** (connect + a single per-source **Sync** with staged
+progress and a **Cancel** control), **Knowledge** (full-screen chat with history, a provider
+switcher, and richly formatted answers with source chips), and **Onboarding** (plans, day view,
+quiz).
 
 ---
 

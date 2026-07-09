@@ -130,7 +130,8 @@ Connect your Atlassian workspace once and Openship ingests your **Confluence** p
 - **Whole-workspace RAG ingestion** - read every page/issue → chunk → embed → store as pgvector vectors, with a live progress UI (reading → scanning → embedding)
 - **Local embeddings** via `fastembed` (`BAAI/bge-small-en-v1.5`, 384-dim) - **no API key, no quota, no per-token cost**; runs on CPU inside the backend
 - **Resilient at scale** (proven on a **133k-issue** tenant) - honors Atlassian rate limits (`Retry-After`), refreshes the OAuth token mid-run, and streams per project so memory stays bounded; resumable and idempotent
-- **Freshness** - Confluence + Jira **webhooks** re-embed changed items instantly; a **reconcile** job re-scans a source to catch deletions/restores
+- **One-click Sync** - a single **Sync** does everything in one read: adds new items, updates changed ones, and removes items deleted upstream (and restores reappearing ones). A running sync can be **cancelled** cleanly - partial progress is saved and resumable
+- **Freshness** - Confluence + Jira **webhooks** re-embed changed items instantly, between full syncs
 - **Multi-tenant** - every doc is company-scoped; a connector identity check ensures you connect with your own company's Atlassian account
 
 ### Onboarding - role-based, grounded in your docs
