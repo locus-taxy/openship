@@ -1,5 +1,14 @@
 #!/usr/bin/env sh
 set -e
+# Skip on Windows: pre-commit streaming the full pytest + coverage output through
+# git-bash deadlocks the console there. Checks still run on macOS/Linux (and CI).
+# This lives in the tracked hook so it survives future `npm install` / setup runs.
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    echo "openship: pre-commit hooks are skipped on Windows (checks run on macOS/Linux)."
+    exit 0
+    ;;
+esac
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
 # venv layout differs by OS: Unix uses bin/, Windows uses Scripts/.
