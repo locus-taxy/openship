@@ -22,7 +22,10 @@ Openship is a fully open-source, AI platform built by the team at **Locus**, wit
 
 
 
-https://github.com/user-attachments/assets/c4f19506-851a-422c-bc63-a0e2252c8e78
+https://github.com/user-attachments/assets/5583c075-7c33-48ad-8706-26d4b3acafea
+
+
+
 
 
 
