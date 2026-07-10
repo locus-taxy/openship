@@ -7,6 +7,13 @@ import { useIsRunnable, executeCode } from "@/services/executor"
 
 mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "sandbox" })
 
+// Languages that are diagrams/flowcharts, not executable code — never runnable.
+const DIAGRAM_LANGS = new Set([
+    "mermaid", "flowchart", "sequencediagram", "sequence", "gantt", "classdiagram",
+    "statediagram", "erdiagram", "gitgraph", "mindmap", "timeline", "xychart", "sankey",
+    "graph", "diagram", "graphviz", "dot", "plantuml", "uml",
+])
+
 export type BlockType =
     | "heading" | "paragraph" | "code"
     | "bullet_list" | "numbered_list"
@@ -52,7 +59,8 @@ export function InlineText({ text }: { text: string }) {
 
 export function CodeBlock({ code, language }: { code: string; language: string }) {
     const ref = useRef<HTMLElement>(null)
-    const canRun                        = useIsRunnable(language)
+    // Diagram/flowchart languages are never runnable, even if one reaches CodeBlock.
+    const canRun = useIsRunnable(language) && !DIAGRAM_LANGS.has((language ?? "").toLowerCase())
     const [copied, setCopied]         = useState(false)
     const [isEditing, setIsEditing]   = useState(false)
     const [editedCode, setEditedCode] = useState(code)
@@ -398,7 +406,6 @@ export function BlockItem({ block }: { block: ContentBlock }) {
         case "paragraph":
             return <p className="text-zinc-600 leading-7"><InlineText text={block.content ?? ""} /></p>
         case "code": {
-            const DIAGRAM_LANGS = new Set(["mermaid", "flowchart", "sequencediagram", "sequence", "gantt", "classdiagram", "statediagram", "erdiagram", "gitgraph", "mindmap", "timeline", "xychart", "sankey"])
             if (DIAGRAM_LANGS.has((block.language ?? "").toLowerCase())) {
                 return <MermaidBlock code={block.content ?? ""} />
             }
