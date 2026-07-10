@@ -59,8 +59,13 @@ export function InlineText({ text }: { text: string }) {
 
 export function CodeBlock({ code, language }: { code: string; language: string }) {
     const ref = useRef<HTMLElement>(null)
-    // Diagram/flowchart languages are never runnable, even if one reaches CodeBlock.
-    const canRun = useIsRunnable(language) && !DIAGRAM_LANGS.has((language ?? "").toLowerCase())
+    // Not runnable: diagram/flowchart languages, or box-drawing art such as
+    // directory trees (├── └── │) that the model mislabels as a runnable language.
+    const isBoxDrawingArt = /[─-╿]/.test(code)
+    const canRun =
+        useIsRunnable(language) &&
+        !DIAGRAM_LANGS.has((language ?? "").toLowerCase()) &&
+        !isBoxDrawingArt
     const [copied, setCopied]         = useState(false)
     const [isEditing, setIsEditing]   = useState(false)
     const [editedCode, setEditedCode] = useState(code)
