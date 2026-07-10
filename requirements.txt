@@ -20,3 +20,4 @@ instructor[anthropic,google-genai]
 openai
 mistralai>=1.0.0,<2.0.0
 cryptography
+docker

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import hljs from "highlight.js"
 import { LlmBar } from "@/components/llm-bar"
 import { BlockRenderer, type ContentBlock } from "./block-renderer"
 import { useParams, useNavigate, useSearchParams } from "react-router"
@@ -881,13 +882,11 @@ export default function SyllabusDetailPage() {
     const completedCount = allTasks.filter((t) => t.completed).length
     const hasWeeklyQuizData = detail ? detail.generated_weeks >= detail.total_weeks : false
     const quizPassed = detail?.quiz_status === "passed"
-    const weeklyQuizzesPassed = detail
-        ? Object.values(detail.weekly_quiz_statuses as Record<string, string>).filter(s => s === "passed").length
-        : 0
-    // Progress = chapter completions + final quiz only (weekly quizzes excluded)
-    const totalSteps = allTasks.length > 0 ? allTasks.length + 1 : 0
+    // Progress = chapter completions + final quiz only (weekly quizzes excluded),
+    // matching the list view in index.tsx so percentages stay consistent.
+    const totalSteps = detail ? detail.days + 1 : 0
     const completedSteps = completedCount + (quizPassed ? 1 : 0)
-    const overallProgress = totalSteps > 1 ? Math.round((completedSteps / totalSteps) * 100) : 0
+    const overallProgress = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
 
     // Restore chapter from URL param, fallback to first chapter
     useEffect(() => {

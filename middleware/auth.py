@@ -24,6 +24,7 @@ PUBLIC_EXACT: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/docs"),
         ("GET", "/openapi.json"),
         ("GET", "/redoc"),
+        ("GET", "/execute/runtimes"),
     }
 )
 

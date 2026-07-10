@@ -133,14 +133,55 @@ LLM API keys are partially encrypted at rest: the prefix is stored in plaintext,
 
 ## Getting Started
 
-### Prerequisites
+### Option 1: Docker (recommended — no local tooling required)
 
-- Python 3.9+ (`python3` on PATH)
-- Node.js 18+ and npm
-- Git
-- PostgreSQL
+```bash
+git clone https://github.com/locus-taxy/openship.git
+cd openship
+make bootstrap
+```
 
-### Quick start
+`make bootstrap` installs Docker if it's missing (official installer on Linux, Homebrew
+on macOS), waits for the daemon, then starts the whole stack. It also auto-creates `.env`
+and generates the required secrets (`JWT_SECRET_KEY`, `LLM_ENCRYPTION_KEY`) — you never edit a config file.
+
+> **macOS note:** if Docker Desktop gets installed, launch it once to accept the license, then re-run `make bootstrap`.
+> **Already have Docker?** Use `make docker-up` directly — same result, skips the install check.
+
+Open [http://localhost](http://localhost) in your browser.
+
+> The first build downloads 60+ language runtimes (~5-8 GB) and takes 10-15 minutes. Subsequent starts are fast.
+
+Other Docker commands:
+
+```bash
+make docker-up     # start (assumes Docker is already installed)
+make docker-logs   # stream logs from all services
+make docker-down   # stop the stack
+make docker-reset  # wipe all data and rebuild from scratch
+```
+
+#### Behind a TLS-intercepting corporate proxy (e.g. Zscaler)
+
+The build verifies TLS for every download (no `--no-check-certificate`). If your
+network intercepts TLS, some runtime downloads will fail with `unable to get local
+issuer certificate`. Provide your corporate **root CA** so the build trusts it:
+
+```bash
+# Export your org root CA (PEM). To capture the one your proxy presents:
+export CORPORATE_CA_CERT="$(openssl s_client -showcerts -connect ziglang.org:443 </dev/null 2>/dev/null \
+  | awk '/BEGIN CERT/,/END CERT/')"
+make docker-up
+```
+
+`docker compose` passes `CORPORATE_CA_CERT` into the image build, which adds it to the
+trust store. Leave it unset on normal networks.
+
+---
+
+### Option 2: Local development
+
+**Prerequisites:** Python 3.13+, Node.js 18+, PostgreSQL, Git
 
 ```bash
 git clone https://github.com/locus-taxy/openship.git

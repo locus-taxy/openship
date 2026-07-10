@@ -8,3 +8,11 @@ __pycache__/
 *.db
 ui/dist/
 .coverage
+erl_crash.dump
+sandbox/zscaler-ca.crt
+sandbox/corporate-ca.crt
+.DS_Store
+
+# Local Claude Code config (may contain machine-specific paths/secrets)
+.claude/settings.json
+.claude/settings.local.json
